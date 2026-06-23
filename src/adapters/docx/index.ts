@@ -9,6 +9,7 @@ import type {
   CommentThread,
   EditorOptions,
   NewCommentMeta,
+  PageGeometry,
   RichDoc,
   RichEditor,
 } from "../../core/types";
@@ -671,6 +672,26 @@ export interface DocxParts {
   headerPath?: string; // archive key of the header part, for write-back
   footerPath?: string;
   comments: CommentThread[]; // top-level threads in document order, replies nested
+  page?: PageGeometry; // page size/margins from w:sectPr, for the paginated view
+}
+
+// Convert OOXML twips (1/1440 inch) to CSS px at 96 dpi.
+const twipToPx = (v: string | null | undefined): number | undefined => {
+  if (!v) return undefined;
+  const n = Number(v);
+  return Number.isFinite(n) ? n / 15 : undefined;
+};
+
+/** Read page size and margins from a w:sectPr into view geometry (px). */
+function parsePageGeometry(sectPr: Element | undefined): PageGeometry | undefined {
+  if (!sectPr) return undefined;
+  const pgSz = sectPr.getElementsByTagName("w:pgSz")[0];
+  const w = twipToPx(pgSz?.getAttributeNS(W, "w") ?? pgSz?.getAttribute("w:w"));
+  const h = twipToPx(pgSz?.getAttributeNS(W, "h") ?? pgSz?.getAttribute("w:h"));
+  if (!w || !h) return undefined; // no usable size; let the engine apply its default
+  const pgMar = sectPr.getElementsByTagName("w:pgMar")[0];
+  const m = (a: string) => Math.max(0, twipToPx(pgMar?.getAttributeNS(W, a) ?? pgMar?.getAttribute("w:" + a)) ?? 96);
+  return { widthPx: Math.round(w), heightPx: Math.round(h), margin: { top: m("top"), right: m("right"), bottom: m("bottom"), left: m("left") } };
 }
 
 /** The archive key for a relationship target relative to word/ (e.g. "header1.xml"). */
@@ -753,6 +774,7 @@ export function docxToParts(bytes: Uint8Array): DocxParts {
     headerPath: partKey(headerTarget, files),
     footerPath: partKey(footerTarget, files),
     comments: threads,
+    page: parsePageGeometry(sectPr),
   };
 }
 

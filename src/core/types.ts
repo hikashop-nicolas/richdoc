@@ -23,6 +23,16 @@ export interface CommentThread extends CommentEntry {
   resolved: boolean;
 }
 
+/** A named default page size used when a document carries no geometry of its own. */
+export type PageSizeName = "a4" | "letter";
+
+/** Physical page size and margins, in CSS pixels at 96 dpi. A view concern only. */
+export interface PageGeometry {
+  widthPx: number;
+  heightPx: number;
+  margin: { top: number; right: number; bottom: number; left: number };
+}
+
 /** The editable model the engine renders: body + header/footer HTML, comments, fonts. */
 export interface RichDoc {
   body: string;
@@ -34,6 +44,7 @@ export interface RichDoc {
   fontCss?: string; // @font-face rules for embedded fonts
   fontUrls?: string[]; // blob URLs to revoke on destroy
   defaultFont?: string;
+  page?: PageGeometry; // the document's own page size/margins, if it declares them
 }
 
 /** Structured side-channel of comment edits the engine collects and the adapter applies. */
@@ -90,6 +101,8 @@ export interface EditorOptions {
   author?: string;
   /** ISO date string for added comments (injected so the build stays deterministic). */
   now?: string;
+  /** Page size used only when the document carries no geometry of its own. Default "a4". */
+  defaultPageSize?: PageSizeName;
 }
 
 export interface RichEditor {

@@ -460,3 +460,34 @@ describe("docx <-> html", () => {
     expect(html).toContain(">link</a>");
   });
 });
+
+describe("page geometry (w:sectPr)", () => {
+  it("reads A4 page size from w:pgSz and defaults margins to 1in", () => {
+    // the shared fixture declares <w:pgSz w:w="11906" w:h="16838"/> (A4) with no w:pgMar
+    const page = docxToParts(makeDocx()).page;
+    expect(page).toBeTruthy();
+    expect(page!.widthPx).toBe(794); // 11906 twips / 15
+    expect(page!.heightPx).toBe(1123); // 16838 twips / 15
+    expect(page!.margin).toEqual({ top: 96, right: 96, bottom: 96, left: 96 });
+  });
+
+  it("reads explicit margins from w:pgMar (twips -> px)", () => {
+    const doc = `<?xml version="1.0"?>
+<w:document xmlns:w="http://schemas.openxmlformats.org/wordprocessingml/2006/main"><w:body>
+  <w:p><w:r><w:t>Hi</w:t></w:r></w:p>
+  <w:sectPr><w:pgSz w:w="12240" w:h="15840"/><w:pgMar w:top="1440" w:right="1800" w:bottom="1440" w:left="1800"/></w:sectPr>
+</w:body></w:document>`;
+    const page = docxToParts(makeDocx(doc)).page;
+    expect(page!.widthPx).toBe(816); // 12240 / 15 (US Letter)
+    expect(page!.heightPx).toBe(1056); // 15840 / 15
+    expect(page!.margin).toEqual({ top: 96, right: 120, bottom: 96, left: 120 });
+  });
+
+  it("returns no geometry when there is no w:pgSz", () => {
+    const doc = `<?xml version="1.0"?>
+<w:document xmlns:w="http://schemas.openxmlformats.org/wordprocessingml/2006/main"><w:body>
+  <w:p><w:r><w:t>Hi</w:t></w:r></w:p>
+</w:body></w:document>`;
+    expect(docxToParts(makeDocx(doc)).page).toBeUndefined();
+  });
+});

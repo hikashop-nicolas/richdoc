@@ -27,14 +27,14 @@
 .docxedit-margin { flex: 0 1 250px; min-width: 0; }
 
 .docxedit-page {
-  background: #fff; color: #111; width: min(816px, 100%); min-height: 300px; flex: 0 0 auto;
+  background: #fff; color: #111; width: min(var(--rdoc-page-width, 816px), 100%); min-height: 300px; flex: 0 0 auto;
   box-shadow: 0 2px 12px rgba(0, 0, 0, .45); box-sizing: border-box;
   font: 16px/1.5 var(--docxedit-doc-font, "Liberation Serif"), Georgia, serif;
 }
 .docxedit-page:focus-within { box-shadow: 0 0 0 2px #6e7bff, 0 2px 12px rgba(0, 0, 0, .45); }
-.docxedit-doc { padding: 40px 72px 56px; min-height: 200px; outline: none; }
-.docxedit-header { padding: 24px 72px 8px; margin-bottom: 8px; border-bottom: 1px dashed #c9c9c9; color: #555; font-size: .85em; }
-.docxedit-footer { padding: 8px 72px 24px; margin-top: 8px; border-top: 1px dashed #c9c9c9; color: #555; font-size: .85em; }
+.docxedit-doc { padding: var(--rdoc-margin-top, 40px) var(--rdoc-margin-right, 72px) var(--rdoc-margin-bottom, 56px) var(--rdoc-margin-left, 72px); min-height: 200px; outline: none; }
+.docxedit-header { padding: 24px var(--rdoc-margin-right, 72px) 8px var(--rdoc-margin-left, 72px); margin-bottom: 8px; border-bottom: 1px dashed #c9c9c9; color: #555; font-size: .85em; }
+.docxedit-footer { padding: 8px var(--rdoc-margin-right, 72px) 24px var(--rdoc-margin-left, 72px); margin-top: 8px; border-top: 1px dashed #c9c9c9; color: #555; font-size: .85em; }
 .docxedit-doc h1 { font-size: 2em; } .docxedit-doc h2 { font-size: 1.5em; } .docxedit-doc h3 { font-size: 1.2em; }
 .docxedit-doc p, .docxedit-header p, .docxedit-footer p { margin: 0 0 .6em; }
 .docxedit-doc a { color: #1a56db; }

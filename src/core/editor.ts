@@ -4,6 +4,7 @@
 // reference adapter; odt reuses this same engine.
 
 import { t } from "./i18n";
+import { defaultPageGeometry } from "./page";
 import { bytesToBase64, toHex6, fontSizeToHalfPt, firstFontFamily } from "./util";
 import type { Adapter, EditorOptions, RichEditor, RichDoc, CommentEntry, CommentThread } from "./types";
 import "../adapters/docx/docxedit.css";
@@ -47,6 +48,16 @@ export function createRichEditor(container: HTMLElement, adapter: Adapter, optio
     wrap.appendChild(fs);
   }
   if (parts.defaultFont) page.style.setProperty("--docxedit-doc-font", `"${parts.defaultFont.replace(/"/g, "")}"`);
+
+  // Page geometry: render at the document's real size and margins, or the default size
+  // (A4 unless options override) when the file declares none. Height is unused until
+  // pagination (Phase 1); width and margins apply now.
+  const geometry = parts.page ?? defaultPageGeometry(options.defaultPageSize ?? "a4");
+  page.style.setProperty("--rdoc-page-width", `${geometry.widthPx}px`);
+  page.style.setProperty("--rdoc-margin-top", `${geometry.margin.top}px`);
+  page.style.setProperty("--rdoc-margin-right", `${geometry.margin.right}px`);
+  page.style.setProperty("--rdoc-margin-bottom", `${geometry.margin.bottom}px`);
+  page.style.setProperty("--rdoc-margin-left", `${geometry.margin.left}px`);
 
   const band = (cls: string, label: string, html: string): HTMLElement | null => {
     if (!html) return null;
