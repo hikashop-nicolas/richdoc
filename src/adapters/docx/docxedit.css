@@ -41,6 +41,9 @@
 .docxedit-pagecard { position: absolute; left: 0; width: 100%; background: #fff; box-sizing: border-box; box-shadow: 0 2px 12px rgba(0, 0, 0, .45); }
 .docxedit-page.is-paginated .docxedit-doc { position: relative; z-index: 1; min-height: 0; }
 .docxedit-pagespacer { width: 100%; flex: none; user-select: none; }
+.docxedit-pagetop { margin-top: 0 !important; }
+/* The page gap is the break, so hide the inline marker in the paginated view. */
+.docxedit-page.is-paginated .docx-pagebreak { display: none; }
 .docxedit-pagenum { position: absolute; left: 0; width: 100%; text-align: center; color: #9aa; font-size: 11px; }
 .docxedit-measure { position: absolute; left: -99999px; top: 0; visibility: hidden; }
 /* Header/footer layer sits above the body so the repeated clones are clickable; the layer

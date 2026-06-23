@@ -40,6 +40,19 @@ describe("paginate", () => {
     expect(r.cardCount).toBe(2); // ceil(1500/1100)
   });
 
+  it("a forced break starts a new page even when the block fits", () => {
+    // blocks of 100 all fit on page 0, but a forced break before block 2 splits them
+    const r = paginate([100, 100, 100, 100], M, new Set([2]));
+    expect(r.spacerBefore.get(2)).toBe(900); // 1*1100 - 200
+    expect(r.cardCount).toBe(2);
+  });
+
+  it("a forced break at index 0 (page already empty) does nothing", () => {
+    const r = paginate([100, 100], M, new Set([0]));
+    expect(r.spacerBefore.size).toBe(0);
+    expect(r.cardCount).toBe(1);
+  });
+
   it("empty document is one card", () => {
     const r = paginate([], M);
     expect(r.cardCount).toBe(1);

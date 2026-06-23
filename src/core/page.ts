@@ -42,8 +42,10 @@ const EPS = 1; // sub-pixel overflow tolerance
 /**
  * Greedy block-level fill: never splits a block. A block taller than a page overflows
  * its card and the next block resumes at the following card boundary (no negative gaps).
+ * Indices in `forceBreakBefore` start a new page even if they would otherwise fit (used
+ * for explicit/manual page breaks in the document).
  */
-export function paginate(heights: number[], m: PageMetrics): PaginationResult {
+export function paginate(heights: number[], m: PageMetrics, forceBreakBefore?: ReadonlySet<number>): PaginationResult {
   const spacerBefore = new Map<number, number>();
   if (m.contentHeight <= 0 || m.pageStep <= 0) return { spacerBefore, cardCount: 1 };
 
@@ -53,9 +55,11 @@ export function paginate(heights: number[], m: PageMetrics): PaginationResult {
     const h = heights[i] ?? 0;
     const pageBottom = page * m.pageStep + m.contentHeight;
     const pageTop = page * m.pageStep;
-    if (localY > pageTop && localY + h > pageBottom + EPS) {
-      // Does not fit on the current page: advance to the next card boundary at or
-      // below the current y (covers the case where a prior oversized block overran).
+    const forced = forceBreakBefore?.has(i) ?? false;
+    if (localY > pageTop && (forced || localY + h > pageBottom + EPS)) {
+      // Start a new page: a forced break always advances; otherwise only when the block
+      // does not fit. Advance to the next card boundary at or below the current y (covers
+      // a prior oversized block that overran).
       const nextPage = Math.max(page + 1, Math.ceil(localY / m.pageStep));
       const spacer = nextPage * m.pageStep - localY;
       if (spacer > 0) spacerBefore.set(i, spacer);

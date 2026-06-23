@@ -431,12 +431,28 @@ export function createRichEditor(container: HTMLElement, adapter: Adapter, optio
     // place the body inside each page's content box (overrides the CSS-var padding)
     doc.style.padding = `${contentTop}px ${geometry.margin.right}px ${contentBottomInset}px ${geometry.margin.left}px`;
 
+    // clear the previous page-top markers so they don't skew this measurement
+    for (const el of Array.from(doc.querySelectorAll(".docxedit-pagetop"))) el.classList.remove("docxedit-pagetop");
+
     // delta of offsetTop captures each block's height plus its collapsed inter-block margin
     const kids = Array.from(doc.children).filter((c) => !c.classList.contains("docxedit-pagespacer")) as HTMLElement[];
     const tops = kids.map((k) => k.offsetTop);
     const heights = kids.map((k, i) => (i < kids.length - 1 ? tops[i + 1]! - tops[i]! : k.offsetHeight));
 
-    const { spacerBefore, cardCount } = paginate(heights, { pageStep, contentHeight });
+    // honor explicit page breaks. A manual break renders either as its own marker element
+    // (break before the next block) or inside a block (break before that block).
+    const forceBreakBefore = new Set<number>();
+    const isManualMarker = (el: Element) =>
+      el.classList.contains("docx-pagebreak") && el.getAttribute("data-docx-pagebreak") === "manual";
+    kids.forEach((k, i) => {
+      if (isManualMarker(k)) {
+        if (i + 1 < kids.length) forceBreakBefore.add(i + 1);
+      } else if (i > 0 && k.querySelector('.docx-pagebreak[data-docx-pagebreak="manual"]')) {
+        forceBreakBefore.add(i);
+      }
+    });
+
+    const { spacerBefore, cardCount } = paginate(heights, { pageStep, contentHeight }, forceBreakBefore);
 
     for (const [idx, h] of spacerBefore) {
       const sp = document.createElement("div");
@@ -445,6 +461,8 @@ export function createRichEditor(container: HTMLElement, adapter: Adapter, optio
       sp.setAttribute("aria-hidden", "true");
       sp.style.height = `${h}px`;
       doc.insertBefore(sp, kids[idx]!);
+      // drop the page-starting block's top margin so it aligns to the page content top
+      kids[idx]!.classList.add("docxedit-pagetop");
     }
 
     // read-only clone of the canonical band, click to edit (its own padding gives the margins)
@@ -482,11 +500,13 @@ export function createRichEditor(container: HTMLElement, adapter: Adapter, optio
     page.style.minHeight = `${cardCount * pageStep - PAGE_GAP}px`;
   };
 
-  // Body HTML for saving: the live doc minus pagination artifacts (the inert spacers).
+  // Body HTML for saving: the live doc minus pagination artifacts (inert spacers and the
+  // transient page-top class the engine adds for alignment).
   const cleanBody = (): string => {
-    if (!doc.querySelector(".docxedit-pagespacer")) return doc.innerHTML;
+    if (!doc.querySelector(".docxedit-pagespacer, .docxedit-pagetop")) return doc.innerHTML;
     const tmp = doc.cloneNode(true) as HTMLElement;
     for (const s of Array.from(tmp.querySelectorAll(".docxedit-pagespacer"))) s.remove();
+    for (const el of Array.from(tmp.querySelectorAll(".docxedit-pagetop"))) el.classList.remove("docxedit-pagetop");
     return tmp.innerHTML;
   };
 
