@@ -144,9 +144,10 @@ is Phase 2, after body pagination is solid.
   (default true) toggles to pageless. Shipped a bit more than planned: read-only repeated
   header/footer clones + page numbers are already in (so paginated view shows the
   letterhead), leaving only their EDITING for Phase 2.
-- Phase 2: make the header/footer clones editable (option B, click-to-edit). Wire the
-  Omnitext settings (page-size selector, paginated toggle). Comment-panel reflow across
-  pages is already verified.
+- Phase 2 (DONE, richdoc f5708a6 + omnitext 6d9b6da): header/footer clones are editable
+  (option B, click-to-edit via editBand + an editingBand guard); Omnitext settings
+  (page-size selector, paginated toggle) wired through EditorOptions. Comment-panel
+  reflow across pages verified.
 - Phase 3 (later, not v1): mid-paragraph and table splitting, widow/orphan control,
   incremental (not full) re-pagination on edit, and a true paginated PDF/print export.
 
