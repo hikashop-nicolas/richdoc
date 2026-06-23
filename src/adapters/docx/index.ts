@@ -1,5 +1,5 @@
 import { strFromU8, strToU8, unzipSync, zipSync } from "fflate";
-import { t } from "./i18n";
+import { t } from "../../core/i18n";
 import "./docxedit.css";
 
 // docxedit: a standalone, framework-agnostic, client-side Office Open XML (.docx) editor.
