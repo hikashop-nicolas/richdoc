@@ -135,3 +135,47 @@ describe("odt formatting (colour, font, size, alignment)", () => {
     expect(html).toContain("font-size:14pt");
   });
 });
+
+describe("odt images (draw:frame)", () => {
+  const ROOT =
+    'xmlns:office="urn:oasis:names:tc:opendocument:xmlns:office:1.0" ' +
+    'xmlns:text="urn:oasis:names:tc:opendocument:xmlns:text:1.0" ' +
+    'xmlns:draw="urn:oasis:names:tc:opendocument:xmlns:drawing:1.0" ' +
+    'xmlns:svg="urn:oasis:names:tc:opendocument:xmlns:svg-compatible:1.0" ' +
+    'xmlns:xlink="http://www.w3.org/1999/xlink"';
+  const MANIFEST =
+    '<?xml version="1.0"?><manifest:manifest xmlns:manifest="urn:oasis:names:tc:opendocument:xmlns:manifest:1.0">' +
+    '<manifest:file-entry manifest:full-path="/" manifest:media-type="application/vnd.oasis.opendocument.text"/></manifest:manifest>';
+  const PIC = new Uint8Array([1, 2, 3, 4, 5]);
+
+  function makeImgOdt(content: string): Uint8Array {
+    return zipSync({
+      mimetype: [strToU8("application/vnd.oasis.opendocument.text"), { level: 0 }],
+      "content.xml": strToU8(content),
+      "META-INF/manifest.xml": strToU8(MANIFEST),
+      "Pictures/p.png": PIC,
+    });
+  }
+
+  it("renders a draw:frame image as an <img> with a data URL and px size", () => {
+    const content = `<?xml version="1.0"?><office:document-content ${ROOT}><office:body><office:text>` +
+      '<text:p><draw:frame svg:width="2.54cm" svg:height="1.27cm"><draw:image xlink:href="Pictures/p.png"/></draw:frame></text:p>' +
+      "</office:text></office:body></office:document-content>";
+    const html = odtToHtml(makeImgOdt(content));
+    expect(html).toContain('<img src="data:image/png;base64,');
+    expect(html).toContain('width="96"'); // 2.54cm = 1in = 96px
+    expect(html).toContain('height="48"'); // 1.27cm = 48px
+  });
+
+  it("embeds an <img> data URL as a draw:frame + Pictures file + manifest entry", () => {
+    const base = `<?xml version="1.0"?><office:document-content ${ROOT}><office:body><office:text><text:p/></office:text></office:body></office:document-content>`;
+    const out = htmlToOdt('<p><img src="data:image/png;base64,AQIDBAU=" width="100" height="50"></p>', makeImgOdt(base));
+    const files = unzipSync(out);
+    const xml = strFromU8(files["content.xml"]);
+    expect(xml).toContain("draw:frame");
+    expect(xml).toContain('xlink:href="Pictures/ot_img0.png"');
+    expect(xml).toContain('svg:width="2.646cm"'); // 100px -> cm
+    expect(Array.from(files["Pictures/ot_img0.png"])).toEqual([1, 2, 3, 4, 5]);
+    expect(strFromU8(files["META-INF/manifest.xml"])).toContain('manifest:full-path="Pictures/ot_img0.png"');
+  });
+});

@@ -1,6 +1,6 @@
 import { strFromU8, strToU8, unzipSync, zipSync } from "fflate";
 import { createRichEditor } from "../../core/editor";
-import { firstFontFamily, fontSizeToHalfPt, toHex6 } from "../../core/util";
+import { bytesToBase64, firstFontFamily, fontSizeToHalfPt, toHex6 } from "../../core/util";
 import type { Adapter, EditorOptions, RichDoc, RichEditor } from "../../core/types";
 
 // odtedit: a standalone, framework-agnostic, client-side OpenDocument Text (.odt) editor.
@@ -21,6 +21,9 @@ const NS = {
   style: "urn:oasis:names:tc:opendocument:xmlns:style:1.0",
   fo: "urn:oasis:names:tc:opendocument:xmlns:xsl-fo-compatible:1.0",
   xlink: "http://www.w3.org/1999/xlink",
+  draw: "urn:oasis:names:tc:opendocument:xmlns:drawing:1.0",
+  svg: "urn:oasis:names:tc:opendocument:xmlns:svg-compatible:1.0",
+  manifest: "urn:oasis:names:tc:opendocument:xmlns:manifest:1.0",
 } as const;
 
 interface Fmt {
@@ -108,6 +111,40 @@ const sizePt = (v: string | null | undefined): number | undefined => {
   return m ? Math.round(parseFloat(m[1]!) * 10) / 10 : undefined;
 };
 
+const IMG_MIME: Record<string, string> = {
+  png: "image/png", jpg: "image/jpeg", jpeg: "image/jpeg", gif: "image/gif",
+  bmp: "image/bmp", webp: "image/webp", svg: "image/svg+xml", tif: "image/tiff", tiff: "image/tiff",
+};
+const PX_PER = { cm: 96 / 2.54, mm: 96 / 25.4, in: 96, pt: 96 / 72, px: 1 };
+/** ODF length (e.g. "5.2cm", "48pt") to CSS px. */
+function lenToPx(v: string | null | undefined): number | undefined {
+  if (!v) return undefined;
+  const m = /^([\d.]+)(cm|mm|in|pt|px)$/.exec(v.trim());
+  return m ? parseFloat(m[1]!) * PX_PER[m[2] as keyof typeof PX_PER] : undefined;
+}
+const pxToCm = (px: number): string => `${Math.round((px / (96 / 2.54)) * 1000) / 1000}cm`;
+
+/** Read context: the archive (for image data) plus the resolved style maps. */
+interface RCtx {
+  files: Record<string, Uint8Array>;
+  styles: Map<string, Fmt>;
+  paras: Map<string, PFmt>;
+}
+
+/** A draw:frame holding a draw:image -> an <img> with a data URL; otherwise passthrough. */
+function imageHtml(frame: Element, ctx: RCtx): string {
+  const imgEl = frame.getElementsByTagName("draw:image")[0];
+  const href = (imgEl?.getAttribute("xlink:href") ?? "").replace(/^\.\//, "");
+  const bytes = href ? ctx.files[href] : undefined;
+  if (!bytes) return inlinePass(frame); // can't resolve (linked/object/unknown): keep verbatim
+  const ext = (href.split(".").pop() ?? "png").toLowerCase();
+  const mime = IMG_MIME[ext] ?? "image/png";
+  const w = lenToPx(frame.getAttribute("svg:width"));
+  const h = lenToPx(frame.getAttribute("svg:height"));
+  const dims = (w ? ` width="${Math.round(w)}"` : "") + (h ? ` height="${Math.round(h)}"` : "");
+  return `<img src="data:${mime};base64,${bytesToBase64(bytes)}" alt=""${dims}>`;
+}
+
 /** Map text:style-name -> run formatting, read from the automatic/text styles. */
 function collectTextStyles(doc: Document): Map<string, Fmt> {
   const map = new Map<string, Fmt>();
@@ -157,7 +194,7 @@ const wrapFmt = (inner: string, f: Fmt): string => {
   return s;
 };
 
-function inlineToHtml(el: Element, styles: Map<string, Fmt>): string {
+function inlineToHtml(el: Element, ctx: RCtx): string {
   let html = "";
   for (const node of Array.from(el.childNodes)) {
     if (node.nodeType === 3) {
@@ -168,15 +205,18 @@ function inlineToHtml(el: Element, styles: Map<string, Fmt>): string {
     const child = node as Element;
     switch (child.tagName) {
       case "text:span": {
-        const f = styles.get(child.getAttribute("text:style-name") ?? "") ?? FMT0;
-        html += wrapFmt(inlineToHtml(child, styles), f);
+        const f = ctx.styles.get(child.getAttribute("text:style-name") ?? "") ?? FMT0;
+        html += wrapFmt(inlineToHtml(child, ctx), f);
         break;
       }
       case "text:a": {
         const href = child.getAttribute("xlink:href") ?? "";
-        html += `<a href="${escapeHtml(href)}">${inlineToHtml(child, styles)}</a>`;
+        html += `<a href="${escapeHtml(href)}">${inlineToHtml(child, ctx)}</a>`;
         break;
       }
+      case "draw:frame":
+        html += imageHtml(child, ctx);
+        break;
       case "text:line-break":
         html += "<br>";
         break;
@@ -197,39 +237,39 @@ function inlineToHtml(el: Element, styles: Map<string, Fmt>): string {
   return html;
 }
 
-function listToHtml(el: Element, styles: Map<string, Fmt>): string {
+function listToHtml(el: Element, ctx: RCtx): string {
   let items = "";
   for (const li of Array.from(el.children)) {
     if (li.tagName !== "text:list-item") continue;
     let inner = "";
     for (const block of Array.from(li.children)) {
-      if (block.tagName === "text:list") inner += listToHtml(block, styles);
-      else inner += inlineToHtml(block, styles);
+      if (block.tagName === "text:list") inner += listToHtml(block, ctx);
+      else inner += inlineToHtml(block, ctx);
     }
     items += `<li>${inner || "<br>"}</li>`;
   }
   return `<ul>${items}</ul>`;
 }
 
-function blockToHtml(el: Element, styles: Map<string, Fmt>, paras: Map<string, PFmt>): string {
+function blockToHtml(el: Element, ctx: RCtx): string {
   const alignAttr = (): string => {
-    const a = paras.get(el.getAttribute("text:style-name") ?? "")?.align;
+    const a = ctx.paras.get(el.getAttribute("text:style-name") ?? "")?.align;
     return a && a !== "left" ? ` style="text-align:${a}"` : "";
   };
   switch (el.tagName) {
     case "text:h": {
       const lvl = Math.min(3, Math.max(1, parseInt(el.getAttribute("text:outline-level") ?? "1", 10) || 1));
-      const inner = inlineToHtml(el, styles);
+      const inner = inlineToHtml(el, ctx);
       return `<h${lvl}${alignAttr()}>${inner || "<br>"}</h${lvl}>`;
     }
     case "text:list":
-      return listToHtml(el, styles);
+      return listToHtml(el, ctx);
     case "text:p": {
-      const inner = inlineToHtml(el, styles);
+      const inner = inlineToHtml(el, ctx);
       return `<p${alignAttr()}>${inner || "<br>"}</p>`;
     }
     default:
-      // Tables, frames, tracked-changes, sequence-decls, sections, ... preserved verbatim.
+      // Tables, tracked-changes, sequence-decls, sections, ... preserved verbatim.
       return blockPass(el);
   }
 }
@@ -242,10 +282,9 @@ export function odtToHtml(bytes: Uint8Array): string {
   const doc = new DOMParser().parseFromString(strFromU8(content), "application/xml");
   const body = doc.getElementsByTagName("office:text")[0];
   if (!body) return "";
-  const styles = collectTextStyles(doc);
-  const paras = collectParaStyles(doc);
+  const ctx: RCtx = { files, styles: collectTextStyles(doc), paras: collectParaStyles(doc) };
   let html = "";
-  for (const block of Array.from(body.children)) html += blockToHtml(block, styles, paras);
+  for (const block of Array.from(body.children)) html += blockToHtml(block, ctx);
   return html || "<p><br></p>";
 }
 
@@ -318,6 +357,55 @@ interface OdfCtx {
   doc: Document;
   auto: Element;
   created: Map<string, string>;
+  files: Record<string, Uint8Array>; // the archive, so embedded images can be added
+  pics: { path: string; mime: string }[]; // images added this run, for the manifest
+}
+
+/** Turn an <img> (data URL) into a draw:frame, embedding the bytes in the archive. */
+function buildImageFrame(img: HTMLElement, ctx: OdfCtx): Element | null {
+  const m = /^data:([^;]+);base64,(.+)$/.exec(img.getAttribute("src") ?? "");
+  if (!m) return null; // not an embeddable image (e.g. an external URL): drop it
+  const mime = m[1]!;
+  const bin = atob(m[2]!);
+  const bytes = new Uint8Array(bin.length);
+  for (let i = 0; i < bin.length; i++) bytes[i] = bin.charCodeAt(i);
+  const ext = Object.entries(IMG_MIME).find(([, v]) => v === mime)?.[0] ?? (mime.split("/")[1] || "png");
+  const idx = ctx.pics.length;
+  const path = `Pictures/ot_img${idx}.${ext}`;
+  ctx.files[path] = bytes;
+  ctx.pics.push({ path, mime });
+
+  const wPx = parseFloat(img.getAttribute("width") ?? "") || undefined;
+  const hPx = parseFloat(img.getAttribute("height") ?? "") || undefined;
+  const frame = ctx.doc.createElementNS(NS.draw, "draw:frame");
+  frame.setAttributeNS(NS.draw, "draw:name", `Image${idx + 1}`);
+  frame.setAttributeNS(NS.text, "text:anchor-type", "as-char");
+  if (wPx) frame.setAttributeNS(NS.svg, "svg:width", pxToCm(wPx));
+  if (hPx) frame.setAttributeNS(NS.svg, "svg:height", pxToCm(hPx));
+  const image = ctx.doc.createElementNS(NS.draw, "draw:image");
+  image.setAttributeNS(NS.xlink, "xlink:href", path);
+  image.setAttributeNS(NS.xlink, "xlink:type", "simple");
+  image.setAttributeNS(NS.xlink, "xlink:show", "embed");
+  image.setAttributeNS(NS.xlink, "xlink:actuate", "onLoad");
+  frame.appendChild(image);
+  return frame;
+}
+
+/** Register newly embedded images in META-INF/manifest.xml. */
+function addManifestEntries(files: Record<string, Uint8Array>, pics: { path: string; mime: string }[]): void {
+  if (!pics.length || !files["META-INF/manifest.xml"]) return;
+  const doc = new DOMParser().parseFromString(strFromU8(files["META-INF/manifest.xml"]), "application/xml");
+  const root = doc.getElementsByTagName("manifest:manifest")[0] ?? doc.documentElement;
+  if (!root) return;
+  const have = new Set(Array.from(doc.getElementsByTagName("manifest:file-entry")).map((e) => e.getAttribute("manifest:full-path")));
+  for (const p of pics) {
+    if (have.has(p.path)) continue;
+    const e = doc.createElementNS(NS.manifest, "manifest:file-entry");
+    e.setAttributeNS(NS.manifest, "manifest:full-path", p.path);
+    e.setAttributeNS(NS.manifest, "manifest:media-type", p.mime);
+    root.appendChild(e);
+  }
+  files["META-INF/manifest.xml"] = strToU8(new XMLSerializer().serializeToString(doc));
 }
 
 /** Append the inline content of an HTML node to an ODF block element. */
@@ -348,6 +436,11 @@ function htmlInlineToOdf(node: Node, parent: Element, f: Fmt, ctx: OdfCtx): void
     }
     if (tag === "br") {
       parent.appendChild(ctx.doc.createElementNS(NS.text, "text:line-break"));
+      continue;
+    }
+    if (tag === "img") {
+      const frame = buildImageFrame(el, ctx);
+      if (frame) parent.appendChild(frame);
       continue;
     }
     if (tag === "a") {
@@ -428,13 +521,14 @@ export function htmlToOdt(html: string, original: Uint8Array): Uint8Array {
   if (!body) throw new Error("not an .odt: office:text missing");
 
   while (body.firstChild) body.removeChild(body.firstChild);
-  const ctx: OdfCtx = { doc, auto: ensureAutoStyles(doc), created: new Map() };
+  const ctx: OdfCtx = { doc, auto: ensureAutoStyles(doc), created: new Map(), files, pics: [] };
   const htmlDoc = new DOMParser().parseFromString(html || "<p><br></p>", "text/html");
   for (const node of Array.from(htmlDoc.body.childNodes)) {
     const block = htmlBlockToOdf(node, ctx);
     if (block) body.appendChild(block);
   }
   if (!body.firstChild) body.appendChild(doc.createElementNS(NS.text, "text:p"));
+  addManifestEntries(files, ctx.pics); // register any images embedded above
 
   const out = new XMLSerializer().serializeToString(doc);
   // Re-zip. ODF requires the "mimetype" entry first and stored (uncompressed).
@@ -478,7 +572,7 @@ export function createOdtAdapter(bytes: Uint8Array): Adapter {
     capabilities: {
       comments: false,
       trackChanges: false,
-      images: false,
+      images: true,
       headerFooter: false,
       pageBreak: false,
       textColor: true,
