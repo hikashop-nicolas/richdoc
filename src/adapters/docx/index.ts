@@ -1543,6 +1543,9 @@ export function createDocxAdapter(bytes: Uint8Array): Adapter {
       images: true,
       headerFooter: true,
       pageBreak: true,
+      textColor: true,
+      fontControls: true,
+      alignment: true,
     },
   };
 }

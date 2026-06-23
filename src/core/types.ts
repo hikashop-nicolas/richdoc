@@ -67,6 +67,12 @@ export interface Capabilities {
   images: boolean;
   headerFooter: boolean;
   pageBreak: boolean;
+  /** Text + background colour controls (needs inline run colour/shading on save). */
+  textColor: boolean;
+  /** Font family + size pickers (needs run-level font props on save). */
+  fontControls: boolean;
+  /** Paragraph alignment buttons. */
+  alignment: boolean;
 }
 
 /** The irreducible per-format layer: parse, serialize, comment markers, feature flags. */

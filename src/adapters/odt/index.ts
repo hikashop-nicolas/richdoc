@@ -1,5 +1,6 @@
 import { strFromU8, strToU8, unzipSync, zipSync } from "fflate";
-import { t } from "../../core/i18n";
+import { createRichEditor } from "../../core/editor";
+import type { Adapter, EditorOptions, RichDoc, RichEditor } from "../../core/types";
 
 // odtedit: a standalone, framework-agnostic, client-side OpenDocument Text (.odt) editor.
 //
@@ -67,9 +68,9 @@ const passthroughAttr = (node: Element): string => ` data-odt-xml="${escapeAttr(
 const HIDDEN_PASS = new Set(["office:annotation", "office:annotation-end", "text:note"]);
 const inlinePass = (el: Element): string => {
   const txt = HIDDEN_PASS.has(el.tagName) ? "" : escapeHtml(el.textContent ?? "");
-  return `<span class="odt-pass" contenteditable="false"${passthroughAttr(el)}>${txt}</span>`;
+  return `<span class="docx-pass" contenteditable="false"${passthroughAttr(el)}>${txt}</span>`;
 };
-const blockPass = (el: Element): string => `<div class="odt-pass-block" contenteditable="false"${passthroughAttr(el)}>${escapeHtml(el.textContent ?? "")}</div>`;
+const blockPass = (el: Element): string => `<div class="docx-pass-block" contenteditable="false"${passthroughAttr(el)}>${escapeHtml(el.textContent ?? "")}</div>`;
 function importPassthrough(doc: Document, xml: string): Element | null {
   try {
     const frag = new DOMParser().parseFromString(xml, "application/xml");
@@ -358,146 +359,47 @@ export function htmlToOdt(html: string, original: Uint8Array): Uint8Array {
 }
 
 // ---------------------------------------------------------------------------
-// Editor
+// odt adapter over the shared engine
 // ---------------------------------------------------------------------------
 
-export interface OdtEditorOptions {
-  onChange?: () => void;
-}
-export interface OdtEditor {
-  getBytes(): Promise<Uint8Array>;
-  isDirty(): boolean;
-  destroy(): void;
-}
+export type OdtEditorOptions = EditorOptions;
+export type OdtEditor = RichEditor;
 
-const STYLE_ID = "odtedit-style";
-function injectStyles(): void {
-  if (document.getElementById(STYLE_ID)) return;
-  const s = document.createElement("style");
-  s.id = STYLE_ID;
-  s.textContent = `
-    .odtedit-wrap { display:flex; flex-direction:column; height:100%; background:#525659; }
-    .odtedit-toolbar {
-      display:flex; flex-wrap:wrap; align-items:center; gap:6px; padding:6px 10px;
-      background:#2b2f36; border-bottom:1px solid #1c1f24; color:#e6e6e6; font:13px system-ui, sans-serif;
-    }
-    .odtedit-toolbar button, .odtedit-toolbar select {
-      font:inherit; background:#3a3f47; color:#e6e6e6; border:1px solid #4a4f57; border-radius:5px;
-      padding:3px 8px; cursor:pointer; height:28px; box-sizing:border-box; min-width:30px;
-    }
-    .odtedit-toolbar button:hover, .odtedit-toolbar select:hover { border-color:#6e7bff; }
-    .odtedit-toolbar button:focus-visible, .odtedit-toolbar select:focus-visible { outline:2px solid #fff; outline-offset:1px; }
-    .odtedit-toolbar .sep { width:1px; align-self:stretch; background:#4a4f57; margin:0 2px; }
-    .odtedit-scroll { flex:1; min-height:0; overflow:auto; display:flex; justify-content:center; padding:24px; }
-    .odtedit-doc {
-      background:#fff; color:#111; width:min(816px, 100%); min-height:300px; padding:64px 72px;
-      box-shadow:0 2px 12px rgba(0,0,0,.45); outline:none; box-sizing:border-box;
-      font:16px/1.5 "Liberation Serif", Georgia, serif;
-    }
-    .odtedit-doc:focus-visible { box-shadow:0 0 0 2px #6e7bff, 0 2px 12px rgba(0,0,0,.45); }
-    .odtedit-doc h1 { font-size:2em; } .odtedit-doc h2 { font-size:1.5em; } .odtedit-doc h3 { font-size:1.2em; }
-    .odtedit-doc p { margin:0 0 .6em; } .odtedit-doc a { color:#1a56db; }
-    .odt-pass:empty { display:none; }
-    .odt-pass-block:empty { display:none; }
-    .odt-pass-block { margin:0 0 .6em; }
-  `;
-  document.head.appendChild(s);
-}
-
-export function createOdtEditor(container: HTMLElement, bytes: Uint8Array, options: OdtEditorOptions = {}): OdtEditor {
+/** Wrap a .odt byte array as an engine adapter: parse, serialize, capabilities. */
+export function createOdtAdapter(bytes: Uint8Array): Adapter {
   const original = bytes.slice();
-  let dirty = false;
-  injectStyles();
-
-  const wrap = document.createElement("div");
-  wrap.className = "odtedit-wrap";
-  const toolbar = document.createElement("div");
-  toolbar.className = "odtedit-toolbar";
-  toolbar.setAttribute("role", "toolbar");
-  toolbar.setAttribute("aria-label", t("toolbar"));
-  const scroll = document.createElement("div");
-  scroll.className = "odtedit-scroll";
-  const doc = document.createElement("div");
-  doc.className = "odtedit-doc";
-  doc.contentEditable = "true";
-  doc.spellcheck = false;
-  doc.setAttribute("role", "textbox");
-  doc.setAttribute("aria-multiline", "true");
-  doc.setAttribute("aria-label", t("documentText"));
-  try {
-    doc.innerHTML = odtToHtml(bytes) || "<p><br></p>";
-  } catch {
-    doc.innerHTML = "<p><br></p>";
-  }
-  scroll.appendChild(doc);
-  wrap.append(toolbar, scroll);
-  container.appendChild(wrap);
-
-  const exec = (cmd: string, val?: string) => {
-    doc.focus();
-    document.execCommand(cmd, false, val);
-    mark();
-  };
-  const mark = () => {
-    dirty = true;
-    options.onChange?.();
-  };
-
-  const btn = (label: string, title: string, fn: () => void, css = "") => {
-    const b = document.createElement("button");
-    b.type = "button";
-    b.textContent = label;
-    b.title = title;
-    b.setAttribute("aria-label", title);
-    if (css) b.style.cssText = css;
-    b.addEventListener("mousedown", (e) => e.preventDefault()); // keep the selection
-    b.addEventListener("click", fn);
-    return b;
-  };
-  const sep = () => {
-    const s = document.createElement("span");
-    s.className = "sep";
-    return s;
-  };
-
-  const block = document.createElement("select");
-  block.title = t("paragraphStyle");
-  block.setAttribute("aria-label", t("paragraphStyle"));
-  for (const [v, key] of [["P", "styleParagraph"], ["H1", "styleH1"], ["H2", "styleH2"], ["H3", "styleH3"]] as const) {
-    block.add(new Option(t(key), v));
-  }
-  block.addEventListener("mousedown", () => doc.focus());
-  block.addEventListener("change", () => exec("formatBlock", block.value));
-
-  toolbar.append(
-    btn("B", t("bold"), () => exec("bold"), "font-weight:bold"),
-    btn("I", t("italic"), () => exec("italic"), "font-style:italic"),
-    btn("U", t("underline"), () => exec("underline"), "text-decoration:underline"),
-    sep(),
-    block,
-    sep(),
-    btn(t("bulletedLabel"), t("bulleted"), () => exec("insertUnorderedList")),
-    btn(t("numberedLabel"), t("numbered"), () => exec("insertOrderedList")),
-    sep(),
-    btn(t("link"), t("linkAria"), () => {
-      const url = prompt(t("linkPrompt"), "https://");
-      if (url === null) return;
-      if (url === "") exec("unlink");
-      else exec("createLink", url);
-    }),
-  );
-
-  doc.addEventListener("input", mark);
-
   return {
-    isDirty() {
-      return dirty;
+    original,
+    read(): RichDoc {
+      let body = "<p><br></p>";
+      try {
+        body = odtToHtml(bytes) || "<p><br></p>";
+      } catch (e) {
+        console.warn("odtedit: failed to parse document", e);
+      }
+      return { body, header: "", footer: "", comments: [] };
     },
-    async getBytes() {
-      return dirty ? htmlToOdt(doc.innerHTML, original) : original.slice();
+    write(bodyHtml: string): Uint8Array {
+      return htmlToOdt(bodyHtml, original);
     },
-    destroy() {
-      wrap.remove();
+    newCommentMarkers(): never {
+      // Comments are capability-gated off for odt, so the engine never calls this.
+      throw new Error("odt: comments are not supported yet");
+    },
+    capabilities: {
+      comments: false,
+      trackChanges: false,
+      images: false,
+      headerFooter: false,
+      pageBreak: false,
+      textColor: false,
+      fontControls: false,
+      alignment: false,
     },
   };
+}
+
+/** Mount a .odt editor in `container`: the odt adapter driving the shared engine. */
+export function createOdtEditor(container: HTMLElement, bytes: Uint8Array, options: OdtEditorOptions = {}): OdtEditor {
+  return createRichEditor(container, createOdtAdapter(bytes), options);
 }
