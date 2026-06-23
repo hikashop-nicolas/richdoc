@@ -1,5 +1,6 @@
 import { strFromU8, strToU8, unzipSync, zipSync } from "fflate";
 import { createRichEditor } from "../../core/editor";
+import { firstFontFamily, fontSizeToHalfPt, toHex6 } from "../../core/util";
 import type { Adapter, EditorOptions, RichDoc, RichEditor } from "../../core/types";
 
 // odtedit: a standalone, framework-agnostic, client-side OpenDocument Text (.odt) editor.
@@ -26,9 +27,20 @@ interface Fmt {
   b: boolean;
   i: boolean;
   u: boolean;
+  color?: string; // 6-hex, no leading #
+  bg?: string; // highlight, 6-hex
+  font?: string; // family name
+  sizePt?: number; // font size in points
 }
 const FMT0: Fmt = { b: false, i: false, u: false };
-const fmtKey = (f: Fmt): string => `${f.b ? "b" : ""}${f.i ? "i" : ""}${f.u ? "u" : ""}`;
+const fmtKey = (f: Fmt): string =>
+  [f.b ? "b" : "", f.i ? "i" : "", f.u ? "u" : "", f.color ? "c" + f.color : "", f.bg ? "g" + f.bg : "", f.font ? "f" + f.font : "", f.sizePt ? "s" + f.sizePt : ""].join("");
+
+/** Paragraph-level formatting (text alignment), kept separate from run formatting. */
+interface PFmt {
+  align?: string; // left | right | center | justify
+}
+const ODF_ALIGN: Record<string, string> = { start: "left", left: "left", end: "right", right: "right", center: "center", justify: "justify" };
 
 const escapeHtml = (s: string): string => s.replace(/&/g, "&amp;").replace(/</g, "&lt;").replace(/>/g, "&gt;");
 const escapeAttr = (s: string): string => escapeHtml(s).replace(/"/g, "&quot;");
@@ -85,7 +97,18 @@ function importPassthrough(doc: Document, xml: string): Element | null {
 // .odt -> HTML
 // ---------------------------------------------------------------------------
 
-/** Map text:style-name -> formatting flags, read from the automatic/text styles. */
+const hex6 = (v: string | null | undefined): string | undefined => {
+  if (!v || v === "transparent") return undefined;
+  const m = /^#?([0-9a-fA-F]{6})$/.exec(v.trim());
+  return m ? m[1]!.toUpperCase() : undefined;
+};
+const sizePt = (v: string | null | undefined): number | undefined => {
+  if (!v) return undefined;
+  const m = /^([\d.]+)pt$/.exec(v.trim());
+  return m ? Math.round(parseFloat(m[1]!) * 10) / 10 : undefined;
+};
+
+/** Map text:style-name -> run formatting, read from the automatic/text styles. */
 function collectTextStyles(doc: Document): Map<string, Fmt> {
   const map = new Map<string, Fmt>();
   for (const st of Array.from(doc.getElementsByTagName("style:style"))) {
@@ -97,13 +120,37 @@ function collectTextStyles(doc: Document): Map<string, Fmt> {
       b: tp?.getAttribute("fo:font-weight") === "bold",
       i: tp?.getAttribute("fo:font-style") === "italic",
       u: !!tp && tp.getAttribute("style:text-underline-style") != null && tp.getAttribute("style:text-underline-style") !== "none",
+      color: hex6(tp?.getAttribute("fo:color")),
+      bg: hex6(tp?.getAttribute("fo:background-color")),
+      font: tp?.getAttribute("fo:font-family")?.replace(/^['"]|['"]$/g, "") || tp?.getAttribute("style:font-name") || undefined,
+      sizePt: sizePt(tp?.getAttribute("fo:font-size")),
     });
+  }
+  return map;
+}
+
+/** Map paragraph style-name -> alignment, read from the paragraph styles. */
+function collectParaStyles(doc: Document): Map<string, PFmt> {
+  const map = new Map<string, PFmt>();
+  for (const st of Array.from(doc.getElementsByTagName("style:style"))) {
+    if (st.getAttribute("style:family") !== "paragraph") continue;
+    const name = st.getAttribute("style:name");
+    if (!name) continue;
+    const pp = st.getElementsByTagName("style:paragraph-properties")[0];
+    const align = ODF_ALIGN[pp?.getAttribute("fo:text-align") ?? ""];
+    if (align) map.set(name, { align });
   }
   return map;
 }
 
 const wrapFmt = (inner: string, f: Fmt): string => {
   let s = inner;
+  const css: string[] = [];
+  if (f.color) css.push(`color:#${f.color}`);
+  if (f.bg) css.push(`background-color:#${f.bg}`);
+  if (f.font) css.push(`font-family:'${f.font.replace(/'/g, "")}'`);
+  if (f.sizePt) css.push(`font-size:${f.sizePt}pt`);
+  if (css.length) s = `<span style="${css.join(";")}">${s}</span>`;
   if (f.u) s = `<u>${s}</u>`;
   if (f.i) s = `<em>${s}</em>`;
   if (f.b) s = `<strong>${s}</strong>`;
@@ -164,18 +211,22 @@ function listToHtml(el: Element, styles: Map<string, Fmt>): string {
   return `<ul>${items}</ul>`;
 }
 
-function blockToHtml(el: Element, styles: Map<string, Fmt>): string {
+function blockToHtml(el: Element, styles: Map<string, Fmt>, paras: Map<string, PFmt>): string {
+  const alignAttr = (): string => {
+    const a = paras.get(el.getAttribute("text:style-name") ?? "")?.align;
+    return a && a !== "left" ? ` style="text-align:${a}"` : "";
+  };
   switch (el.tagName) {
     case "text:h": {
       const lvl = Math.min(3, Math.max(1, parseInt(el.getAttribute("text:outline-level") ?? "1", 10) || 1));
       const inner = inlineToHtml(el, styles);
-      return `<h${lvl}>${inner || "<br>"}</h${lvl}>`;
+      return `<h${lvl}${alignAttr()}>${inner || "<br>"}</h${lvl}>`;
     }
     case "text:list":
       return listToHtml(el, styles);
     case "text:p": {
       const inner = inlineToHtml(el, styles);
-      return `<p>${inner || "<br>"}</p>`;
+      return `<p${alignAttr()}>${inner || "<br>"}</p>`;
     }
     default:
       // Tables, frames, tracked-changes, sequence-decls, sections, ... preserved verbatim.
@@ -192,8 +243,9 @@ export function odtToHtml(bytes: Uint8Array): string {
   const body = doc.getElementsByTagName("office:text")[0];
   if (!body) return "";
   const styles = collectTextStyles(doc);
+  const paras = collectParaStyles(doc);
   let html = "";
-  for (const block of Array.from(body.children)) html += blockToHtml(block, styles);
+  for (const block of Array.from(body.children)) html += blockToHtml(block, styles, paras);
   return html || "<p><br></p>";
 }
 
@@ -212,13 +264,13 @@ function ensureAutoStyles(doc: Document): Element {
   return auto;
 }
 
-/** Create (once) a text style for a formatting combo and return its name. */
+/** Create (once) a text style for a run-formatting combo and return its name. */
 function styleFor(doc: Document, auto: Element, created: Map<string, string>, f: Fmt): string | null {
   const key = fmtKey(f);
   if (!key) return null;
   const existing = created.get(key);
   if (existing) return existing;
-  const name = `OT_${key}`;
+  const name = `OT_t${created.size}`;
   const st = doc.createElementNS(NS.style, "style:style");
   st.setAttributeNS(NS.style, "style:name", name);
   st.setAttributeNS(NS.style, "style:family", "text");
@@ -230,7 +282,33 @@ function styleFor(doc: Document, auto: Element, created: Map<string, string>, f:
     tp.setAttributeNS(NS.style, "style:text-underline-width", "auto");
     tp.setAttributeNS(NS.style, "style:text-underline-color", "font-color");
   }
+  if (f.color) tp.setAttributeNS(NS.fo, "fo:color", `#${f.color}`);
+  if (f.bg) tp.setAttributeNS(NS.fo, "fo:background-color", `#${f.bg}`);
+  if (f.font) {
+    tp.setAttributeNS(NS.fo, "fo:font-family", f.font);
+    tp.setAttributeNS(NS.style, "style:font-name", f.font);
+  }
+  if (f.sizePt) tp.setAttributeNS(NS.fo, "fo:font-size", `${f.sizePt}pt`);
   st.appendChild(tp);
+  auto.appendChild(st);
+  created.set(key, name);
+  return name;
+}
+
+/** Create (once) a paragraph style for an alignment and return its name. */
+function paraStyleFor(doc: Document, auto: Element, created: Map<string, string>, align: string): string | null {
+  const a = ODF_ALIGN[align];
+  if (!a || a === "left") return null;
+  const key = `p_${a}`;
+  const existing = created.get(key);
+  if (existing) return existing;
+  const name = `OT_${key}`;
+  const st = doc.createElementNS(NS.style, "style:style");
+  st.setAttributeNS(NS.style, "style:name", name);
+  st.setAttributeNS(NS.style, "style:family", "paragraph");
+  const pp = doc.createElementNS(NS.style, "style:paragraph-properties");
+  pp.setAttributeNS(NS.fo, "fo:text-align", a === "right" ? "end" : a === "center" ? "center" : a === "justify" ? "justify" : "start");
+  st.appendChild(pp);
   auto.appendChild(st);
   created.set(key, name);
   return name;
@@ -279,10 +357,15 @@ function htmlInlineToOdf(node: Node, parent: Element, f: Fmt, ctx: OdfCtx): void
       parent.appendChild(a);
       continue;
     }
+    const hp = fontSizeToHalfPt(el.style.fontSize);
     const next: Fmt = {
       b: f.b || tag === "strong" || tag === "b" || /(^|;)\s*font-weight\s*:\s*(bold|[6-9]00)/.test(el.style.cssText),
       i: f.i || tag === "em" || tag === "i" || el.style.fontStyle === "italic",
       u: f.u || tag === "u" || /underline/.test(el.style.textDecoration || el.style.textDecorationLine || ""),
+      color: toHex6(el.style.color) ?? f.color,
+      bg: toHex6(el.style.backgroundColor) ?? f.bg,
+      font: firstFontFamily(el.style.fontFamily) ?? f.font,
+      sizePt: hp ? hp / 2 : f.sizePt,
     };
     htmlInlineToOdf(el, parent, next, ctx);
   }
@@ -316,15 +399,21 @@ function htmlBlockToOdf(node: Node, ctx: OdfCtx): Element | null {
   const stash = el.getAttribute("data-odt-xml");
   if (stash) return importPassthrough(ctx.doc, stash);
   if (tag === "ul" || tag === "ol") return htmlListToOdf(el, ctx);
+  const applyAlign = (block: Element): void => {
+    const name = el.style.textAlign ? paraStyleFor(ctx.doc, ctx.auto, ctx.created, el.style.textAlign) : null;
+    if (name) block.setAttributeNS(NS.text, "text:style-name", name);
+  };
   const m = /^h([1-6])$/.exec(tag);
   if (m) {
     const h = ctx.doc.createElementNS(NS.text, "text:h");
     h.setAttributeNS(NS.text, "text:outline-level", String(Math.min(3, Number(m[1]))));
+    applyAlign(h);
     htmlInlineToOdf(el, h, FMT0, ctx);
     return h;
   }
   // p, div, and anything else become a paragraph
   const p = ctx.doc.createElementNS(NS.text, "text:p");
+  applyAlign(p);
   htmlInlineToOdf(el, p, FMT0, ctx);
   return p;
 }
@@ -392,9 +481,9 @@ export function createOdtAdapter(bytes: Uint8Array): Adapter {
       images: false,
       headerFooter: false,
       pageBreak: false,
-      textColor: false,
-      fontControls: false,
-      alignment: false,
+      textColor: true,
+      fontControls: true,
+      alignment: true,
     },
   };
 }

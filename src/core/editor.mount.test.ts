@@ -53,8 +53,9 @@ describe("shared engine mount", () => {
     expect(odtTb).toBeTruthy();
     expect(odtHost.querySelector(".docxedit-doc")?.textContent).toContain("Hi");
 
-    // odt cannot persist colour/font/comments/images/track-changes, so the engine hides them.
-    expect(odtTb.querySelector('input[type="color"]')).toBeNull();
+    // odt supports colour/font/alignment, but still gates off comments, images, page
+    // breaks and track changes, so its toolbar is smaller than docx's.
+    expect(odtTb.querySelector('input[type="color"]')).not.toBeNull();
     expect(odtTb.querySelectorAll("button").length).toBeLessThan(docxBtns);
 
     docxEd.destroy();

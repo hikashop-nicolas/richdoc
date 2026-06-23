@@ -91,3 +91,47 @@ describe("odt <-> html", () => {
     expect(name).toBe("mimetype");
   });
 });
+
+describe("odt formatting (colour, font, size, alignment)", () => {
+  it("writes run colour/font/size into a synthesized text style and round-trips", () => {
+    const html = '<p>x<span style="color:#FF0000;background-color:#FFFF00;font-family:\'Arial\';font-size:18pt">y</span></p>';
+    const out = htmlToOdt(html, makeOdt());
+    const xml = strFromU8(unzipSync(out)["content.xml"]);
+    expect(xml).toContain('fo:color="#FF0000"');
+    expect(xml).toContain('fo:background-color="#FFFF00"');
+    expect(xml).toContain('fo:font-family="Arial"');
+    expect(xml).toContain('fo:font-size="18pt"');
+    // re-read: the inline styles come back
+    const back = odtToHtml(out);
+    expect(back).toContain("color:#FF0000");
+    expect(back).toContain("background-color:#FFFF00");
+    expect(back).toContain("font-size:18pt");
+    expect(back).toMatch(/font-family:'?Arial/);
+  });
+
+  it("writes paragraph alignment into a synthesized paragraph style and round-trips", () => {
+    const out = htmlToOdt('<p style="text-align:center">mid</p><p style="text-align:right">end</p>', makeOdt());
+    const xml = strFromU8(unzipSync(out)["content.xml"]);
+    expect(xml).toContain('fo:text-align="center"');
+    expect(xml).toContain('fo:text-align="end"');
+    const back = odtToHtml(out);
+    expect(back).toContain("text-align:center");
+    expect(back).toContain("text-align:right");
+  });
+
+  it("does not emit a style for default (left) alignment", () => {
+    const out = htmlToOdt('<p style="text-align:left">x</p>', makeOdt());
+    const xml = strFromU8(unzipSync(out)["content.xml"]);
+    expect(xml).not.toContain("fo:text-align");
+  });
+
+  it("reads existing run colour from an automatic text style", () => {
+    const content = CONTENT.replace(
+      '<style:style style:name="T1" style:family="text"><style:text-properties fo:font-weight="bold"/></style:style>',
+      '<style:style style:name="T1" style:family="text"><style:text-properties fo:color="#0000FF" fo:font-size="14pt"/></style:style>',
+    );
+    const html = odtToHtml(makeOdt(content));
+    expect(html).toContain("color:#0000FF");
+    expect(html).toContain("font-size:14pt");
+  });
+});
