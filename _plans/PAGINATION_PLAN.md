@@ -135,16 +135,28 @@ is Phase 2, after body pagination is solid.
 
 ## Phasing
 
-- Phase 0: geometry. Add RichDoc.page; docx adapter fills it from pgSz/pgMar; engine
-  drives page width/margins from it via CSS vars; default fallback. No multi-page yet.
-  Visible result: the page renders at the document's true size and margins.
-- Phase 1: body pagination. The pageview wrapper, page-card layer, the pure paginator,
-  spacers, the reflow triggers, behind a "Pages" view toggle (default on when geometry
-  is present, off gives today's pageless flow). Body only, no header/footer repeat.
-- Phase 2: repeated header/footer clones + page numbers; header/footer editing model
-  (option A). Comment-panel reflow verified across pages.
-- Phase 3 (later, not v1): mid-paragraph and table splitting, widow/orphan control, and
-  a true paginated PDF/print export path (the one place exact pages actually ship).
+- Phase 0 (DONE, commit ec721d1): geometry. RichDoc.page; docx adapter fills it from
+  pgSz/pgMar; engine drives page width/margins via CSS vars; A4 default fallback. The
+  page renders at the document's true size and margins.
+- Phase 1 (DONE, commit e8fa4ff): body pagination. core/page.ts paginate() (pure,
+  unit-tested); core/editor.ts repaginate()/reflow()/cleanBody(); page-card layer,
+  spacers, reflow triggers (fonts/images/resize/debounced edit); EditorOptions.paginated
+  (default true) toggles to pageless. Shipped a bit more than planned: read-only repeated
+  header/footer clones + page numbers are already in (so paginated view shows the
+  letterhead), leaving only their EDITING for Phase 2.
+- Phase 2: make the header/footer clones editable (option B, click-to-edit). Wire the
+  Omnitext settings (page-size selector, paginated toggle). Comment-panel reflow across
+  pages is already verified.
+- Phase 3 (later, not v1): mid-paragraph and table splitting, widow/orphan control,
+  incremental (not full) re-pagination on edit, and a true paginated PDF/print export.
+
+## Known v1 limitations (carried into Phase 2/3)
+
+- Block-level breaks only: a paragraph/table taller than a page overflows its card.
+- Header/footer are read-only in paginated mode; edit them in pageless mode until Phase 2.
+- Re-pagination is full (debounced), not incremental; fine for typical docs.
+- Possible ~10px drift at a break from a block's top margin re-applying after a spacer.
+- Assumes the page fits the viewport width (no responsive shrink handling yet).
 
 ## Tests
 
