@@ -319,14 +319,33 @@ function blockToHtml(el: Element, ctx: RCtx): string {
   }
 }
 
-/** Parse an .odt into the editable body HTML plus the comment threads. */
-export function odtToParts(bytes: Uint8Array): { body: string; comments: CommentThread[] } {
+/** Header/footer HTML, read from the master page in styles.xml. */
+function readHeaderFooter(files: Record<string, Uint8Array>): { header: string; footer: string } {
+  const raw = files["styles.xml"];
+  if (!raw) return { header: "", footer: "" };
+  const doc = new DOMParser().parseFromString(strFromU8(raw), "application/xml");
+  const master = doc.getElementsByTagName("style:master-page")[0];
+  if (!master) return { header: "", footer: "" };
+  const ctx: RCtx = { files, styles: collectTextStyles(doc), paras: collectParaStyles(doc), threads: [], rangedNames: new Set(), openComment: new Set() };
+  const render = (tag: string): string => {
+    const el = master.getElementsByTagName(tag)[0];
+    if (!el) return "";
+    let html = "";
+    for (const block of Array.from(el.children)) html += blockToHtml(block, ctx);
+    return html;
+  };
+  return { header: render("style:header"), footer: render("style:footer") };
+}
+
+/** Parse an .odt into the editable body HTML, the comment threads, and header/footer. */
+export function odtToParts(bytes: Uint8Array): { body: string; comments: CommentThread[]; header: string; footer: string } {
   const files = unzipSync(bytes);
+  const { header, footer } = readHeaderFooter(files);
   const content = files["content.xml"];
-  if (!content) return { body: "", comments: [] };
+  if (!content) return { body: "", comments: [], header, footer };
   const doc = new DOMParser().parseFromString(strFromU8(content), "application/xml");
   const body = doc.getElementsByTagName("office:text")[0];
-  if (!body) return { body: "", comments: [] };
+  if (!body) return { body: "", comments: [], header, footer };
   const rangedNames = new Set(
     Array.from(doc.getElementsByTagName("office:annotation-end"))
       .map((e) => e.getAttribute("office:name"))
@@ -335,7 +354,7 @@ export function odtToParts(bytes: Uint8Array): { body: string; comments: Comment
   const ctx: RCtx = { files, styles: collectTextStyles(doc), paras: collectParaStyles(doc), threads: [], rangedNames, openComment: new Set() };
   let html = "";
   for (const block of Array.from(body.children)) html += blockToHtml(block, ctx);
-  return { body: html || "<p><br></p>", comments: ctx.threads };
+  return { body: html || "<p><br></p>", comments: ctx.threads, header, footer };
 }
 
 /** Convert an .odt's body to HTML. Returns "" if there is no editable text body. */
@@ -347,14 +366,14 @@ export function odtToHtml(bytes: Uint8Array): string {
 // HTML -> .odt
 // ---------------------------------------------------------------------------
 
-/** Ensure <office:automatic-styles> exists, returning it. */
-function ensureAutoStyles(doc: Document): Element {
+/** Ensure <office:automatic-styles> exists, returning it. The new node is placed before
+   `beforeTag` (office:body in content.xml, office:master-styles in styles.xml). */
+function ensureAutoStyles(doc: Document, beforeTag = "office:body"): Element {
   let auto = doc.getElementsByTagName("office:automatic-styles")[0];
   if (auto) return auto;
   auto = doc.createElementNS(NS.office, "office:automatic-styles");
-  const root = doc.documentElement;
-  const body = doc.getElementsByTagName("office:body")[0];
-  root.insertBefore(auto, body ?? null);
+  const before = doc.getElementsByTagName(beforeTag)[0];
+  doc.documentElement.insertBefore(auto, before ?? null);
   return auto;
 }
 
@@ -618,8 +637,48 @@ function htmlBlockToOdf(node: Node, ctx: OdfCtx): Element | null {
   return p;
 }
 
+/** Write edited header/footer HTML back into the master page in styles.xml. */
+function applyHeaderFooter(files: Record<string, Uint8Array>, parts: { path: string; html: string }[]): void {
+  const hf = parts.filter((p) => p.path === "header" || p.path === "footer");
+  if (!hf.length || !files["styles.xml"]) return;
+  const doc = new DOMParser().parseFromString(strFromU8(files["styles.xml"]), "application/xml");
+  const master = doc.getElementsByTagName("style:master-page")[0];
+  if (!master) return;
+  const ctx: OdfCtx = {
+    doc,
+    auto: ensureAutoStyles(doc, "office:master-styles"),
+    created: new Map(),
+    files,
+    pics: [],
+    refMeta: new Map(),
+    rangedIds: new Set(),
+    done: new Map(),
+  };
+  for (const p of hf) {
+    const tag = p.path === "header" ? "style:header" : "style:footer";
+    let el = master.getElementsByTagName(tag)[0];
+    if (!el) {
+      el = doc.createElementNS(NS.style, tag);
+      master.appendChild(el);
+    }
+    while (el.firstChild) el.removeChild(el.firstChild);
+    const htmlDoc = new DOMParser().parseFromString(p.html || "<p><br></p>", "text/html");
+    for (const node of Array.from(htmlDoc.body.childNodes)) {
+      const block = htmlBlockToOdf(node, ctx);
+      if (block) el.appendChild(block);
+    }
+    if (!el.firstChild) el.appendChild(doc.createElementNS(NS.text, "text:p"));
+  }
+  addManifestEntries(files, ctx.pics);
+  files["styles.xml"] = strToU8(new XMLSerializer().serializeToString(doc));
+}
+
 /** Rebuild an .odt from edited HTML, preserving every other part of the archive. */
-export function htmlToOdt(html: string, original: Uint8Array, opts?: { done?: Map<string, boolean> }): Uint8Array {
+export function htmlToOdt(
+  html: string,
+  original: Uint8Array,
+  opts?: { done?: Map<string, boolean>; parts?: { path: string; html: string }[] },
+): Uint8Array {
   const files = unzipSync(original);
   const content = files["content.xml"];
   if (!content) throw new Error("not an .odt: content.xml missing");
@@ -652,6 +711,7 @@ export function htmlToOdt(html: string, original: Uint8Array, opts?: { done?: Ma
   }
   if (!body.firstChild) body.appendChild(doc.createElementNS(NS.text, "text:p"));
   addManifestEntries(files, ctx.pics); // register any images embedded above
+  if (opts?.parts) applyHeaderFooter(files, opts.parts); // header/footer -> styles.xml
 
   const out = new XMLSerializer().serializeToString(doc);
   // Re-zip. ODF requires the "mimetype" entry first and stored (uncompressed).
@@ -677,17 +737,24 @@ export function createOdtAdapter(bytes: Uint8Array): Adapter {
   return {
     original,
     read(): RichDoc {
-      let parts = { body: "<p><br></p>", comments: [] as CommentThread[] };
+      let parts = { body: "<p><br></p>", comments: [] as CommentThread[], header: "", footer: "" };
       try {
         const p = odtToParts(bytes);
-        parts = { body: p.body || "<p><br></p>", comments: p.comments };
+        parts = { body: p.body || "<p><br></p>", comments: p.comments, header: p.header, footer: p.footer };
       } catch (e) {
         console.warn("odtedit: failed to parse document", e);
       }
-      return { body: parts.body, header: "", footer: "", comments: parts.comments };
+      return {
+        body: parts.body,
+        header: parts.header,
+        footer: parts.footer,
+        headerPath: parts.header ? "header" : undefined,
+        footerPath: parts.footer ? "footer" : undefined,
+        comments: parts.comments,
+      };
     },
-    write(bodyHtml: string, _parts: { path: string; html: string }[], edits: CommentEdits): Uint8Array {
-      return htmlToOdt(bodyHtml, original, { done: edits.done });
+    write(bodyHtml: string, parts: { path: string; html: string }[], edits: CommentEdits): Uint8Array {
+      return htmlToOdt(bodyHtml, original, { done: edits.done, parts });
     },
     newCommentMarkers(meta: NewCommentMeta): CommentMarkers {
       const cmark = (): HTMLElement => {
@@ -715,7 +782,7 @@ export function createOdtAdapter(bytes: Uint8Array): Adapter {
       commentReactions: false,
       trackChanges: false,
       images: true,
-      headerFooter: false,
+      headerFooter: true,
       pageBreak: false,
       textColor: true,
       fontControls: true,

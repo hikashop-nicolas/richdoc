@@ -235,3 +235,60 @@ describe("odt comments (office:annotation)", () => {
     expect(again.comments[0]).toMatchObject({ id: "A1", author: "Z", text: "note" });
   });
 });
+
+describe("odt header/footer (styles.xml master page)", () => {
+  const STYLES = (header: string, footer: string) =>
+    '<?xml version="1.0"?><office:document-styles ' +
+    'xmlns:office="urn:oasis:names:tc:opendocument:xmlns:office:1.0" ' +
+    'xmlns:style="urn:oasis:names:tc:opendocument:xmlns:style:1.0" ' +
+    'xmlns:text="urn:oasis:names:tc:opendocument:xmlns:text:1.0" ' +
+    'xmlns:fo="urn:oasis:names:tc:opendocument:xmlns:xsl-fo-compatible:1.0">' +
+    "<office:master-styles><style:master-page style:name=\"Standard\">" +
+    (header ? `<style:header>${header}</style:header>` : "") +
+    (footer ? `<style:footer>${footer}</style:footer>` : "") +
+    "</style:master-page></office:master-styles></office:document-styles>";
+
+  function makeHfOdt(header: string, footer: string): Uint8Array {
+    return zipSync({
+      mimetype: [strToU8("application/vnd.oasis.opendocument.text"), { level: 0 }],
+      "content.xml": strToU8(CONTENT),
+      "styles.xml": strToU8(STYLES(header, footer)),
+      "META-INF/manifest.xml": strToU8("<m/>"),
+    });
+  }
+
+  it("reads the master-page header and footer into HTML", () => {
+    const parts = odtToParts(makeHfOdt("<text:p>My header</text:p>", "<text:p>The footer</text:p>"));
+    expect(parts.header).toContain("My header");
+    expect(parts.footer).toContain("The footer");
+  });
+
+  it("returns empty header/footer when the master page has none", () => {
+    const parts = odtToParts(makeHfOdt("", ""));
+    expect(parts.header).toBe("");
+    expect(parts.footer).toBe("");
+  });
+
+  it("writes edited header/footer back into styles.xml", () => {
+    const out = htmlToOdt("<p>body</p>", makeHfOdt("<text:p>old h</text:p>", "<text:p>old f</text:p>"), {
+      parts: [
+        { path: "header", html: "<p>new header</p>" },
+        { path: "footer", html: "<p>new footer</p>" },
+      ],
+    });
+    const styles = strFromU8(unzipSync(out)["styles.xml"]);
+    expect(styles).toContain("<style:header>");
+    expect(styles).toContain("new header");
+    expect(styles).toContain("new footer");
+    expect(styles).not.toContain("old h");
+  });
+
+  it("round-trips header/footer through read -> write -> read", () => {
+    const odt = makeHfOdt("<text:p>H1</text:p>", "<text:p>F1</text:p>");
+    const parts = odtToParts(odt);
+    const out = htmlToOdt(parts.body, odt, { parts: [{ path: "header", html: parts.header }, { path: "footer", html: parts.footer }] });
+    const again = odtToParts(out);
+    expect(again.header).toContain("H1");
+    expect(again.footer).toContain("F1");
+  });
+});
