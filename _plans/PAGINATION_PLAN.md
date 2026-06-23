@@ -148,16 +148,21 @@ is Phase 2, after body pagination is solid.
   (option B, click-to-edit via editBand + an editingBand guard); Omnitext settings
   (page-size selector, paginated toggle) wired through EditorOptions. Comment-panel
   reflow across pages verified.
-- Phase 3 (later, not v1): mid-paragraph and table splitting, widow/orphan control,
+- Phase 3a (DONE, richdoc 1330c91): respect explicit page breaks (forceBreakBefore in
+  paginate(); manual w:pageBreakBefore / w:br forces a new page, markers hidden in the
+  paginated view) and tighten page-top alignment (the page-starting block's top margin is
+  zeroed so it sits flush under the header instead of drifting).
+- Phase 3b (later, not v1): mid-paragraph and table splitting, widow/orphan control,
   incremental (not full) re-pagination on edit, and a true paginated PDF/print export.
 
-## Known v1 limitations (carried into Phase 2/3)
+## Known limitations (remaining, for Phase 3b)
 
 - Block-level breaks only: a paragraph/table taller than a page overflows its card.
-- Header/footer are read-only in paginated mode; edit them in pageless mode until Phase 2.
 - Re-pagination is full (debounced), not incremental; fine for typical docs.
-- Possible ~10px drift at a break from a block's top margin re-applying after a spacer.
 - Assumes the page fits the viewport width (no responsive shrink handling yet).
+
+Fixed since v1: header/footer editing in paginated mode (Phase 2, click-to-edit); the
+page-top drift (Phase 3a); explicit page breaks now honored (Phase 3a).
 
 ## Tests
 
