@@ -78,16 +78,18 @@ export function createRichEditor(container: HTMLElement, adapter: Adapter, optio
   // decorations, with inert spacer gaps inserted at page boundaries. Pageless view keeps
   // the body and header/footer stacked in one card (the previous behaviour).
   const paginated = options.paginated ?? true;
-  const pagelayer = document.createElement("div");
+  const pagelayer = document.createElement("div"); // cards + page numbers, behind the body
   pagelayer.className = "docxedit-pagelayer";
   pagelayer.setAttribute("aria-hidden", "true");
+  const hflayer = document.createElement("div"); // header/footer clones, above the body (clickable)
+  hflayer.className = "docxedit-hflayer";
   // Off-screen holder so header/footer can be measured (and kept as the save source)
   // without showing as in-flow bands in paginated mode.
   const measure = document.createElement("div");
   measure.className = "docxedit-measure";
   if (paginated) {
     page.classList.add("is-paginated");
-    page.append(pagelayer, doc);
+    page.append(pagelayer, doc, hflayer);
     if (header) measure.appendChild(header);
     if (footer) measure.appendChild(footer);
     page.appendChild(measure);
@@ -388,13 +390,37 @@ export function createRichEditor(container: HTMLElement, adapter: Adapter, optio
   // body and insert inert spacer gaps so the flow lands at each page's content box. The
   // body stays one contenteditable; spacers are stripped before saving (see cleanBody).
   const PAGE_GAP = 24;
+  let editingBand: HTMLElement | null = null;
+
+  // Click a repeated header/footer to edit it in place (Word-like): the canonical band is
+  // moved into the clicked position, made editable and focused; on blur it returns to the
+  // hidden source and the pages re-clone its new content.
+  const editBand = (src: HTMLElement, topPx: number) => {
+    if (editingBand) return;
+    editingBand = src;
+    src.classList.add("is-editing");
+    src.style.cssText = `position:absolute;top:${topPx}px;left:0;width:100%;z-index:3;background:#fff`;
+    hflayer.appendChild(src);
+    src.focus();
+    const finish = () => {
+      src.removeEventListener("blur", finish);
+      src.classList.remove("is-editing");
+      src.removeAttribute("style");
+      measure.appendChild(src);
+      editingBand = null;
+      reflow();
+    };
+    src.addEventListener("blur", finish);
+  };
+
   const repaginate = () => {
-    if (!paginated) return;
+    if (!paginated || editingBand) return;
     for (const s of Array.from(doc.querySelectorAll(":scope > .docxedit-pagespacer"))) s.remove();
     pagelayer.replaceChildren();
+    hflayer.replaceChildren();
 
-    const contentWidth = Math.max(0, geometry.widthPx - geometry.margin.left - geometry.margin.right);
-    measure.style.width = `${contentWidth}px`;
+    // measure header/footer at full page width (their own padding provides the margins)
+    measure.style.width = `${geometry.widthPx}px`;
     const headerH = header ? header.offsetHeight : 0;
     const footerH = footer ? footer.offsetHeight : 0;
     const contentTop = geometry.margin.top + headerH;
@@ -421,13 +447,19 @@ export function createRichEditor(container: HTMLElement, adapter: Adapter, optio
       doc.insertBefore(sp, kids[idx]!);
     }
 
+    // read-only clone of the canonical band, click to edit (its own padding gives the margins)
     const mkClone = (src: HTMLElement, topPx: number): HTMLElement => {
       const c = src.cloneNode(true) as HTMLElement;
       c.removeAttribute("contenteditable");
       c.removeAttribute("role");
       c.removeAttribute("aria-label");
       c.classList.add("docxedit-hf-clone");
-      c.style.cssText = `top:${topPx}px;left:${geometry.margin.left}px;width:${contentWidth}px`;
+      c.style.cssText = `top:${topPx}px;left:0;width:100%`;
+      c.title = t("editHeaderFooter");
+      c.addEventListener("mousedown", (e) => {
+        e.preventDefault();
+        editBand(src, topPx);
+      });
       return c;
     };
 
@@ -438,13 +470,13 @@ export function createRichEditor(container: HTMLElement, adapter: Adapter, optio
       card.style.top = `${base}px`;
       card.style.height = `${geometry.heightPx}px`;
       pagelayer.appendChild(card);
-      if (header) pagelayer.appendChild(mkClone(header, base + geometry.margin.top));
-      if (footer) pagelayer.appendChild(mkClone(footer, base + geometry.heightPx - contentBottomInset));
       const num = document.createElement("div");
       num.className = "docxedit-pagenum";
       num.textContent = `${p + 1} / ${cardCount}`;
       num.style.top = `${base + geometry.heightPx - 22}px`;
       pagelayer.appendChild(num);
+      if (header) hflayer.appendChild(mkClone(header, base + geometry.margin.top));
+      if (footer) hflayer.appendChild(mkClone(footer, base + geometry.heightPx - contentBottomInset));
     }
 
     page.style.minHeight = `${cardCount * pageStep - PAGE_GAP}px`;
@@ -459,6 +491,7 @@ export function createRichEditor(container: HTMLElement, adapter: Adapter, optio
   };
 
   const reflow = () => {
+    if (editingBand) return; // don't yank the band currently being edited
     repaginate();
     positionCards();
   };

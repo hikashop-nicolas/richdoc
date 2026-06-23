@@ -41,10 +41,14 @@
 .docxedit-pagecard { position: absolute; left: 0; width: 100%; background: #fff; box-sizing: border-box; box-shadow: 0 2px 12px rgba(0, 0, 0, .45); }
 .docxedit-page.is-paginated .docxedit-doc { position: relative; z-index: 1; min-height: 0; }
 .docxedit-pagespacer { width: 100%; flex: none; user-select: none; }
-.docxedit-hf-clone { position: absolute; box-sizing: border-box; color: #555; font-size: .85em; overflow: hidden; }
-.docxedit-hf-clone p { margin: 0 0 .4em; }
 .docxedit-pagenum { position: absolute; left: 0; width: 100%; text-align: center; color: #9aa; font-size: 11px; }
 .docxedit-measure { position: absolute; left: -99999px; top: 0; visibility: hidden; }
+/* Header/footer layer sits above the body so the repeated clones are clickable; the layer
+   itself lets clicks through, only the clones (in the margins) capture them. */
+.docxedit-hflayer { position: absolute; inset: 0; z-index: 2; pointer-events: none; }
+.docxedit-hf-clone { position: absolute; box-sizing: border-box; pointer-events: auto; cursor: text; }
+.docxedit-hf-clone:hover { outline: 1px dashed #6e7bff; outline-offset: -1px; }
+.docxedit-header.is-editing, .docxedit-footer.is-editing { outline: 2px solid #6e7bff; outline-offset: -2px; border-radius: 2px; }
 .docxedit-doc { padding: var(--rdoc-margin-top, 40px) var(--rdoc-margin-right, 72px) var(--rdoc-margin-bottom, 56px) var(--rdoc-margin-left, 72px); min-height: 200px; outline: none; }
 .docxedit-header { padding: 24px var(--rdoc-margin-right, 72px) 8px var(--rdoc-margin-left, 72px); margin-bottom: 8px; border-bottom: 1px dashed #c9c9c9; color: #555; font-size: .85em; }
 .docxedit-footer { padding: 8px var(--rdoc-margin-right, 72px) 24px var(--rdoc-margin-left, 72px); margin-top: 8px; border-top: 1px dashed #c9c9c9; color: #555; font-size: .85em; }
