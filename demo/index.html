@@ -1,0 +1,26 @@
+<!doctype html>
+<html lang="en">
+  <head>
+    <meta charset="utf-8" />
+    <meta name="viewport" content="width=device-width, initial-scale=1" />
+    <title>richdoc demo</title>
+    <style>
+      html, body { height: 100%; margin: 0; }
+      body { display: flex; flex-direction: column; font: 14px system-ui, sans-serif; }
+      #bar { padding: 8px 12px; display: flex; gap: 12px; align-items: center; background: #1c1f24; color: #eee; }
+      #bar button { font: inherit; padding: 4px 10px; border-radius: 5px; border: 1px solid #4a4f57; background: #3a3f47; color: #eee; cursor: pointer; }
+      #bar button:disabled { opacity: .5; cursor: default; }
+      #info { opacity: .85; }
+      #mount { flex: 1; min-height: 0; }
+    </style>
+  </head>
+  <body>
+    <div id="bar">
+      <input type="file" id="file" accept=".docx,.odt" />
+      <button id="save" disabled>Download</button>
+      <span id="info">no file loaded</span>
+    </div>
+    <div id="mount"></div>
+    <script type="module" src="./main.ts"></script>
+  </body>
+</html>
