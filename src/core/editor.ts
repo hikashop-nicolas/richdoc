@@ -176,20 +176,23 @@ export function createRichEditor(container: HTMLElement, adapter: Adapter, optio
       more.classList.add("is-hidden");
       positionCards();
     });
-    const row = document.createElement("div");
-    row.className = "docxedit-cmt-react-row";
-    const addBtn = document.createElement("button");
-    addBtn.type = "button";
-    addBtn.className = "docxedit-react-add";
-    addBtn.title = t("addReaction");
-    addBtn.textContent = "\u{1F642}+";
-    addBtn.addEventListener("click", (e) => {
-      e.stopPropagation();
-      openReactionPicker(addBtn, entry, row);
-    });
-    row.appendChild(addBtn);
-    renderReactions(row, entry);
-    item.append(meta, text, more, row);
+    item.append(meta, text, more);
+    if (caps.commentReactions) {
+      const row = document.createElement("div");
+      row.className = "docxedit-cmt-react-row";
+      const addBtn = document.createElement("button");
+      addBtn.type = "button";
+      addBtn.className = "docxedit-react-add";
+      addBtn.title = t("addReaction");
+      addBtn.textContent = "\u{1F642}+";
+      addBtn.addEventListener("click", (e) => {
+        e.stopPropagation();
+        openReactionPicker(addBtn, entry, row);
+      });
+      row.appendChild(addBtn);
+      renderReactions(row, entry);
+      item.appendChild(row);
+    }
     return item;
   };
 
@@ -345,7 +348,7 @@ export function createRichEditor(container: HTMLElement, adapter: Adapter, optio
 
     card.appendChild(buildItem(thread, false));
     for (const reply of thread.replies) card.appendChild(buildItem(reply, true));
-    card.appendChild(buildReplyBox(card, thread));
+    if (caps.commentReplies) card.appendChild(buildReplyBox(card, thread));
 
     card.addEventListener("click", () => {
       setActiveComment(thread.id);

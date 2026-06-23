@@ -74,6 +74,10 @@ export interface CommentMarkers {
 /** Which engine features a format supports; the toolbar hides what is false. */
 export interface Capabilities {
   comments: boolean;
+  /** Threaded replies on comments (off for formats with no reply model, e.g. ODF). */
+  commentReplies: boolean;
+  /** Emoji reactions on comments (off for formats that cannot store them, e.g. ODF). */
+  commentReactions: boolean;
   trackChanges: boolean;
   images: boolean;
   headerFooter: boolean;

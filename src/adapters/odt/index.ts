@@ -1,7 +1,7 @@
 import { strFromU8, strToU8, unzipSync, zipSync } from "fflate";
 import { createRichEditor } from "../../core/editor";
 import { bytesToBase64, firstFontFamily, fontSizeToHalfPt, toHex6 } from "../../core/util";
-import type { Adapter, EditorOptions, RichDoc, RichEditor } from "../../core/types";
+import type { Adapter, CommentEdits, CommentMarkers, CommentThread, EditorOptions, NewCommentMeta, RichDoc, RichEditor } from "../../core/types";
 
 // odtedit: a standalone, framework-agnostic, client-side OpenDocument Text (.odt) editor.
 //
@@ -24,6 +24,8 @@ const NS = {
   draw: "urn:oasis:names:tc:opendocument:xmlns:drawing:1.0",
   svg: "urn:oasis:names:tc:opendocument:xmlns:svg-compatible:1.0",
   manifest: "urn:oasis:names:tc:opendocument:xmlns:manifest:1.0",
+  dc: "http://purl.org/dc/elements/1.1/",
+  loext: "urn:org:documentfoundation:names:experimental:office:xmlns:loext:1.0",
 } as const;
 
 interface Fmt {
@@ -124,11 +126,37 @@ function lenToPx(v: string | null | undefined): number | undefined {
 }
 const pxToCm = (px: number): string => `${Math.round((px / (96 / 2.54)) * 1000) / 1000}cm`;
 
-/** Read context: the archive (for image data) plus the resolved style maps. */
+/** Read context: the archive (for image data), the resolved style maps, and comment state. */
 interface RCtx {
   files: Record<string, Uint8Array>;
   styles: Map<string, Fmt>;
   paras: Map<string, PFmt>;
+  threads: CommentThread[]; // comments collected while rendering, for the panel
+  rangedNames: Set<string>; // annotation names that have a matching annotation-end
+  openComment: Set<string>; // comment ranges currently open (reopened per paragraph)
+}
+
+/** Read a comment's author/date/text from an office:annotation element. */
+function readAnnotation(an: Element): { author: string; date: string; text: string; resolved: boolean } {
+  const author = an.getElementsByTagName("dc:creator")[0]?.textContent ?? "";
+  const date = an.getElementsByTagName("dc:date")[0]?.textContent ?? "";
+  const text = Array.from(an.getElementsByTagName("text:p"))
+    .map((p) => p.textContent ?? "")
+    .join("\n")
+    .trim();
+  const resolved = an.getAttribute("loext:resolved") === "true" || an.getAttribute("officeooo:resolved") === "true";
+  return { author, date, text, resolved };
+}
+
+/** The clickable reference marker for a comment, carrying its metadata for save + panel. */
+function commentRef(name: string, m: { author: string; date: string; text: string; resolved: boolean }): string {
+  const meta = m.author ? `${m.author}${m.date ? " – " + m.date.slice(0, 10) : ""}` : "";
+  return (
+    `<span class="docx-comment-ref" contenteditable="false" data-comment-id="${escapeAttr(name)}" data-comment-paraid="${escapeAttr(name)}"` +
+    ` data-comment-author="${escapeAttr(m.author)}" data-comment-date="${escapeAttr(m.date)}" data-comment-text="${escapeAttr(m.text)}"` +
+    `${m.resolved ? ' data-comment-resolved="1"' : ""} data-comment-meta="${escapeAttr(meta)}"` +
+    ` title="${escapeAttr(meta ? meta + ": " + m.text : m.text)}">\u{1F4AC}</span>`
+  );
 }
 
 /** A draw:frame holding a draw:image -> an <img> with a data URL; otherwise passthrough. */
@@ -196,6 +224,7 @@ const wrapFmt = (inner: string, f: Fmt): string => {
 
 function inlineToHtml(el: Element, ctx: RCtx): string {
   let html = "";
+  for (const id of ctx.openComment) html += `<span class="docx-comment" data-comment-id="${escapeAttr(id)}">`;
   for (const node of Array.from(el.childNodes)) {
     if (node.nodeType === 3) {
       html += escapeHtml(node.textContent ?? "");
@@ -217,6 +246,22 @@ function inlineToHtml(el: Element, ctx: RCtx): string {
       case "draw:frame":
         html += imageHtml(child, ctx);
         break;
+      case "office:annotation": {
+        const name = child.getAttribute("office:name") ?? `c${ctx.threads.length}`;
+        const m = readAnnotation(child);
+        ctx.threads.push({ id: name, author: m.author, date: m.date, text: m.text, reactions: [], paraId: name, replies: [], resolved: m.resolved });
+        html += commentRef(name, m);
+        if (ctx.rangedNames.has(name)) {
+          ctx.openComment.add(name);
+          html += `<span class="docx-comment" data-comment-id="${escapeAttr(name)}">`;
+        }
+        break;
+      }
+      case "office:annotation-end": {
+        const name = child.getAttribute("office:name") ?? "";
+        if (ctx.openComment.delete(name)) html += "</span>";
+        break;
+      }
       case "text:line-break":
         html += "<br>";
         break;
@@ -229,11 +274,11 @@ function inlineToHtml(el: Element, ctx: RCtx): string {
         break;
       }
       default:
-        // Unmodelled inline content (annotations, bookmarks, notes, change marks,
-        // inline frames, ...) is preserved verbatim.
+        // Unmodelled inline content (bookmarks, notes, change marks, ...) preserved verbatim.
         html += inlinePass(child);
     }
   }
+  for (let i = 0; i < ctx.openComment.size; i++) html += "</span>"; // reopened in the next paragraph
   return html;
 }
 
@@ -274,18 +319,28 @@ function blockToHtml(el: Element, ctx: RCtx): string {
   }
 }
 
-/** Convert an .odt's body to HTML. Returns "" if there is no editable text body. */
-export function odtToHtml(bytes: Uint8Array): string {
+/** Parse an .odt into the editable body HTML plus the comment threads. */
+export function odtToParts(bytes: Uint8Array): { body: string; comments: CommentThread[] } {
   const files = unzipSync(bytes);
   const content = files["content.xml"];
-  if (!content) return "";
+  if (!content) return { body: "", comments: [] };
   const doc = new DOMParser().parseFromString(strFromU8(content), "application/xml");
   const body = doc.getElementsByTagName("office:text")[0];
-  if (!body) return "";
-  const ctx: RCtx = { files, styles: collectTextStyles(doc), paras: collectParaStyles(doc) };
+  if (!body) return { body: "", comments: [] };
+  const rangedNames = new Set(
+    Array.from(doc.getElementsByTagName("office:annotation-end"))
+      .map((e) => e.getAttribute("office:name"))
+      .filter((n): n is string => !!n),
+  );
+  const ctx: RCtx = { files, styles: collectTextStyles(doc), paras: collectParaStyles(doc), threads: [], rangedNames, openComment: new Set() };
   let html = "";
   for (const block of Array.from(body.children)) html += blockToHtml(block, ctx);
-  return html || "<p><br></p>";
+  return { body: html || "<p><br></p>", comments: ctx.threads };
+}
+
+/** Convert an .odt's body to HTML. Returns "" if there is no editable text body. */
+export function odtToHtml(bytes: Uint8Array): string {
+  return odtToParts(bytes).body;
 }
 
 // ---------------------------------------------------------------------------
@@ -353,12 +408,47 @@ function paraStyleFor(doc: Document, auto: Element, created: Map<string, string>
   return name;
 }
 
+interface RefMeta {
+  author: string;
+  date: string;
+  text: string;
+  resolved: boolean;
+  paraId: string;
+}
 interface OdfCtx {
   doc: Document;
   auto: Element;
   created: Map<string, string>;
   files: Record<string, Uint8Array>; // the archive, so embedded images can be added
   pics: { path: string; mime: string }[]; // images added this run, for the manifest
+  refMeta: Map<string, RefMeta>; // comment id -> metadata, gathered from the body refs
+  rangedIds: Set<string>; // comment ids that wrap a text range (vs a point comment)
+  done: Map<string, boolean>; // resolve state keyed by comment paraId
+}
+
+/** Build an office:annotation element for a comment id from its gathered metadata. */
+function makeAnnotation(ctx: OdfCtx, id: string): Element {
+  const m = ctx.refMeta.get(id);
+  const an = ctx.doc.createElementNS(NS.office, "office:annotation");
+  an.setAttributeNS(NS.office, "office:name", id);
+  const resolved = (m && ctx.done.get(m.paraId)) ?? m?.resolved ?? false;
+  if (resolved) an.setAttributeNS(NS.loext, "loext:resolved", "true");
+  if (m?.author) {
+    const cr = ctx.doc.createElementNS(NS.dc, "dc:creator");
+    cr.textContent = m.author;
+    an.appendChild(cr);
+  }
+  if (m?.date) {
+    const dt = ctx.doc.createElementNS(NS.dc, "dc:date");
+    dt.textContent = m.date;
+    an.appendChild(dt);
+  }
+  for (const line of (m?.text ?? "").split("\n")) {
+    const p = ctx.doc.createElementNS(NS.text, "text:p");
+    if (line) p.textContent = line;
+    an.appendChild(p);
+  }
+  return an;
 }
 
 /** Turn an <img> (data URL) into a draw:frame, embedding the bytes in the archive. */
@@ -443,6 +533,23 @@ function htmlInlineToOdf(node: Node, parent: Element, f: Fmt, ctx: OdfCtx): void
       if (frame) parent.appendChild(frame);
       continue;
     }
+    if (el.classList.contains("docx-comment")) {
+      // commented range: annotation at the start, the text, then annotation-end
+      const id = el.getAttribute("data-comment-id") ?? "";
+      parent.appendChild(makeAnnotation(ctx, id));
+      htmlInlineToOdf(el, parent, f, ctx);
+      const end = ctx.doc.createElementNS(NS.office, "office:annotation-end");
+      end.setAttributeNS(NS.office, "office:name", id);
+      parent.appendChild(end);
+      continue;
+    }
+    if (el.classList.contains("docx-comment-ref")) {
+      // metadata carrier: emit a point annotation only if it has no wrapped range
+      const id = el.getAttribute("data-comment-id") ?? "";
+      if (!ctx.rangedIds.has(id)) parent.appendChild(makeAnnotation(ctx, id));
+      continue;
+    }
+    if (el.classList.contains("docx-cmark")) continue; // empty new-comment marker: nothing to emit
     if (tag === "a") {
       const a = ctx.doc.createElementNS(NS.text, "text:a");
       a.setAttributeNS(NS.xlink, "xlink:href", el.getAttribute("href") ?? "");
@@ -512,7 +619,7 @@ function htmlBlockToOdf(node: Node, ctx: OdfCtx): Element | null {
 }
 
 /** Rebuild an .odt from edited HTML, preserving every other part of the archive. */
-export function htmlToOdt(html: string, original: Uint8Array): Uint8Array {
+export function htmlToOdt(html: string, original: Uint8Array, opts?: { done?: Map<string, boolean> }): Uint8Array {
   const files = unzipSync(original);
   const content = files["content.xml"];
   if (!content) throw new Error("not an .odt: content.xml missing");
@@ -521,8 +628,24 @@ export function htmlToOdt(html: string, original: Uint8Array): Uint8Array {
   if (!body) throw new Error("not an .odt: office:text missing");
 
   while (body.firstChild) body.removeChild(body.firstChild);
-  const ctx: OdfCtx = { doc, auto: ensureAutoStyles(doc), created: new Map(), files, pics: [] };
   const htmlDoc = new DOMParser().parseFromString(html || "<p><br></p>", "text/html");
+  // Gather comment metadata + which ids wrap a range, before serializing.
+  const refMeta = new Map<string, RefMeta>();
+  for (const ref of Array.from(htmlDoc.querySelectorAll(".docx-comment-ref"))) {
+    const id = ref.getAttribute("data-comment-id") ?? "";
+    if (!id) continue;
+    refMeta.set(id, {
+      author: ref.getAttribute("data-comment-author") ?? "",
+      date: ref.getAttribute("data-comment-date") ?? "",
+      text: ref.getAttribute("data-comment-text") ?? "",
+      resolved: ref.getAttribute("data-comment-resolved") === "1",
+      paraId: ref.getAttribute("data-comment-paraid") ?? id,
+    });
+  }
+  const rangedIds = new Set(
+    Array.from(htmlDoc.querySelectorAll(".docx-comment[data-comment-id]")).map((s) => s.getAttribute("data-comment-id") ?? ""),
+  );
+  const ctx: OdfCtx = { doc, auto: ensureAutoStyles(doc), created: new Map(), files, pics: [], refMeta, rangedIds, done: opts?.done ?? new Map() };
   for (const node of Array.from(htmlDoc.body.childNodes)) {
     const block = htmlBlockToOdf(node, ctx);
     if (block) body.appendChild(block);
@@ -554,23 +677,42 @@ export function createOdtAdapter(bytes: Uint8Array): Adapter {
   return {
     original,
     read(): RichDoc {
-      let body = "<p><br></p>";
+      let parts = { body: "<p><br></p>", comments: [] as CommentThread[] };
       try {
-        body = odtToHtml(bytes) || "<p><br></p>";
+        const p = odtToParts(bytes);
+        parts = { body: p.body || "<p><br></p>", comments: p.comments };
       } catch (e) {
         console.warn("odtedit: failed to parse document", e);
       }
-      return { body, header: "", footer: "", comments: [] };
+      return { body: parts.body, header: "", footer: "", comments: parts.comments };
     },
-    write(bodyHtml: string): Uint8Array {
-      return htmlToOdt(bodyHtml, original);
+    write(bodyHtml: string, _parts: { path: string; html: string }[], edits: CommentEdits): Uint8Array {
+      return htmlToOdt(bodyHtml, original, { done: edits.done });
     },
-    newCommentMarkers(): never {
-      // Comments are capability-gated off for odt, so the engine never calls this.
-      throw new Error("odt: comments are not supported yet");
+    newCommentMarkers(meta: NewCommentMeta): CommentMarkers {
+      const cmark = (): HTMLElement => {
+        const s = document.createElement("span");
+        s.className = "docx-cmark";
+        s.contentEditable = "false";
+        return s;
+      };
+      const ref = document.createElement("span");
+      ref.className = "docx-comment-ref";
+      ref.contentEditable = "false";
+      ref.textContent = "\u{1F4AC}";
+      ref.setAttribute("data-comment-id", meta.id);
+      ref.setAttribute("data-comment-new", "1");
+      ref.setAttribute("data-comment-paraid", meta.paraId);
+      ref.setAttribute("data-comment-author", meta.author);
+      if (meta.date) ref.setAttribute("data-comment-date", meta.date);
+      ref.setAttribute("data-comment-text", meta.text);
+      ref.setAttribute("data-comment-meta", meta.date ? `${meta.author} – ${meta.date.slice(0, 10)}` : meta.author);
+      return { start: cmark(), end: cmark(), ref };
     },
     capabilities: {
-      comments: false,
+      comments: true,
+      commentReplies: false,
+      commentReactions: false,
       trackChanges: false,
       images: true,
       headerFooter: false,

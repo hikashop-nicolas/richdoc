@@ -1561,6 +1561,8 @@ export function createDocxAdapter(bytes: Uint8Array): Adapter {
     newCommentMarkers: docxCommentMarkers,
     capabilities: {
       comments: true,
+      commentReplies: true,
+      commentReactions: true,
       trackChanges: true,
       images: true,
       headerFooter: true,

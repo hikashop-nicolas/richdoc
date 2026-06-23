@@ -1,6 +1,6 @@
 import { describe, expect, it } from "vitest";
 import { strFromU8, strToU8, unzipSync, zipSync } from "fflate";
-import { htmlToOdt, odtToHtml } from "./index";
+import { htmlToOdt, odtToHtml, odtToParts } from "./index";
 
 const CONTENT = `<?xml version="1.0" encoding="UTF-8"?>
 <office:document-content xmlns:office="urn:oasis:names:tc:opendocument:xmlns:office:1.0" xmlns:text="urn:oasis:names:tc:opendocument:xmlns:text:1.0" xmlns:style="urn:oasis:names:tc:opendocument:xmlns:style:1.0" xmlns:fo="urn:oasis:names:tc:opendocument:xmlns:xsl-fo-compatible:1.0" xmlns:xlink="http://www.w3.org/1999/xlink" office:version="1.2">
@@ -177,5 +177,61 @@ describe("odt images (draw:frame)", () => {
     expect(xml).toContain('svg:width="2.646cm"'); // 100px -> cm
     expect(Array.from(files["Pictures/ot_img0.png"])).toEqual([1, 2, 3, 4, 5]);
     expect(strFromU8(files["META-INF/manifest.xml"])).toContain('manifest:full-path="Pictures/ot_img0.png"');
+  });
+});
+
+describe("odt comments (office:annotation)", () => {
+  const ROOT =
+    'xmlns:office="urn:oasis:names:tc:opendocument:xmlns:office:1.0" ' +
+    'xmlns:text="urn:oasis:names:tc:opendocument:xmlns:text:1.0" ' +
+    'xmlns:dc="http://purl.org/dc/elements/1.1/" ' +
+    'xmlns:loext="urn:org:documentfoundation:names:experimental:office:xmlns:loext:1.0"';
+  const make = (inner: string) =>
+    makeOdt(`<?xml version="1.0"?><office:document-content ${ROOT}><office:body><office:text>${inner}</office:text></office:body></office:document-content>`);
+
+  it("reads a ranged annotation into a thread + highlight + ref", () => {
+    const odt = make(
+      '<text:p>Hi <office:annotation office:name="A1"><dc:creator>Alice</dc:creator><dc:date>2026-06-24T10:00:00</dc:date><text:p>Nice</text:p></office:annotation>there<office:annotation-end office:name="A1"/>!</text:p>',
+    );
+    const { body, comments } = odtToParts(odt);
+    expect(comments).toHaveLength(1);
+    expect(comments[0]).toMatchObject({ id: "A1", author: "Alice", text: "Nice", resolved: false });
+    expect(body).toContain('class="docx-comment" data-comment-id="A1"');
+    expect(body).toContain('class="docx-comment-ref"');
+    expect(body).toContain(">there<"); // the commented text stays in the body
+    expect(body).toContain('data-comment-text="Nice"'); // comment text is metadata, not body text
+    expect(body).toContain(">\u{1F4AC}</span>"); // the comment text is not rendered inline
+  });
+
+  it("writes a commented range back to an office:annotation + annotation-end", () => {
+    const html =
+      '<p>Hi <span class="docx-comment" data-comment-id="A1">there</span>' +
+      '<span class="docx-comment-ref" data-comment-id="A1" data-comment-paraid="A1" data-comment-author="Bob" data-comment-date="2026-06-24T00:00:00" data-comment-text="check">\u{1F4AC}</span>!</p>';
+    const out = htmlToOdt(html, make("<text:p/>"));
+    const xml = strFromU8(unzipSync(out)["content.xml"]);
+    expect(xml).toContain('office:annotation office:name="A1"');
+    expect(xml).toContain("<dc:creator>Bob</dc:creator>");
+    expect(xml).toContain("check");
+    expect(xml).toContain('office:annotation-end office:name="A1"');
+    expect(xml).toContain("there"); // body text preserved
+  });
+
+  it("marks an annotation resolved from the done edit map", () => {
+    const html =
+      '<p><span class="docx-comment" data-comment-id="A1">x</span>' +
+      '<span class="docx-comment-ref" data-comment-id="A1" data-comment-paraid="P1" data-comment-author="A" data-comment-text="t">\u{1F4AC}</span></p>';
+    const out = htmlToOdt(html, make("<text:p/>"), { done: new Map([["P1", true]]) });
+    expect(strFromU8(unzipSync(out)["content.xml"])).toContain('loext:resolved="true"');
+  });
+
+  it("round-trips a comment through read -> write -> read", () => {
+    const odt = make(
+      '<text:p>a <office:annotation office:name="A1"><dc:creator>Z</dc:creator><text:p>note</text:p></office:annotation>b<office:annotation-end office:name="A1"/> c</text:p>',
+    );
+    const { body } = odtToParts(odt);
+    const out = htmlToOdt(body, odt);
+    const again = odtToParts(out);
+    expect(again.comments).toHaveLength(1);
+    expect(again.comments[0]).toMatchObject({ id: "A1", author: "Z", text: "note" });
   });
 });
