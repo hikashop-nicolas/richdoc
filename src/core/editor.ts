@@ -4,7 +4,7 @@
 // reference adapter; odt reuses this same engine.
 
 import { t } from "./i18n";
-import { defaultPageGeometry } from "./page";
+import { defaultPageGeometry, paginate } from "./page";
 import { bytesToBase64, toHex6, fontSizeToHalfPt, firstFontFamily } from "./util";
 import type { Adapter, EditorOptions, RichEditor, RichDoc, CommentEntry, CommentThread } from "./types";
 import "../adapters/docx/docxedit.css";
@@ -73,9 +73,29 @@ export function createRichEditor(container: HTMLElement, adapter: Adapter, optio
   };
   const header = band("docxedit-header", t("header"), parts.header);
   const footer = band("docxedit-footer", t("footer"), parts.footer);
-  if (header) page.appendChild(header);
-  page.appendChild(doc);
-  if (footer) page.appendChild(footer);
+
+  // Paginated view: one continuous editable body (doc) on top of a layer of page-card
+  // decorations, with inert spacer gaps inserted at page boundaries. Pageless view keeps
+  // the body and header/footer stacked in one card (the previous behaviour).
+  const paginated = options.paginated ?? true;
+  const pagelayer = document.createElement("div");
+  pagelayer.className = "docxedit-pagelayer";
+  pagelayer.setAttribute("aria-hidden", "true");
+  // Off-screen holder so header/footer can be measured (and kept as the save source)
+  // without showing as in-flow bands in paginated mode.
+  const measure = document.createElement("div");
+  measure.className = "docxedit-measure";
+  if (paginated) {
+    page.classList.add("is-paginated");
+    page.append(pagelayer, doc);
+    if (header) measure.appendChild(header);
+    if (footer) measure.appendChild(footer);
+    page.appendChild(measure);
+  } else {
+    if (header) page.appendChild(header);
+    page.appendChild(doc);
+    if (footer) page.appendChild(footer);
+  }
 
   // Keep the page centred, with the comments column in the right margin (Google-Docs
   // style): an empty left spacer balances the right comments area so the page stays centred.
@@ -363,6 +383,91 @@ export function createRichEditor(container: HTMLElement, adapter: Adapter, optio
     cmtPanel.style.height = `${Math.max(prevBottom, page.offsetHeight)}px`;
   };
 
+  // --- Pagination -----------------------------------------------------------
+  // Measure top-level block heights, compute page breaks, then draw page cards behind the
+  // body and insert inert spacer gaps so the flow lands at each page's content box. The
+  // body stays one contenteditable; spacers are stripped before saving (see cleanBody).
+  const PAGE_GAP = 24;
+  const repaginate = () => {
+    if (!paginated) return;
+    for (const s of Array.from(doc.querySelectorAll(":scope > .docxedit-pagespacer"))) s.remove();
+    pagelayer.replaceChildren();
+
+    const contentWidth = Math.max(0, geometry.widthPx - geometry.margin.left - geometry.margin.right);
+    measure.style.width = `${contentWidth}px`;
+    const headerH = header ? header.offsetHeight : 0;
+    const footerH = footer ? footer.offsetHeight : 0;
+    const contentTop = geometry.margin.top + headerH;
+    const contentBottomInset = geometry.margin.bottom + footerH;
+    const contentHeight = geometry.heightPx - contentTop - contentBottomInset;
+    const pageStep = geometry.heightPx + PAGE_GAP;
+
+    // place the body inside each page's content box (overrides the CSS-var padding)
+    doc.style.padding = `${contentTop}px ${geometry.margin.right}px ${contentBottomInset}px ${geometry.margin.left}px`;
+
+    // delta of offsetTop captures each block's height plus its collapsed inter-block margin
+    const kids = Array.from(doc.children).filter((c) => !c.classList.contains("docxedit-pagespacer")) as HTMLElement[];
+    const tops = kids.map((k) => k.offsetTop);
+    const heights = kids.map((k, i) => (i < kids.length - 1 ? tops[i + 1]! - tops[i]! : k.offsetHeight));
+
+    const { spacerBefore, cardCount } = paginate(heights, { pageStep, contentHeight });
+
+    for (const [idx, h] of spacerBefore) {
+      const sp = document.createElement("div");
+      sp.className = "docxedit-pagespacer";
+      sp.contentEditable = "false";
+      sp.setAttribute("aria-hidden", "true");
+      sp.style.height = `${h}px`;
+      doc.insertBefore(sp, kids[idx]!);
+    }
+
+    const mkClone = (src: HTMLElement, topPx: number): HTMLElement => {
+      const c = src.cloneNode(true) as HTMLElement;
+      c.removeAttribute("contenteditable");
+      c.removeAttribute("role");
+      c.removeAttribute("aria-label");
+      c.classList.add("docxedit-hf-clone");
+      c.style.cssText = `top:${topPx}px;left:${geometry.margin.left}px;width:${contentWidth}px`;
+      return c;
+    };
+
+    for (let p = 0; p < cardCount; p++) {
+      const base = p * pageStep;
+      const card = document.createElement("div");
+      card.className = "docxedit-pagecard";
+      card.style.top = `${base}px`;
+      card.style.height = `${geometry.heightPx}px`;
+      pagelayer.appendChild(card);
+      if (header) pagelayer.appendChild(mkClone(header, base + geometry.margin.top));
+      if (footer) pagelayer.appendChild(mkClone(footer, base + geometry.heightPx - contentBottomInset));
+      const num = document.createElement("div");
+      num.className = "docxedit-pagenum";
+      num.textContent = `${p + 1} / ${cardCount}`;
+      num.style.top = `${base + geometry.heightPx - 22}px`;
+      pagelayer.appendChild(num);
+    }
+
+    page.style.minHeight = `${cardCount * pageStep - PAGE_GAP}px`;
+  };
+
+  // Body HTML for saving: the live doc minus pagination artifacts (the inert spacers).
+  const cleanBody = (): string => {
+    if (!doc.querySelector(".docxedit-pagespacer")) return doc.innerHTML;
+    const tmp = doc.cloneNode(true) as HTMLElement;
+    for (const s of Array.from(tmp.querySelectorAll(".docxedit-pagespacer"))) s.remove();
+    return tmp.innerHTML;
+  };
+
+  const reflow = () => {
+    repaginate();
+    positionCards();
+  };
+  let reflowTimer = 0;
+  const scheduleReflow = () => {
+    window.clearTimeout(reflowTimer);
+    reflowTimer = window.setTimeout(reflow, 150);
+  };
+
   for (const thread of parts.comments) addThreadCard(thread);
   // Clicking commented (highlighted) text opens its thread; the inline icon is gone.
   wrap.addEventListener("click", (e) => {
@@ -376,14 +481,26 @@ export function createRichEditor(container: HTMLElement, adapter: Adapter, optio
       cmtPanel.querySelector(`[data-comment-id="${CSS.escape(threadId)}"]`)?.scrollIntoView({ block: "nearest", behavior: "smooth" });
     }
   });
-  // Position now and once the layout settles (rAF is throttled in background tabs, so also
-  // use a timeout), and on any reflow or edit.
-  positionCards();
-  requestAnimationFrame(positionCards);
-  setTimeout(positionCards, 150);
-  const repositionObserver = new ResizeObserver(() => positionCards());
-  repositionObserver.observe(page);
-  for (const r of regions) r.addEventListener("input", () => positionCards());
+  // Lay out pages + comment cards now and once the layout settles (rAF is throttled in
+  // background tabs, so also use a timeout), and again whenever heights can shift: after
+  // fonts and images load, on container width change, and (debounced) on every edit.
+  reflow();
+  requestAnimationFrame(reflow);
+  setTimeout(reflow, 150);
+  if (document.fonts?.ready) document.fonts.ready.then(reflow).catch(() => {});
+  for (const img of Array.from(doc.querySelectorAll("img"))) img.addEventListener("load", reflow);
+  let lastWidth = scroll.clientWidth;
+  const repositionObserver = new ResizeObserver(() => {
+    const w = scroll.clientWidth;
+    if (w !== lastWidth) {
+      lastWidth = w;
+      reflow();
+    } else {
+      positionCards();
+    }
+  });
+  repositionObserver.observe(scroll);
+  for (const r of regions) r.addEventListener("input", scheduleReflow);
 
   // Image select: click an image to select it, drag the corner handle to resize, and use
   // the delete button (top-right) or the Delete/Backspace key to remove it.
@@ -497,6 +614,7 @@ export function createRichEditor(container: HTMLElement, adapter: Adapter, optio
   const mark = () => {
     dirty = true;
     options.onChange?.();
+    scheduleReflow(); // content changed: re-paginate (debounced)
   };
   for (const r of regions) {
     r.addEventListener("input", mark);
@@ -1053,7 +1171,7 @@ export function createRichEditor(container: HTMLElement, adapter: Adapter, optio
       const editedParts: { path: string; html: string }[] = [];
       if (header && parts.headerPath) editedParts.push({ path: parts.headerPath, html: header.innerHTML });
       if (footer && parts.footerPath) editedParts.push({ path: parts.footerPath, html: footer.innerHTML });
-      return adapter.write(doc.innerHTML, editedParts, {
+      return adapter.write(cleanBody(), editedParts, {
         reactions: pendingReactions.map((r) => ({ ...r, date: options.now || new Date().toISOString() })),
         replies: pendingReplies,
         done: pendingDone,
@@ -1062,6 +1180,7 @@ export function createRichEditor(container: HTMLElement, adapter: Adapter, optio
     },
     destroy() {
       for (const u of fontUrls) URL.revokeObjectURL(u);
+      window.clearTimeout(reflowTimer);
       repositionObserver.disconnect();
       wrap.remove();
     },

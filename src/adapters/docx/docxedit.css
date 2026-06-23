@@ -32,6 +32,19 @@
   font: 16px/1.5 var(--docxedit-doc-font, "Liberation Serif"), Georgia, serif;
 }
 .docxedit-page:focus-within { box-shadow: 0 0 0 2px #6e7bff, 0 2px 12px rgba(0, 0, 0, .45); }
+
+/* Paginated view: the page becomes a positioning context; per-page cards are drawn in a
+   layer behind the single continuous body, which carries inert spacer gaps at breaks. */
+.docxedit-page.is-paginated { position: relative; background: transparent; box-shadow: none; }
+.docxedit-page.is-paginated:focus-within { box-shadow: none; }
+.docxedit-pagelayer { position: absolute; inset: 0; z-index: 0; pointer-events: none; }
+.docxedit-pagecard { position: absolute; left: 0; width: 100%; background: #fff; box-sizing: border-box; box-shadow: 0 2px 12px rgba(0, 0, 0, .45); }
+.docxedit-page.is-paginated .docxedit-doc { position: relative; z-index: 1; min-height: 0; }
+.docxedit-pagespacer { width: 100%; flex: none; user-select: none; }
+.docxedit-hf-clone { position: absolute; box-sizing: border-box; color: #555; font-size: .85em; overflow: hidden; }
+.docxedit-hf-clone p { margin: 0 0 .4em; }
+.docxedit-pagenum { position: absolute; left: 0; width: 100%; text-align: center; color: #9aa; font-size: 11px; }
+.docxedit-measure { position: absolute; left: -99999px; top: 0; visibility: hidden; }
 .docxedit-doc { padding: var(--rdoc-margin-top, 40px) var(--rdoc-margin-right, 72px) var(--rdoc-margin-bottom, 56px) var(--rdoc-margin-left, 72px); min-height: 200px; outline: none; }
 .docxedit-header { padding: 24px var(--rdoc-margin-right, 72px) 8px var(--rdoc-margin-left, 72px); margin-bottom: 8px; border-bottom: 1px dashed #c9c9c9; color: #555; font-size: .85em; }
 .docxedit-footer { padding: 8px var(--rdoc-margin-right, 72px) 24px var(--rdoc-margin-left, 72px); margin-top: 8px; border-top: 1px dashed #c9c9c9; color: #555; font-size: .85em; }

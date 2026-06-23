@@ -103,6 +103,8 @@ export interface EditorOptions {
   now?: string;
   /** Page size used only when the document carries no geometry of its own. Default "a4". */
   defaultPageSize?: PageSizeName;
+  /** Paginated view (page cards + reflow) vs a single continuous page. Default true. */
+  paginated?: boolean;
 }
 
 export interface RichEditor {
