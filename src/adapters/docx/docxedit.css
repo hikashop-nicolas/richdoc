@@ -1,0 +1,127 @@
+/* docxedit styles. Imported by the library entry so a consumer's bundler ships it. */
+
+.docxedit-wrap { display: flex; flex-direction: column; height: 100%; background: #525659; position: relative; }
+
+.docxedit-toolbar {
+  display: flex; flex-wrap: wrap; align-items: center; gap: 6px; padding: 6px 10px;
+  background: #2b2f36; border-bottom: 1px solid #1c1f24; color: #e6e6e6; font: 13px system-ui, sans-serif;
+}
+.docxedit-toolbar button, .docxedit-toolbar select, .docxedit-toolbar input[type="color"] {
+  font: inherit; background: #3a3f47; color: #e6e6e6; border: 1px solid #4a4f57; border-radius: 5px;
+  padding: 3px 8px; cursor: pointer; height: 28px; box-sizing: border-box; min-width: 30px;
+}
+.docxedit-toolbar button:hover, .docxedit-toolbar select:hover, .docxedit-toolbar input[type="color"]:hover { border-color: #6e7bff; }
+.docxedit-toolbar button:focus-visible, .docxedit-toolbar select:focus-visible { outline: 2px solid #fff; outline-offset: 1px; }
+.docxedit-toolbar .sep { width: 1px; align-self: stretch; background: #4a4f57; margin: 0 2px; }
+.docxedit-toolbar button.is-on { background: #6e7bff; border-color: #6e7bff; color: #fff; }
+.docxedit-toolbar .docxedit-tb-bold { font-weight: bold; }
+.docxedit-toolbar .docxedit-tb-italic { font-style: italic; }
+.docxedit-toolbar .docxedit-tb-underline { text-decoration: underline; }
+.docxedit-color { width: 30px; padding: 1px; }
+.docxedit-bg { display: inline-flex; align-items: center; gap: 2px; }
+.docxedit-bg-clear { min-width: 26px; }
+
+.docxedit-scroll { flex: 1; min-height: 0; overflow: auto; display: flex; flex-direction: column; align-items: safe center; padding: 24px; }
+/* Symmetric margins keep the page centred; the right one holds the comments column. */
+.docxedit-canvas { display: flex; align-items: flex-start; gap: 18px; flex: 0 0 auto; }
+.docxedit-margin { flex: 0 1 250px; min-width: 0; }
+
+.docxedit-page {
+  background: #fff; color: #111; width: min(816px, 100%); min-height: 300px; flex: 0 0 auto;
+  box-shadow: 0 2px 12px rgba(0, 0, 0, .45); box-sizing: border-box;
+  font: 16px/1.5 var(--docxedit-doc-font, "Liberation Serif"), Georgia, serif;
+}
+.docxedit-page:focus-within { box-shadow: 0 0 0 2px #6e7bff, 0 2px 12px rgba(0, 0, 0, .45); }
+.docxedit-doc { padding: 40px 72px 56px; min-height: 200px; outline: none; }
+.docxedit-header { padding: 24px 72px 8px; margin-bottom: 8px; border-bottom: 1px dashed #c9c9c9; color: #555; font-size: .85em; }
+.docxedit-footer { padding: 8px 72px 24px; margin-top: 8px; border-top: 1px dashed #c9c9c9; color: #555; font-size: .85em; }
+.docxedit-doc h1 { font-size: 2em; } .docxedit-doc h2 { font-size: 1.5em; } .docxedit-doc h3 { font-size: 1.2em; }
+.docxedit-doc p, .docxedit-header p, .docxedit-footer p { margin: 0 0 .6em; }
+.docxedit-doc a { color: #1a56db; }
+.docxedit-doc img { max-width: 100%; height: auto; }
+.docxedit-doc img.sel { outline: 2px solid #6e7bff; outline-offset: 1px; }
+.docxedit-table td { border: 1px solid #999; }
+.docxedit-img-ph { display: inline-block; padding: 2px 8px; border: 1px dashed #aaa; color: #777; font-size: .85em; }
+
+.docx-pagebreak { display: block; height: 0; margin: 20px 0; border-top: 2px dashed #b9b9b9; position: relative; user-select: none; }
+.docx-pagebreak[data-docx-pagebreak="manual"]::after {
+  content: attr(data-label); position: absolute; top: -8px; left: 50%; transform: translateX(-50%);
+  background: #fff; padding: 0 8px; color: #999; font-size: 11px; white-space: nowrap;
+}
+.docx-pagebreak-auto { border-top: 1px dotted #d6d6d6; margin: 14px 0; }
+
+/* Comments column: cards are absolutely anchored next to the text they mark. */
+.docxedit-comments { position: relative; width: 250px; }
+.docxedit-cmt-card {
+  position: absolute; left: 0; width: 100%; box-sizing: border-box;
+  background: #fff; color: #222; border: 1px solid #ddd; border-radius: 8px;
+  box-shadow: 0 1px 5px rgba(0, 0, 0, .18); cursor: pointer; transition: top .15s ease;
+}
+.docxedit-cmt-card.active { border-color: #6e7bff; box-shadow: 0 2px 12px rgba(110, 123, 255, .5); }
+.docxedit-cmt-card.resolved { opacity: .5; }
+.docxedit-cmt-actions { position: absolute; top: 4px; right: 6px; display: flex; gap: 2px; }
+.docxedit-cmt-action {
+  background: none; border: 0; border-radius: 4px; cursor: pointer; color: #999;
+  font-size: 13px; line-height: 1; padding: 3px 5px;
+}
+.docxedit-cmt-action:hover { background: #eef0ff; color: #333; }
+.docxedit-cmt-replybox { padding: 4px 11px 9px; }
+.docxedit-cmt-replybtn { background: none; border: 0; color: #1a56db; cursor: pointer; padding: 2px 0; font: inherit; font-size: .9em; }
+.docxedit-cmt-replyinput { width: 100%; box-sizing: border-box; resize: vertical; border: 1px solid #ccc; border-radius: 5px; padding: 5px 6px; font: inherit; font-size: .9em; }
+.docxedit-cmt-send { margin-top: 5px; background: #6e7bff; color: #fff; border: 0; border-radius: 5px; padding: 4px 12px; cursor: pointer; font: inherit; font-size: .85em; }
+.docxedit-cmt-item { padding: 8px 11px; font: 13px/1.45 system-ui, sans-serif; }
+.docxedit-cmt-reply { border-top: 1px solid #eee; }
+.docxedit-cmt-item b { display: block; font-size: .82em; color: #555; margin-bottom: 3px; font-weight: 600; }
+.docxedit-cmt-text { white-space: pre-wrap; display: -webkit-box; -webkit-line-clamp: 6; -webkit-box-orient: vertical; overflow: hidden; }
+.docxedit-cmt-text.expanded { -webkit-line-clamp: unset; }
+.docxedit-cmt-more { background: none; border: 0; color: #1a56db; cursor: pointer; padding: 2px 0; font: inherit; font-size: .9em; }
+.docxedit-cmt-more.is-hidden { display: none; }
+.docxedit-cmt-react-row { display: flex; flex-wrap: wrap; align-items: center; gap: 4px; margin-top: 6px; }
+.docxedit-react { background: #eef0ff; border: 1px solid #dde; border-radius: 10px; padding: 0 6px; font-size: 12px; line-height: 18px; cursor: default; }
+.docxedit-react-add { background: none; border: 1px solid #ddd; border-radius: 10px; padding: 0 6px; cursor: pointer; font-size: 12px; line-height: 18px; color: #666; }
+.docxedit-react-add:hover { border-color: #6e7bff; }
+.docxedit-react-pop {
+  position: absolute; z-index: 25; background: #fff; border: 1px solid #ccc; border-radius: 8px;
+  box-shadow: 0 6px 22px rgba(0, 0, 0, .3); padding: 4px; display: flex; gap: 2px;
+}
+.docxedit-react-pop button { background: none; border: 0; font-size: 18px; cursor: pointer; padding: 3px 5px; border-radius: 6px; }
+.docxedit-react-pop button:hover { background: #eef0ff; }
+/* Tracked changes (suggestion mode) */
+.docx-ins { color: #0a7d28; text-decoration: underline; }
+.docx-del { color: #b3261e; text-decoration: line-through; }
+.docx-rpr-change { border-bottom: 2px dotted #b25b00; }
+.docx-para-ins::after { content: "¶"; color: #0a7d28; margin-left: 1px; }
+.docx-para-del::after { content: "¶"; color: #b3261e; margin-left: 1px; text-decoration: line-through; }
+.docxedit-change-pop {
+  position: absolute; z-index: 25; background: #fff; border: 1px solid #ccc; border-radius: 7px;
+  box-shadow: 0 6px 22px rgba(0, 0, 0, .3); padding: 3px; display: flex; gap: 3px;
+}
+.docxedit-change-pop button { background: none; border: 0; font-size: 14px; cursor: pointer; padding: 3px 8px; border-radius: 5px; }
+.docxedit-change-pop button:hover { background: #eef0ff; }
+.docx-comment { background: rgba(255, 212, 0, .22); border-bottom: 1px solid #e0a800; cursor: pointer; }
+.docx-comment.active { background: rgba(110, 123, 255, .4); border-bottom-color: #6e7bff; box-shadow: 0 0 0 1px rgba(110, 123, 255, .4); }
+/* The inline marker is kept for round-trip but no longer shown; the highlight is the cue. */
+.docx-comment-ref, .docx-cmark { display: none; }
+/* Preserved-but-unmodelled content (fields, bookmarks, content controls, math, ...). */
+.docx-pass:empty { display: none; }
+.docx-pass-block { margin: 0 0 .6em; }
+
+.docxedit-img-handle {
+  position: absolute; width: 13px; height: 13px; background: #6e7bff; border: 2px solid #fff;
+  border-radius: 50%; cursor: nwse-resize; z-index: 15; box-shadow: 0 1px 3px rgba(0, 0, 0, .45);
+}
+.docxedit-img-handle.is-hidden { display: none; }
+.docxedit-img-del {
+  position: absolute; width: 22px; height: 22px; z-index: 16; cursor: pointer;
+  background: #d23; color: #fff; border: 2px solid #fff; border-radius: 50%;
+  font-size: 12px; line-height: 1; padding: 0; box-shadow: 0 1px 3px rgba(0, 0, 0, .45);
+}
+.docxedit-img-del.is-hidden { display: none; }
+
+.docxedit-cmt-pop {
+  position: absolute; z-index: 20; max-width: 300px; background: #fff; color: #222;
+  border: 1px solid #c9c9c9; border-radius: 7px; box-shadow: 0 6px 22px rgba(0, 0, 0, .32);
+  padding: 9px 11px; font: 13px/1.45 system-ui, sans-serif;
+}
+.docxedit-cmt-pop.docxedit-cmt-tip { top: 8px; left: 12px; }
+.docxedit-cmt-pop b { display: block; font-size: .85em; color: #666; margin-bottom: 3px; font-weight: 600; }

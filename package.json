@@ -1,0 +1,40 @@
+{
+  "name": "richdoc",
+  "version": "0.1.0",
+  "description": "One client-side rich-document editor for .docx and .odt: a shared engine (comments, track changes, images, tables, passthrough) with a per-format adapter, all in the browser.",
+  "type": "module",
+  "license": "MIT",
+  "main": "./dist/index.js",
+  "module": "./dist/index.js",
+  "types": "./dist/index.d.ts",
+  "exports": {
+    ".": {
+      "types": "./dist/index.d.ts",
+      "import": "./dist/index.js"
+    },
+    "./docx": {
+      "types": "./dist/adapters/docx/index.d.ts",
+      "import": "./dist/adapters/docx/index.js"
+    },
+    "./odt": {
+      "types": "./dist/adapters/odt/index.d.ts",
+      "import": "./dist/adapters/odt/index.js"
+    },
+    "./docx.css": "./dist/adapters/docx/docxedit.css"
+  },
+  "files": ["dist"],
+  "scripts": {
+    "build": "tsc -p tsconfig.json && cp src/adapters/docx/docxedit.css dist/adapters/docx/docxedit.css",
+    "prepare": "tsc -p tsconfig.json && cp src/adapters/docx/docxedit.css dist/adapters/docx/docxedit.css",
+    "typecheck": "tsc -p tsconfig.json --noEmit",
+    "test": "vitest run"
+  },
+  "dependencies": {
+    "fflate": "^0.8.2"
+  },
+  "devDependencies": {
+    "jsdom": "^28.0.0",
+    "typescript": "^6.0.3",
+    "vitest": "^4.0.0"
+  }
+}
