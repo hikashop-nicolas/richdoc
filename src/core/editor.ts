@@ -66,10 +66,11 @@ export function createRichEditor(container: HTMLElement, adapter: Adapter, optio
     page.style.setProperty("--rdoc-margin-left", `${geometry.margin.left}px`);
   };
   applyGeometry();
-  // Vertical (Japanese tategaki): the page is fixed-height and grows horizontally (columns
-  // advance right-to-left), so it renders as one continuous page rather than paginated cards.
-  // Horizontal RTL (Arabic/Hebrew) is just direction:rtl and keeps normal pagination.
-  if (caps.verticalText && geometry.vertical) page.classList.add("is-vertical");
+  // Vertical (Japanese tategaki): fixed-height page, columns top-to-bottom advancing right to
+  // left, so the page grows along x and page cards advance right-to-left (see repaginateVertical).
+  // Horizontal RTL (Arabic/Hebrew) is just direction:rtl and keeps the normal layout.
+  const isVertical = caps.verticalText && !!geometry.vertical;
+  if (isVertical) page.classList.add("is-vertical");
   else if (caps.verticalText && geometry.rtl) page.classList.add("is-rtl");
 
   const band = (cls: string, label: string, html: string): HTMLElement | null => {
@@ -93,7 +94,7 @@ export function createRichEditor(container: HTMLElement, adapter: Adapter, optio
   // Paginated view: one continuous editable body (doc) on top of a layer of page-card
   // decorations, with inert spacer gaps inserted at page boundaries. Pageless view keeps
   // the body and header/footer stacked in one card (the previous behaviour).
-  const paginated = (options.paginated ?? true) && !(geometry.vertical && caps.verticalText);
+  const paginated = options.paginated ?? true;
   const pagelayer = document.createElement("div"); // page cards, behind the body
   pagelayer.className = "docxedit-pagelayer";
   pagelayer.setAttribute("aria-hidden", "true");
@@ -166,8 +167,62 @@ export function createRichEditor(container: HTMLElement, adapter: Adapter, optio
   // blur, the pages re-clone its content. editingBand suspends reflow during an edit.
   let editingBand: HTMLElement | null = null;
 
+  // Vertical (tategaki) pagination: the fill axis is x (right to left). Feed paginate() each
+  // block's inline-size (its width in vertical-rl) and the page's content width; page cards
+  // advance right-to-left and spacer gaps are widths. The doc is an inline-block, right-aligned,
+  // fixed at the page height and growing leftward (see the .is-vertical.is-paginated CSS).
+  const manualBreaks = (kids: HTMLElement[]): Set<number> => {
+    const set = new Set<number>();
+    const isMarker = (el: Element) => el.classList.contains("docx-pagebreak") && el.getAttribute("data-docx-pagebreak") === "manual";
+    kids.forEach((k, i) => {
+      if (isMarker(k)) { if (i + 1 < kids.length) set.add(i + 1); }
+      else if (i > 0 && k.querySelector('.docx-pagebreak[data-docx-pagebreak="manual"]')) set.add(i);
+    });
+    return set;
+  };
+  const repaginateVertical = () => {
+    for (const s of Array.from(doc.querySelectorAll(":scope > .docxedit-pagespacer"))) s.remove();
+    pagelayer.replaceChildren();
+    hflayer.replaceChildren(); // header/footer not paginated in vertical v1
+    const { left, right } = geometry.margin;
+    const contentExtent = geometry.widthPx - left - right; // usable page width along the fill axis
+    const pageStep = geometry.widthPx + PAGE_GAP;
+    doc.style.height = `${geometry.heightPx}px`;
+    doc.style.padding = `${geometry.margin.top}px ${right}px ${geometry.margin.bottom}px ${left}px`;
+    for (const el of Array.from(doc.querySelectorAll(".docxedit-pagetop"))) el.classList.remove("docxedit-pagetop");
+
+    const kids = Array.from(doc.children).filter((c) => !c.classList.contains("docxedit-pagespacer")) as HTMLElement[];
+    // progression (right-to-left) size: right edge of block i minus right edge of block i+1.
+    const rights = kids.map((k) => k.offsetLeft + k.offsetWidth);
+    const sizes = kids.map((k, i) => (i < kids.length - 1 ? rights[i]! - rights[i + 1]! : k.offsetWidth));
+
+    const { spacerBefore, cardCount } = paginate(sizes, { pageStep, contentHeight: contentExtent }, manualBreaks(kids));
+    for (const [idx, w] of spacerBefore) {
+      const sp = document.createElement("div");
+      sp.className = "docxedit-pagespacer";
+      sp.contentEditable = "false";
+      sp.setAttribute("aria-hidden", "true");
+      sp.style.width = `${w}px`;
+      doc.insertBefore(sp, kids[idx]!);
+      kids[idx]!.classList.add("docxedit-pagetop");
+    }
+    for (let p = 0; p < cardCount; p++) {
+      const card = document.createElement("div");
+      card.className = "docxedit-pagecard";
+      card.style.left = "auto";
+      card.style.right = `${p * pageStep}px`;
+      card.style.top = "0";
+      card.style.width = `${geometry.widthPx}px`;
+      card.style.height = `${geometry.heightPx}px`;
+      pagelayer.appendChild(card);
+    }
+    page.style.width = `${cardCount * pageStep - PAGE_GAP}px`;
+    page.style.minHeight = `${geometry.heightPx}px`;
+  };
+
   const repaginate = () => {
     if (!paginated || editingBand) return;
+    if (isVertical) return repaginateVertical();
     for (const s of Array.from(doc.querySelectorAll(":scope > .docxedit-pagespacer"))) s.remove();
     pagelayer.replaceChildren();
     hflayer.replaceChildren();
@@ -322,7 +377,7 @@ export function createRichEditor(container: HTMLElement, adapter: Adapter, optio
     const sel = `.docxedit-hf-clone.docxedit-${kind}`;
     (hflayer.querySelector(sel) as HTMLElement | null)?.focus();
   };
-  if (paginated && caps.headerFooter) {
+  if (paginated && caps.headerFooter && !isVertical) {
     page.addEventListener("dblclick", (e) => {
       if ((e.target as HTMLElement).closest(".docxedit-hf-clone")) return; // editing an existing band
       if (header && footer) return;
@@ -341,6 +396,12 @@ export function createRichEditor(container: HTMLElement, adapter: Adapter, optio
   reflow();
   requestAnimationFrame(reflow);
   setTimeout(reflow, 150);
+  // Vertical reads right-to-left, so start scrolled to the rightmost page (page 1).
+  if (isVertical) {
+    const scrollRight = () => { scroll.scrollLeft = scroll.scrollWidth; };
+    requestAnimationFrame(scrollRight);
+    setTimeout(scrollRight, 200);
+  }
   if (document.fonts?.ready) document.fonts.ready.then(reflow).catch(() => {});
   for (const img of Array.from(doc.querySelectorAll("img"))) img.addEventListener("load", reflow);
   let lastWidth = scroll.clientWidth;
