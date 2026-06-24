@@ -57,6 +57,73 @@ export function setupTableEdit(deps: TableEditDeps) {
     }
     dirty(curTable);
   };
+  // Grid layout of a DOM table: each td placed in every grid cell it spans, so neighbours
+  // (right / below) can be found correctly even with existing spans.
+  type Pos = { row: number; col: number; rowspan: number; colspan: number };
+  const computeGrid = (table: HTMLTableElement): { pos: Map<HTMLTableCellElement, Pos>; at: (HTMLTableCellElement | undefined)[][] } => {
+    const pos = new Map<HTMLTableCellElement, Pos>();
+    const at: (HTMLTableCellElement | undefined)[][] = Array.from(table.rows, () => []);
+    Array.from(table.rows).forEach((tr, r) => {
+      let col = 0;
+      for (const td of Array.from(tr.cells)) {
+        while (at[r][col]) col++;
+        const cs = td.colSpan || 1;
+        const rs = td.rowSpan || 1;
+        pos.set(td, { row: r, col, rowspan: rs, colspan: cs });
+        for (let dr = 0; dr < rs; dr++) for (let dc = 0; dc < cs; dc++) if (at[r + dr]) at[r + dr][col + dc] = td;
+        col += cs;
+      }
+    });
+    return { pos, at };
+  };
+  const moveContent = (src: HTMLTableCellElement, dst: HTMLTableCellElement): void => {
+    const sd = src.querySelector(".docx-cell");
+    const dd = dst.querySelector(".docx-cell");
+    if (sd && dd && (sd.textContent ?? "").trim()) for (const n of Array.from(sd.childNodes)) dd.appendChild(n);
+  };
+  const mergeRight = (): void => {
+    if (!curTable || !curCell) return;
+    const { pos, at } = computeGrid(curTable);
+    const p = pos.get(curCell);
+    const right = p ? at[p.row]?.[p.col + p.colspan] : undefined;
+    const rp = right && pos.get(right);
+    if (!p || !right || right === curCell || !rp || rp.row !== p.row || rp.rowspan !== p.rowspan) return;
+    curCell.colSpan = p.colspan + rp.colspan;
+    moveContent(right, curCell);
+    right.remove();
+    dirty(curTable);
+  };
+  const mergeDown = (): void => {
+    if (!curTable || !curCell) return;
+    const { pos, at } = computeGrid(curTable);
+    const p = pos.get(curCell);
+    const below = p ? at[p.row + p.rowspan]?.[p.col] : undefined;
+    const bp = below && pos.get(below);
+    if (!p || !below || !bp || bp.col !== p.col || bp.colspan !== p.colspan) return;
+    curCell.rowSpan = p.rowspan + bp.rowspan;
+    moveContent(below, curCell);
+    below.remove();
+    dirty(curTable);
+  };
+  const splitCell = (): void => {
+    if (!curTable || !curCell) return;
+    const { pos } = computeGrid(curTable);
+    const p = pos.get(curCell);
+    if (!p || (p.colspan <= 1 && p.rowspan <= 1)) return;
+    const { colspan: cs, rowspan: rs, col, row } = p;
+    curCell.colSpan = 1;
+    curCell.rowSpan = 1;
+    for (let k = 1; k < cs; k++) curCell.parentElement?.insertBefore(newCell(), curCell.nextSibling);
+    const rows = Array.from(curTable.rows);
+    for (let dr = 1; dr < rs; dr++) {
+      const tr = rows[row + dr];
+      if (!tr) continue;
+      const ref = Array.from(tr.cells).find((td) => (pos.get(td)?.col ?? 0) >= col) ?? null;
+      for (let k = 0; k < cs; k++) tr.insertBefore(newCell(), ref);
+    }
+    dirty(curTable);
+  };
+
   const deleteRow = (): void => {
     if (!curTable || !curCell || curTable.rows.length <= 1) return;
     const table = curTable;
@@ -91,6 +158,9 @@ export function setupTableEdit(deps: TableEditDeps) {
     btn("↧", t("tableRowBelow"), () => insertRow(true)),
     btn("⇤", t("tableColLeft"), () => insertCol(false)),
     btn("⇥", t("tableColRight"), () => insertCol(true)),
+    btn("⤵", t("tableMergeDown"), mergeDown),
+    btn("⤴", t("tableMergeRight"), mergeRight),
+    btn("⊟", t("tableSplit"), splitCell),
     btn("⌦", t("tableDelRow"), deleteRow),
     btn("⌫", t("tableDelCol"), deleteCol),
   );

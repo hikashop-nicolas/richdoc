@@ -449,26 +449,56 @@ function buildNewTable(ctx: DocxCtx, tableEl: HTMLElement): Element {
   }
   tbl.appendChild(grid);
 
+  // Walk the DOM grid, tracking columns covered by a rowspan from above so a vertical merge
+  // is written as w:vMerge restart + continue cells in the rows below.
+  const setSpan = (tcPr: Element, tag: string, val?: string): void => {
+    const old = tcPr.getElementsByTagName(tag)[0];
+    if (old) old.parentNode?.removeChild(old);
+    const el = ctx.doc.createElementNS(W, tag);
+    if (val !== undefined) el.setAttributeNS(W, "w:val", val);
+    tcPr.insertBefore(el, tcPr.firstChild);
+  };
+  const occupied: ({ rows: number; span: number } | null)[] = [];
   for (const tr of rows) {
     const wtr = ctx.doc.createElementNS(W, "w:tr");
-    for (const td of Array.from(tr.cells)) {
+    const domCells = Array.from(tr.cells);
+    let di = 0;
+    let col = 0;
+    while (col < gridCols) {
+      const occ = occupied[col];
+      if (occ && occ.rows > 0) {
+        // covered by a rowspan started above -> a vMerge continuation cell
+        const tc = ctx.doc.createElementNS(W, "w:tc");
+        const tcPr = ctx.doc.createElementNS(W, "w:tcPr");
+        if (occ.span > 1) setSpan(tcPr, "w:gridSpan", String(occ.span));
+        setSpan(tcPr, "w:vMerge");
+        tc.appendChild(tcPr);
+        tc.appendChild(ctx.doc.createElementNS(W, "w:p"));
+        wtr.appendChild(tc);
+        occ.rows--;
+        col += occ.span;
+        continue;
+      }
+      const td = domCells[di++];
+      if (!td) break;
+      const colspan = colSpanOf(td);
+      const rowspan = (td as HTMLTableCellElement).rowSpan || 1;
       const tc = ctx.doc.createElementNS(W, "w:tc");
       let tcPr = importEl(td.getAttribute("data-docx-tcpr"), "w:tcPr");
       if (!tcPr) {
         tcPr = ctx.doc.createElementNS(W, "w:tcPr");
         const tcW = ctx.doc.createElementNS(W, "w:tcW");
-        tcW.setAttributeNS(W, "w:w", String(colW * colSpanOf(td)));
+        tcW.setAttributeNS(W, "w:w", String(colW * colspan));
         tcW.setAttributeNS(W, "w:type", "dxa");
         tcPr.appendChild(tcW);
       }
-      // colspan -> w:gridSpan (replace any preserved one to match the current DOM)
-      const old = tcPr.getElementsByTagName("w:gridSpan")[0];
-      if (old) old.parentNode?.removeChild(old);
-      if (colSpanOf(td) > 1) {
-        const gs = ctx.doc.createElementNS(W, "w:gridSpan");
-        gs.setAttributeNS(W, "w:val", String(colSpanOf(td)));
-        tcPr.insertBefore(gs, tcPr.firstChild);
+      // remove any preserved span markers, then set from the current DOM (gridSpan before vMerge)
+      for (const t of ["w:gridSpan", "w:vMerge"]) {
+        const old = tcPr.getElementsByTagName(t)[0];
+        if (old) old.parentNode?.removeChild(old);
       }
+      if (rowspan > 1) setSpan(tcPr, "w:vMerge", "restart");
+      if (colspan > 1) setSpan(tcPr, "w:gridSpan", String(colspan));
       tc.appendChild(tcPr);
       const cell = (td.querySelector(".docx-cell") as HTMLElement) ?? td;
       for (const node of Array.from(cell.childNodes)) appendBlock(ctx, tc, node);
@@ -476,6 +506,8 @@ function buildNewTable(ctx: DocxCtx, tableEl: HTMLElement): Element {
         tc.appendChild(ctx.doc.createElementNS(W, "w:p"));
       }
       wtr.appendChild(tc);
+      if (rowspan > 1) occupied[col] = { rows: rowspan - 1, span: colspan };
+      col += colspan;
     }
     tbl.appendChild(wtr);
   }

@@ -248,28 +248,50 @@ function tableHtml(tbl: Element, ctx: RenderCtx): string {
   const tblBorders = tblPr?.getElementsByTagName("w:tblBorders")[0];
   const cellBorder = borderCss(tblBorders?.getElementsByTagName("w:top")[0]) || "1px solid #999";
   const showBorder = cellBorder !== "none";
-  let rows = "";
-  for (const tr of Array.from(tbl.children)) {
-    if (tr.tagName !== "w:tr") continue;
-    let cells = "";
+  // Grid model: assign each cell its grid column (cumulative gridSpan); a vMerge=restart cell
+  // spans down over the following rows' vMerge=continue cells in the same column.
+  const trs = Array.from(tbl.children).filter((c) => c.tagName === "w:tr");
+  const grid = trs.map((tr) => {
+    const out: { tc: Element; tcPr: Element | undefined; gridCol: number; gridSpan: number; restart: boolean; cont: boolean }[] = [];
+    let gc = 0;
     for (const tc of Array.from(tr.children)) {
       if (tc.tagName !== "w:tc") continue;
       const tcPr = tc.getElementsByTagName("w:tcPr")[0];
-      const vMerge = tcPr?.getElementsByTagName("w:vMerge")[0];
-      if (vMerge && (vMerge.getAttribute("w:val") ?? "continue") === "continue") continue; // continuation cell
-      const span = tcPr?.getElementsByTagName("w:gridSpan")[0]?.getAttribute("w:val");
-      const shd = tcPr?.getElementsByTagName("w:shd")[0]?.getAttribute("w:fill");
+      const gridSpan = Number(tcPr?.getElementsByTagName("w:gridSpan")[0]?.getAttribute("w:val")) || 1;
+      const vm = tcPr?.getElementsByTagName("w:vMerge")[0];
+      const restart = !!vm && vm.getAttribute("w:val") === "restart";
+      out.push({ tc, tcPr, gridCol: gc, gridSpan, restart, cont: !!vm && !restart });
+      gc += gridSpan;
+    }
+    return out;
+  });
+  const rowspanOf = (r: number, gc: number): number => {
+    let span = 1;
+    for (let rr = r + 1; rr < grid.length; rr++) {
+      if (grid[rr].some((c) => c.cont && c.gridCol === gc)) span++;
+      else break;
+    }
+    return span;
+  };
+  let rows = "";
+  for (let r = 0; r < grid.length; r++) {
+    let cells = "";
+    for (const ci of grid[r]) {
+      if (ci.cont) continue; // a vMerge continuation cell: covered by the restart above
+      const shd = ci.tcPr?.getElementsByTagName("w:shd")[0]?.getAttribute("w:fill");
       const bg = shd && shd !== "auto" && /^[0-9a-fA-F]{6}$/.test(shd) ? `background:#${shd};` : "";
       let inner = "";
-      for (const p of Array.from(tc.children)) {
+      for (const p of Array.from(ci.tc.children)) {
         if (p.tagName === "w:p") inner += `<div>${inlineToHtml(p, ctx) || "<br>"}</div>`;
         else if (p.tagName === "w:tbl") inner += tableHtml(p, ctx);
       }
-      const cs = Number(span) > 1 ? ` colspan="${Number(span)}"` : "";
+      const cs = ci.gridSpan > 1 ? ` colspan="${ci.gridSpan}"` : "";
+      const rsN = ci.restart ? rowspanOf(r, ci.gridCol) : 1;
+      const rs = rsN > 1 ? ` rowspan="${rsN}"` : "";
       const bdr = showBorder ? `border:${cellBorder};` : "";
       // The table structure is locked (contenteditable=false on the table), but each cell's
       // content is its own editable region; on save only the edited content is written back.
-      cells += `<td${cs}${propAttr("tcpr", tcPr)} style="${bdr}${bg}padding:0;vertical-align:top"><div class="docx-cell" contenteditable="true" style="padding:3px 6px;min-height:1.2em;outline:none">${inner || "<br>"}</div></td>`;
+      cells += `<td${cs}${rs}${propAttr("tcpr", ci.tcPr)} style="${bdr}${bg}padding:0;vertical-align:top"><div class="docx-cell" contenteditable="true" style="padding:3px 6px;min-height:1.2em;outline:none">${inner || "<br>"}</div></td>`;
     }
     rows += `<tr>${cells}</tr>`;
   }

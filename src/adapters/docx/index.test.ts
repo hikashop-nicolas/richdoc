@@ -559,6 +559,23 @@ describe("editable tables (cell content round-trip)", () => {
     expect(xml).toContain("W");
   });
 
+  it("round-trips a vertical merge (w:vMerge <-> rowspan) through the grid", () => {
+    const doc = `<?xml version="1.0"?>
+<w:document xmlns:w="http://schemas.openxmlformats.org/wordprocessingml/2006/main"><w:body>
+  <w:tbl><w:tblGrid><w:gridCol w:w="4000"/><w:gridCol w:w="4000"/></w:tblGrid>
+  <w:tr><w:tc><w:tcPr><w:vMerge w:val="restart"/></w:tcPr><w:p><w:r><w:t>M</w:t></w:r></w:p></w:tc><w:tc><w:p><w:r><w:t>B1</w:t></w:r></w:p></w:tc></w:tr>
+  <w:tr><w:tc><w:tcPr><w:vMerge/></w:tcPr><w:p/></w:tc><w:tc><w:p><w:r><w:t>B2</w:t></w:r></w:p></w:tc></w:tr>
+  </w:tbl></w:body></w:document>`;
+    const html = docxToHtml(makeDocx(doc));
+    expect(html).toContain('rowspan="2"'); // the restart cell spans both rows
+    const fromDom = html.replace(/ data-docx-xml="[^"]*"/, ""); // simulate a structural edit
+    const out = htmlToDocx(fromDom, makeDocx(doc));
+    const xml = strFromU8(unzipSync(out)["word/document.xml"]!);
+    expect(xml).toContain('w:vMerge w:val="restart"');
+    expect((xml.match(/<w:vMerge\b/g) || []).length).toBe(2); // restart + one continue cell
+    expect((xml.match(/<w:tr\b/g) || []).length).toBe(2);
+  });
+
   it("writes back edited cell content while keeping structure (tblGrid, rows, spans)", () => {
     const docx = makeDocx(TABLE_DOC);
     const html = docxToHtml(docx).replace(">A1<", ">EDITED<");
