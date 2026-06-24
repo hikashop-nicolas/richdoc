@@ -118,6 +118,34 @@ describe("docx <-> html", () => {
     expect(xml).toContain("BEFORE");
   });
 
+  it("writes per-cell borders, resized column widths and a row height when a table is edited", () => {
+    const tbl =
+      '<w:tbl><w:tblPr><w:tblBorders><w:top w:val="single" w:sz="4" w:color="000000"/></w:tblBorders></w:tblPr>' +
+      '<w:tblGrid><w:gridCol w:w="4500"/><w:gridCol w:w="4500"/></w:tblGrid>' +
+      '<w:tr><w:tc><w:p><w:r><w:t>A1</w:t></w:r></w:p></w:tc><w:tc><w:p><w:r><w:t>B1</w:t></w:r></w:p></w:tc></w:tr></w:tbl>';
+    const doc = `<?xml version="1.0"?>
+<w:document xmlns:w="http://schemas.openxmlformats.org/wordprocessingml/2006/main"><w:body>
+ <w:p><w:r><w:t>x</w:t></w:r></w:p>${tbl}
+</w:body></w:document>`;
+    const html = docxToHtml(makeDocx(doc));
+    // Simulate an edit: drop the skeleton (forces build-from-DOM), add a colgroup with widths,
+    // a row height, and top+left borders on the first cell.
+    const edited = html
+      .replace(/ data-docx-xml="[^"]*"/, "")
+      .replace(/(<table class="docx-table"[^>]*>)/, '$1<colgroup><col style="width: 120px"><col style="width: 90px"></colgroup>')
+      .replace(/<tr>/, '<tr style="height: 40px">')
+      .replace(/<td>(<div class="docx-cell")/, '<td class="rdoc-bordered rdoc-bt rdoc-bl">$1');
+    const out = htmlToDocx(edited, makeDocx(doc));
+    const xml = strFromU8(unzipSync(out)["word/document.xml"]);
+    expect(xml).toContain("<w:tcBorders");
+    expect(xml).toContain('<w:top w:val="single"');
+    expect(xml).toContain('<w:bottom w:val="nil"');
+    expect(xml).toContain('w:w="1800"'); // 120px -> twips
+    expect(xml).toContain('w:w="1350"'); // 90px -> twips
+    expect(xml).toContain("<w:trHeight");
+    expect(xml).toContain('w:val="600"'); // 40px -> twips
+  });
+
   it("renders an inline image and preserves the drawing through a save", () => {
     const png = new Uint8Array([0x89, 0x50, 0x4e, 0x47, 1, 2, 3, 4]);
     const drawing =

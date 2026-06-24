@@ -360,8 +360,11 @@ export function createRichEditor(container: HTMLElement, adapter: Adapter, optio
 
   for (const r of regions) {
     r.addEventListener("input", mark);
-    r.addEventListener("focusin", () => {
-      activeEl = r;
+    r.addEventListener("focusin", (e) => {
+      // A table cell is its own editing host nested in the region; target it directly so
+      // toolbar commands act inside the cell instead of stealing focus back to the region.
+      const cell = (e.target as HTMLElement | null)?.closest?.(".docx-cell") as HTMLElement | null;
+      activeEl = cell && r.contains(cell) ? cell : r;
     });
   }
   // The toolbar (formatting controls + track-changes wiring + the overflow row) lives in

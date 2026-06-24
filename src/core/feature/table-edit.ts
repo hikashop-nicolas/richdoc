@@ -27,6 +27,17 @@ export function setupTableEdit(deps: TableEditDeps) {
   let curCell: HTMLTableCellElement | null = null;
   let menuOpen = false;
 
+  // Multi-cell selection (drag across cells). Cell-menu operations act on the whole
+  // selection when one exists, otherwise on the single hovered cell.
+  const selected = new Set<HTMLTableCellElement>();
+  let selAnchor: HTMLTableCellElement | null = null;
+  let selDragging = false;
+  const targets = (): HTMLTableCellElement[] => (selected.size ? [...selected] : curCell ? [curCell] : []);
+  const clearSelection = (): void => {
+    for (const c of selected) c.classList.remove("rdoc-sel");
+    selected.clear();
+  };
+
   const newCell = (): HTMLTableCellElement => {
     const td = document.createElement("td");
     const div = document.createElement("div");
@@ -61,10 +72,94 @@ export function setupTableEdit(deps: TableEditDeps) {
     });
     return { pos, at };
   };
+  // Column widths live in a <colgroup> (one <col> per grid column, px width). Creating it is
+  // the signal that the table was resized, so the adapters only rewrite the grid then.
+  const gridColCount = (table: HTMLTableElement): number => {
+    let n = 0;
+    for (const p of computeGrid(table).pos.values()) n = Math.max(n, p.col + p.colspan);
+    return n;
+  };
+  const measureGridCols = (table: HTMLTableElement): number[] => {
+    const { pos } = computeGrid(table);
+    const n = gridColCount(table);
+    const w = new Array(n).fill(0);
+    for (const [td, p] of pos) if (p.colspan === 1) w[p.col] = Math.max(w[p.col], td.getBoundingClientRect().width);
+    const known = w.filter((x) => x > 0);
+    const avg = known.length ? known.reduce((a, b) => a + b, 0) / known.length : 64;
+    return w.map((x) => Math.round(x || avg));
+  };
+  const ensureColgroup = (table: HTMLTableElement): HTMLElement => {
+    const n = gridColCount(table);
+    let cg = table.querySelector(":scope > colgroup") as HTMLElement | null;
+    if (cg && cg.children.length === n) return cg;
+    const widths = measureGridCols(table);
+    if (cg) cg.remove();
+    cg = document.createElement("colgroup");
+    for (const wpx of widths) {
+      const col = document.createElement("col");
+      col.style.width = `${wpx}px`;
+      cg.appendChild(col);
+    }
+    table.insertBefore(cg, table.firstChild);
+    return cg;
+  };
   const moveContent = (src: HTMLTableCellElement, dst: HTMLTableCellElement): void => {
     const sd = src.querySelector(".docx-cell");
     const dd = dst.querySelector(".docx-cell");
     if (sd && dd && (sd.textContent ?? "").trim()) for (const n of Array.from(sd.childNodes)) dd.appendChild(n);
+  };
+  // The rectangle of grid cells spanned by two corner cells, grown to fully enclose any
+  // merged cell that straddles the edge (so the selection is always a clean rectangle).
+  const selectRect = (table: HTMLTableElement, a: HTMLTableCellElement, b: HTMLTableCellElement): HTMLTableCellElement[] => {
+    const { pos } = computeGrid(table);
+    const pa = pos.get(a);
+    const pb = pos.get(b);
+    if (!pa || !pb) return [];
+    let r1 = Math.min(pa.row, pb.row);
+    let r2 = Math.max(pa.row + pa.rowspan - 1, pb.row + pb.rowspan - 1);
+    let c1 = Math.min(pa.col, pb.col);
+    let c2 = Math.max(pa.col + pa.colspan - 1, pb.col + pb.colspan - 1);
+    const overlaps = (p: { row: number; col: number; rowspan: number; colspan: number }): boolean =>
+      p.row <= r2 && p.row + p.rowspan - 1 >= r1 && p.col <= c2 && p.col + p.colspan - 1 >= c1;
+    for (let changed = true; changed; ) {
+      changed = false;
+      for (const p of pos.values()) {
+        if (!overlaps(p)) continue;
+        if (p.row < r1) (r1 = p.row), (changed = true);
+        if (p.row + p.rowspan - 1 > r2) (r2 = p.row + p.rowspan - 1), (changed = true);
+        if (p.col < c1) (c1 = p.col), (changed = true);
+        if (p.col + p.colspan - 1 > c2) (c2 = p.col + p.colspan - 1), (changed = true);
+      }
+    }
+    const out: HTMLTableCellElement[] = [];
+    for (const [td, p] of pos) if (overlaps(p)) out.push(td);
+    return out;
+  };
+  const mergeSelection = (): void => {
+    if (!curTable || selected.size < 2) return;
+    const table = curTable;
+    const { pos } = computeGrid(table);
+    let r1 = Infinity, r2 = -1, c1 = Infinity, c2 = -1;
+    for (const td of selected) {
+      const p = pos.get(td);
+      if (!p) continue;
+      r1 = Math.min(r1, p.row);
+      r2 = Math.max(r2, p.row + p.rowspan - 1);
+      c1 = Math.min(c1, p.col);
+      c2 = Math.max(c2, p.col + p.colspan - 1);
+    }
+    let keep: HTMLTableCellElement | null = null;
+    for (const td of selected) {
+      const p = pos.get(td);
+      if (p && p.row === r1 && p.col === c1) (keep = td);
+    }
+    if (!keep) return;
+    keep.colSpan = c2 - c1 + 1;
+    keep.rowSpan = r2 - r1 + 1;
+    for (const td of selected) if (td !== keep) (moveContent(td, keep), td.remove());
+    clearSelection();
+    curCell = keep;
+    dirty(table);
   };
 
   // --- Structural operations (act on curCell / curTable) -------------------------------
@@ -265,6 +360,83 @@ export function setupTableEdit(deps: TableEditDeps) {
     ]),
     startDrag("col"),
   );
+  // Cell borders: side-classes (rdoc-bt/br/bb/bl) on the <td>, the source of truth for both
+  // display (CSS) and save. Untouched cells keep their original borders (preserved tcPr /
+  // cell style); a cell only switches to class-driven borders once edited here.
+  const SIDE = { t: "rdoc-bt", r: "rdoc-br", b: "rdoc-bb", l: "rdoc-bl" } as const;
+  const borderIcon = (on: ReadonlySet<string>): string => {
+    const line = (x1: number, y1: number, x2: number, y2: number, k: string): string =>
+      `<line x1="${x1}" y1="${y1}" x2="${x2}" y2="${y2}" stroke="${on.has(k) ? "#fff" : "#777"}" stroke-width="${on.has(k) ? 2 : 1}"${on.has(k) ? "" : ' stroke-dasharray="1.5 1.5"'}/>`;
+    return `<svg width="16" height="16" viewBox="0 0 16 16" aria-hidden="true">${line(3, 3, 13, 3, "t")}${line(13, 3, 13, 13, "r")}${line(3, 13, 13, 13, "b")}${line(3, 3, 3, 13, "l")}</svg>`;
+  };
+  const applyBorder = (preset: "all" | "none" | "t" | "r" | "b" | "l"): void => {
+    const cells = targets();
+    if (!cells.length || !curTable) return;
+    for (const cell of cells) cell.classList.add("rdoc-bordered");
+    if (preset === "all") for (const cell of cells) for (const s of ["t", "r", "b", "l"] as const) cell.classList.add(SIDE[s]);
+    else if (preset === "none") for (const cell of cells) for (const s of ["t", "r", "b", "l"] as const) cell.classList.remove(SIDE[s]);
+    else {
+      const cls = SIDE[preset];
+      const allOn = cells.every((c) => c.classList.contains(cls)); // group toggle
+      for (const cell of cells) cell.classList.toggle(cls, !allOn);
+    }
+    dirty(curTable);
+  };
+  const BORDER_PRESETS = [
+    { p: "all" as const, on: new Set(["t", "r", "b", "l"]), title: t("borderAll") },
+    { p: "none" as const, on: new Set<string>(), title: t("borderNone") },
+    { p: "t" as const, on: new Set(["t"]), title: t("borderTop") },
+    { p: "b" as const, on: new Set(["b"]), title: t("borderBottom") },
+    { p: "l" as const, on: new Set(["l"]), title: t("borderLeft") },
+    { p: "r" as const, on: new Set(["r"]), title: t("borderRight") },
+  ];
+  const showCellMenu = (): void => {
+    menu.innerHTML = "";
+    const items = selected.size > 1
+      ? [{ label: t("tableMergeCells"), fn: mergeSelection }]
+      : [
+          { label: t("tableMergeDown"), fn: mergeDown },
+          { label: t("tableMergeRight"), fn: mergeRight },
+          { label: t("tableSplit"), fn: splitCell },
+        ];
+    for (const it of items) {
+      const b = document.createElement("button");
+      b.type = "button";
+      b.className = "docxedit-menu-item";
+      b.textContent = it.label;
+      b.addEventListener("mousedown", (e) => e.preventDefault());
+      b.addEventListener("click", (e) => {
+        e.stopPropagation();
+        it.fn();
+        closeMenu();
+        hideHandles();
+      });
+      menu.appendChild(b);
+    }
+    const grid = document.createElement("div");
+    grid.className = "docxedit-border-grid";
+    for (const bp of BORDER_PRESETS) {
+      const b = document.createElement("button");
+      b.type = "button";
+      b.className = "docxedit-border-btn";
+      b.innerHTML = borderIcon(bp.on);
+      b.title = bp.title;
+      b.setAttribute("aria-label", bp.title);
+      b.addEventListener("mousedown", (e) => e.preventDefault());
+      b.addEventListener("click", (e) => {
+        e.stopPropagation();
+        applyBorder(bp.p);
+      });
+      grid.appendChild(b);
+    }
+    menu.appendChild(grid);
+    const ar = cellBtn.getBoundingClientRect();
+    const wr = wrap.getBoundingClientRect();
+    menu.hidden = false;
+    menu.style.left = `${ar.left - wr.left}px`;
+    menu.style.top = `${ar.bottom - wr.top + 2}px`;
+    menuOpen = true;
+  };
   const cellBtn = document.createElement("button");
   cellBtn.type = "button";
   cellBtn.className = "docxedit-th-cell";
@@ -274,19 +446,101 @@ export function setupTableEdit(deps: TableEditDeps) {
   cellBtn.addEventListener("mousedown", (e) => e.preventDefault());
   cellBtn.addEventListener("click", (e) => {
     e.stopPropagation();
-    showMenu(cellBtn, [
-      { label: t("tableMergeDown"), fn: mergeDown },
-      { label: t("tableMergeRight"), fn: mergeRight },
-      { label: t("tableSplit"), fn: splitCell },
-    ]);
+    showCellMenu();
   });
-  wrap.append(rowHandle, colHandle, cellBtn, menu);
+  // --- Column / row resize: a thin strip over a cell boundary, dragged to resize ---------
+  const colResize = document.createElement("div");
+  colResize.className = "docxedit-resize col";
+  colResize.hidden = true;
+  const rowResize = document.createElement("div");
+  rowResize.className = "docxedit-resize row";
+  rowResize.hidden = true;
+  let colInfo: { table: HTMLTableElement; gridCol: number } | null = null;
+  let rowInfo: { table: HTMLTableElement; row: number } | null = null;
+  let rdrag: { axis: "col" | "row"; table: HTMLTableElement; start: number; a: HTMLElement; aSize: number; b: HTMLElement | null; bSize: number } | null = null;
+  const updateResizers = (e: MouseEvent, cellDiv: HTMLElement, table: HTMLTableElement): void => {
+    const td = cellDiv.closest("td") as HTMLTableCellElement | null;
+    const { pos } = computeGrid(table);
+    const p = td ? pos.get(td) : undefined;
+    const cols = gridColCount(table);
+    const cr = cellDiv.getBoundingClientRect();
+    const tr = table.getBoundingClientRect();
+    const wr = wrap.getBoundingClientRect();
+    const NEAR = 4;
+    if (p && p.col + p.colspan < cols && e.clientX >= cr.right - NEAR) {
+      colResize.hidden = false;
+      colResize.style.left = `${cr.right - wr.left - 2}px`;
+      colResize.style.top = `${tr.top - wr.top}px`;
+      colResize.style.width = "4px";
+      colResize.style.height = `${tr.height}px`;
+      colInfo = { table, gridCol: p.col + p.colspan - 1 };
+    } else colResize.hidden = true;
+    if (p && p.row + p.rowspan < table.rows.length && e.clientY >= cr.bottom - NEAR) {
+      rowResize.hidden = false;
+      rowResize.style.left = `${tr.left - wr.left}px`;
+      rowResize.style.top = `${cr.bottom - wr.top - 2}px`;
+      rowResize.style.width = `${tr.width}px`;
+      rowResize.style.height = "4px";
+      rowInfo = { table, row: p.row + p.rowspan - 1 };
+    } else rowResize.hidden = true;
+  };
+  const onResizeMove = (e: PointerEvent): void => {
+    if (!rdrag) return;
+    const wr = wrap.getBoundingClientRect();
+    if (rdrag.axis === "col") {
+      const dx = e.clientX - rdrag.start;
+      const MIN = 24;
+      let na = rdrag.aSize + dx;
+      let nb = rdrag.bSize - dx;
+      if (na < MIN) ((nb -= MIN - na), (na = MIN));
+      if (rdrag.b && nb < MIN) ((na -= MIN - nb), (nb = MIN));
+      rdrag.a.style.width = `${Math.round(na)}px`;
+      if (rdrag.b) rdrag.b.style.width = `${Math.round(nb)}px`;
+      colResize.style.left = `${e.clientX - wr.left - 2}px`;
+    } else {
+      const dy = e.clientY - rdrag.start;
+      rdrag.a.style.height = `${Math.round(Math.max(16, rdrag.aSize + dy))}px`;
+      rowResize.style.top = `${e.clientY - wr.top - 2}px`;
+    }
+  };
+  const onResizeUp = (): void => {
+    document.removeEventListener("pointermove", onResizeMove);
+    document.removeEventListener("pointerup", onResizeUp);
+    colResize.classList.remove("dragging");
+    rowResize.classList.remove("dragging");
+    const d = rdrag;
+    rdrag = null;
+    if (d) dirty(d.table);
+  };
+  colResize.addEventListener("pointerdown", (e) => {
+    if (!colInfo) return;
+    e.preventDefault();
+    const cg = ensureColgroup(colInfo.table);
+    const a = cg.children[colInfo.gridCol] as HTMLElement;
+    const b = (cg.children[colInfo.gridCol + 1] as HTMLElement) ?? null;
+    rdrag = { axis: "col", table: colInfo.table, start: e.clientX, a, aSize: parseFloat(a.style.width) || 64, b, bSize: b ? parseFloat(b.style.width) || 64 : 0 };
+    colResize.classList.add("dragging");
+    document.addEventListener("pointermove", onResizeMove);
+    document.addEventListener("pointerup", onResizeUp);
+  });
+  rowResize.addEventListener("pointerdown", (e) => {
+    if (!rowInfo) return;
+    e.preventDefault();
+    const trEl = rowInfo.table.rows[rowInfo.row] as HTMLElement;
+    rdrag = { axis: "row", table: rowInfo.table, start: e.clientY, a: trEl, aSize: trEl.getBoundingClientRect().height, b: null, bSize: 0 };
+    rowResize.classList.add("dragging");
+    document.addEventListener("pointermove", onResizeMove);
+    document.addEventListener("pointerup", onResizeUp);
+  });
+  wrap.append(rowHandle, colHandle, cellBtn, colResize, rowResize, menu);
 
   // --- Hover positioning ----------------------------------------------------------------
   function hideHandles(): void {
     rowHandle.hidden = true;
     colHandle.hidden = true;
     cellBtn.hidden = true;
+    colResize.hidden = true;
+    rowResize.hidden = true;
     curCell = null;
     curTable = null;
   }
@@ -309,9 +563,9 @@ export function setupTableEdit(deps: TableEditDeps) {
     cellBtn.style.top = `${cr.top - wr.top + 2}px`;
   };
   const onMove = (e: MouseEvent): void => {
-    if (menuOpen || drag) return;
+    if (menuOpen || drag || selDragging || rdrag) return;
     const tgt = e.target as HTMLElement;
-    if (tgt.closest?.(".docxedit-th, .docxedit-th-cell, .docxedit-menu")) return; // over a control: keep
+    if (tgt.closest?.(".docxedit-th, .docxedit-th-cell, .docxedit-menu, .docxedit-resize")) return; // over a control: keep
     const cellDiv = tgt.closest?.(".docx-cell") as HTMLElement | null;
     const table = cellDiv?.closest("table.docx-table") as HTMLTableElement | null;
     if (!cellDiv || !table || !wrap.contains(cellDiv)) {
@@ -319,12 +573,51 @@ export function setupTableEdit(deps: TableEditDeps) {
       return;
     }
     const td = cellDiv.closest("td") as HTMLTableCellElement | null;
-    if (td === curCell) return;
-    curCell = td;
-    curTable = table;
-    position(cellDiv);
+    if (td !== curCell) {
+      curCell = td;
+      curTable = table;
+      position(cellDiv);
+    }
+    updateResizers(e, cellDiv, table); // proximity to a boundary changes within one cell too
   };
   scroll.addEventListener("mousemove", onMove);
+
+  // --- Multi-cell drag-select -----------------------------------------------------------
+  const cellUnder = (e: MouseEvent): HTMLTableCellElement | null =>
+    ((e.target as HTMLElement).closest?.(".docx-cell")?.closest("td") as HTMLTableCellElement | null) ?? null;
+  const onSelDown = (e: MouseEvent): void => {
+    if (e.button !== 0) return;
+    if ((e.target as HTMLElement).closest?.(".docxedit-th, .docxedit-th-cell, .docxedit-menu, .docxedit-resize")) return;
+    const td = cellUnder(e);
+    clearSelection();
+    selAnchor = td && wrap.contains(td) ? td : null;
+    selDragging = false;
+  };
+  const onSelMove = (e: MouseEvent): void => {
+    if (!selAnchor || (e.buttons & 1) === 0) return;
+    const table = selAnchor.closest("table.docx-table") as HTMLTableElement | null;
+    const td = cellUnder(e);
+    if (!table || !td || td.closest("table") !== table) return;
+    if (td === selAnchor && !selDragging) return; // still in the anchor cell: allow text selection
+    selDragging = true;
+    window.getSelection()?.removeAllRanges();
+    clearSelection();
+    for (const c of selectRect(table, selAnchor, td)) {
+      c.classList.add("rdoc-sel");
+      selected.add(c);
+    }
+    curTable = table;
+    curCell = selAnchor;
+    if (selected.size) position((selAnchor.querySelector(".docx-cell") as HTMLElement) ?? selAnchor);
+  };
+  const onSelUp = (): void => {
+    selAnchor = null;
+    selDragging = false;
+  };
+  scroll.addEventListener("mousedown", onSelDown);
+  scroll.addEventListener("mousemove", onSelMove);
+  document.addEventListener("mouseup", onSelUp);
+
   const onDocClick = (e: MouseEvent): void => {
     if (menuOpen && !menu.contains(e.target as Node)) closeMenu();
   };
@@ -332,9 +625,14 @@ export function setupTableEdit(deps: TableEditDeps) {
 
   const teardown = (): void => {
     scroll.removeEventListener("mousemove", onMove);
+    scroll.removeEventListener("mousedown", onSelDown);
+    scroll.removeEventListener("mousemove", onSelMove);
+    document.removeEventListener("mouseup", onSelUp);
     document.removeEventListener("click", onDocClick);
     document.removeEventListener("pointermove", onDragMove);
     document.removeEventListener("pointerup", onDragUp);
+    document.removeEventListener("pointermove", onResizeMove);
+    document.removeEventListener("pointerup", onResizeUp);
   };
   return { teardown };
 }

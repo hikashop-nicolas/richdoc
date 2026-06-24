@@ -404,6 +404,29 @@ function rebuildTable(ctx: DocxCtx, tableEl: HTMLElement, stash: string): Elemen
 
 const colSpanOf = (td: HTMLTableCellElement): number => td.colSpan || 1;
 
+/** Write per-cell borders (w:tcBorders) from the side-classes set by the cell-border picker.
+    Only cells that were border-edited (rdoc-bordered) get explicit borders; a side without its
+    class becomes w:nil so it overrides the table grid. */
+function applyCellBorders(ctx: DocxCtx, tcPr: Element, td: HTMLTableCellElement): void {
+  if (!td.classList.contains("rdoc-bordered")) return;
+  const old = tcPr.getElementsByTagName("w:tcBorders")[0];
+  if (old) old.parentNode?.removeChild(old);
+  const tb = ctx.doc.createElementNS(W, "w:tcBorders");
+  for (const [cls, tag] of [["rdoc-bt", "w:top"], ["rdoc-bl", "w:left"], ["rdoc-bb", "w:bottom"], ["rdoc-br", "w:right"]] as const) {
+    const b = ctx.doc.createElementNS(W, tag);
+    if (td.classList.contains(cls)) {
+      b.setAttributeNS(W, "w:val", "single");
+      b.setAttributeNS(W, "w:sz", "4");
+      b.setAttributeNS(W, "w:space", "0");
+      b.setAttributeNS(W, "w:color", "auto");
+    } else {
+      b.setAttributeNS(W, "w:val", "nil");
+    }
+    tb.appendChild(b);
+  }
+  tcPr.appendChild(tb);
+}
+
 /** Build a w:tbl from a table in the DOM (a newly inserted or a structurally-edited one).
     Preserved tblPr/tblGrid/tcPr (data-attributes from the read) are reused so styling
     survives a structural edit; missing ones get sensible defaults. colspan -> w:gridSpan. */
@@ -438,8 +461,21 @@ function buildNewTable(ctx: DocxCtx, tableEl: HTMLElement): Element {
   }
   tbl.appendChild(tblPr);
 
+  // Column widths from a <colgroup> (px) take precedence: it only exists once a column was
+  // dragged to resize, so untouched tables keep their preserved grid.
+  const cgEl = tableEl.querySelector(":scope > colgroup");
+  const colWidths: number[] = cgEl ? Array.from(cgEl.children).map((c) => parseFloat((c as HTMLElement).style.width) || 0) : [];
+  const useCols = colWidths.length === gridCols && colWidths.every((w) => w > 0);
+
   let grid = importEl(tableEl.getAttribute("data-docx-tblgrid"), "w:tblGrid");
-  if (!grid || grid.getElementsByTagName("w:gridCol").length !== gridCols) {
+  if (useCols) {
+    grid = ctx.doc.createElementNS(W, "w:tblGrid");
+    for (const wpx of colWidths) {
+      const gc = ctx.doc.createElementNS(W, "w:gridCol");
+      gc.setAttributeNS(W, "w:w", String(Math.round(wpx * 15))); // px -> twips (96dpi)
+      grid.appendChild(gc);
+    }
+  } else if (!grid || grid.getElementsByTagName("w:gridCol").length !== gridCols) {
     grid = ctx.doc.createElementNS(W, "w:tblGrid");
     for (let i = 0; i < gridCols; i++) {
       const gc = ctx.doc.createElementNS(W, "w:gridCol");
@@ -492,6 +528,15 @@ function buildNewTable(ctx: DocxCtx, tableEl: HTMLElement): Element {
         tcW.setAttributeNS(W, "w:type", "dxa");
         tcPr.appendChild(tcW);
       }
+      if (useCols) {
+        const oldW = tcPr.getElementsByTagName("w:tcW")[0];
+        if (oldW) oldW.parentNode?.removeChild(oldW);
+        const tcW = ctx.doc.createElementNS(W, "w:tcW");
+        const wsum = colWidths.slice(col, col + colspan).reduce((a, b) => a + b, 0);
+        tcW.setAttributeNS(W, "w:w", String(Math.round(wsum * 15)));
+        tcW.setAttributeNS(W, "w:type", "dxa");
+        tcPr.appendChild(tcW);
+      }
       // remove any preserved span markers, then set from the current DOM (gridSpan before vMerge)
       for (const t of ["w:gridSpan", "w:vMerge"]) {
         const old = tcPr.getElementsByTagName(t)[0];
@@ -499,6 +544,7 @@ function buildNewTable(ctx: DocxCtx, tableEl: HTMLElement): Element {
       }
       if (rowspan > 1) setSpan(tcPr, "w:vMerge", "restart");
       if (colspan > 1) setSpan(tcPr, "w:gridSpan", String(colspan));
+      applyCellBorders(ctx, tcPr, td);
       tc.appendChild(tcPr);
       const cell = (td.querySelector(".docx-cell") as HTMLElement) ?? td;
       for (const node of Array.from(cell.childNodes)) appendBlock(ctx, tc, node);
@@ -508,6 +554,15 @@ function buildNewTable(ctx: DocxCtx, tableEl: HTMLElement): Element {
       wtr.appendChild(tc);
       if (rowspan > 1) occupied[col] = { rows: rowspan - 1, span: colspan };
       col += colspan;
+    }
+    const rh = parseFloat((tr as HTMLElement).style.height);
+    if (rh > 0) {
+      const trPr = ctx.doc.createElementNS(W, "w:trPr");
+      const th = ctx.doc.createElementNS(W, "w:trHeight");
+      th.setAttributeNS(W, "w:val", String(Math.round(rh * 15))); // px -> twips
+      th.setAttributeNS(W, "w:hRule", "atLeast");
+      trPr.appendChild(th);
+      wtr.insertBefore(trPr, wtr.firstChild); // w:trPr must precede the cells
     }
     tbl.appendChild(wtr);
   }

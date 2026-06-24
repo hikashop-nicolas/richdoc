@@ -80,6 +80,27 @@ describe("odt <-> html", () => {
     expect(xml).toContain("text:tracked-changes");
   });
 
+  it("writes per-cell borders, resized column widths and a row height when a table is edited", () => {
+    const content = `<?xml version="1.0"?>
+<office:document-content xmlns:office="urn:oasis:names:tc:opendocument:xmlns:office:1.0" xmlns:text="urn:oasis:names:tc:opendocument:xmlns:text:1.0" xmlns:table="urn:oasis:names:tc:opendocument:xmlns:table:1.0" xmlns:style="urn:oasis:names:tc:opendocument:xmlns:style:1.0" xmlns:fo="urn:oasis:names:tc:opendocument:xmlns:xsl-fo-compatible:1.0"><office:body><office:text>
+ <text:p>x</text:p>
+ <table:table table:name="T"><table:table-column table:number-columns-repeated="2"/><table:table-row><table:table-cell><text:p>A1</text:p></table:table-cell><table:table-cell><text:p>B1</text:p></table:table-cell></table:table-row></table:table>
+</office:text></office:body></office:document-content>`;
+    const html = odtToHtml(makeOdt(content));
+    const edited = html
+      .replace(/ data-odt-xml="[^"]*"/, "")
+      .replace(/(<table class="docx-table"[^>]*>)/, '$1<colgroup><col style="width: 120px"><col style="width: 90px"></colgroup>')
+      .replace(/<tr>/, '<tr style="height: 40px">')
+      .replace(/<td>(<div class="docx-cell")/, '<td class="rdoc-bordered rdoc-bt rdoc-bl">$1');
+    const out = htmlToOdt(edited, makeOdt(content));
+    const xml = strFromU8(unzipSync(out)["content.xml"]);
+    expect(xml).toContain('fo:border-top="0.018cm solid #000000"');
+    expect(xml).toContain('fo:border-bottom="none"');
+    expect(xml).toContain('style:column-width="3.175cm"'); // 120px
+    expect(xml).toContain('style:column-width="2.381cm"'); // 90px
+    expect(xml).toContain('style:min-row-height="1.058cm"'); // 40px
+  });
+
   it("keeps mimetype as the first, uncompressed entry", () => {
     const out = htmlToOdt("<p>x</p>", makeOdt());
     // local file header: signature(4) + ... + compression method at offset 8 (0 = stored)

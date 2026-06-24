@@ -32,6 +32,7 @@ const en: Dict = {
   tableCellMenu: "Cell options",
   tableMergeDown: "Merge with cell below",
   tableMergeRight: "Merge with cell to the right",
+  tableMergeCells: "Merge cells",
   tableSplit: "Split cell",
   tableDelRow: "Delete row",
   tableDelCol: "Delete column",
@@ -88,6 +89,12 @@ const en: Dict = {
   reject: "Reject",
   acceptAll: "Accept all changes",
   rejectAll: "Reject all changes",
+  borderAll: "All borders",
+  borderNone: "No borders",
+  borderTop: "Top border",
+  borderBottom: "Bottom border",
+  borderLeft: "Left border",
+  borderRight: "Right border",
 };
 
 const fr: Dict = {
@@ -117,6 +124,7 @@ const fr: Dict = {
   tableCellMenu: "Options de cellule",
   tableMergeDown: "Fusionner avec la cellule du dessous",
   tableMergeRight: "Fusionner avec la cellule de droite",
+  tableMergeCells: "Fusionner les cellules",
   tableSplit: "Diviser la cellule",
   tableDelRow: "Supprimer la ligne",
   tableDelCol: "Supprimer la colonne",
@@ -173,6 +181,12 @@ const fr: Dict = {
   reject: "Refuser",
   acceptAll: "Accepter toutes les modifications",
   rejectAll: "Refuser toutes les modifications",
+  borderAll: "Toutes les bordures",
+  borderNone: "Aucune bordure",
+  borderTop: "Bordure du haut",
+  borderBottom: "Bordure du bas",
+  borderLeft: "Bordure de gauche",
+  borderRight: "Bordure de droite",
 };
 
 const LOCALES: Record<string, Dict> = { en, fr };

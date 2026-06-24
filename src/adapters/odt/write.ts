@@ -308,6 +308,64 @@ function rebuildOdtTable(tableEl: HTMLElement, stash: string, ctx: OdfCtx): Elem
 }
 
 let odtTableSeq = 0;
+let odtCellBorderSeq = 0;
+let odtColSeq = 0;
+let odtRowSeq = 0;
+
+/** A table-column automatic style carrying a resized column width (px). Cached per width. */
+function colStyleFor(ctx: OdfCtx, px: number): string {
+  const key = `colw:${px}`;
+  const cached = ctx.created.get(key);
+  if (cached) return cached;
+  const name = `OTcol${++odtColSeq}`;
+  const st = ctx.doc.createElementNS(NS.style, "style:style");
+  st.setAttributeNS(NS.style, "style:name", name);
+  st.setAttributeNS(NS.style, "style:family", "table-column");
+  const props = ctx.doc.createElementNS(NS.style, "style:table-column-properties");
+  props.setAttributeNS(NS.style, "style:column-width", pxToCm(px));
+  st.appendChild(props);
+  ctx.auto.appendChild(st);
+  ctx.created.set(key, name);
+  return name;
+}
+/** A table-row automatic style carrying a resized row height (px). Cached per height. */
+function rowStyleFor(ctx: OdfCtx, px: number): string {
+  const key = `rowh:${px}`;
+  const cached = ctx.created.get(key);
+  if (cached) return cached;
+  const name = `OTrow${++odtRowSeq}`;
+  const st = ctx.doc.createElementNS(NS.style, "style:style");
+  st.setAttributeNS(NS.style, "style:name", name);
+  st.setAttributeNS(NS.style, "style:family", "table-row");
+  const props = ctx.doc.createElementNS(NS.style, "style:table-row-properties");
+  props.setAttributeNS(NS.style, "style:min-row-height", pxToCm(px));
+  st.appendChild(props);
+  ctx.auto.appendChild(st);
+  ctx.created.set(key, name);
+  return name;
+}
+
+/** A table-cell automatic style carrying the borders set by the cell-border picker.
+    Cached per side-combination. Border-only: other preserved cell properties (background,
+    padding) are not merged in when a cell's borders are edited. */
+function cellBorderStyleFor(ctx: OdfCtx, td: HTMLTableCellElement): string | null {
+  if (!td.classList.contains("rdoc-bordered")) return null;
+  const on = (c: string): boolean => td.classList.contains(c);
+  const sides = [["rdoc-bt", "fo:border-top"], ["rdoc-br", "fo:border-right"], ["rdoc-bb", "fo:border-bottom"], ["rdoc-bl", "fo:border-left"]] as const;
+  const key = "cellb:" + sides.map(([c]) => (on(c) ? "1" : "0")).join("");
+  const cached = ctx.created.get(key);
+  if (cached) return cached;
+  const name = `OTc${++odtCellBorderSeq}`;
+  const st = ctx.doc.createElementNS(NS.style, "style:style");
+  st.setAttributeNS(NS.style, "style:name", name);
+  st.setAttributeNS(NS.style, "style:family", "table-cell");
+  const props = ctx.doc.createElementNS(NS.style, "style:table-cell-properties");
+  for (const [c, attr] of sides) props.setAttributeNS(NS.fo, attr, on(c) ? "0.018cm solid #000000" : "none");
+  st.appendChild(props);
+  ctx.auto.appendChild(st);
+  ctx.created.set(key, name);
+  return name;
+}
 /** Build a fresh table:table from a table inserted in the editor (no skeleton): one column
     declaration per column, one cell per <td> with its edited content. No spans. */
 function buildNewOdtTable(tableEl: HTMLElement, ctx: OdfCtx): Element {
@@ -317,6 +375,9 @@ function buildNewOdtTable(tableEl: HTMLElement, ctx: OdfCtx): Element {
   tbl.setAttributeNS(NS.table, "table:name", `Table${++odtTableSeq}`);
   const tstyle = tableEl.getAttribute("data-odt-tablestyle");
   if (tstyle) tbl.setAttributeNS(NS.table, "table:style-name", tstyle);
+  // Resized column widths from a <colgroup> (px) take precedence over the preserved columns.
+  const cgEl = tableEl.querySelector(":scope > colgroup");
+  const colWidths: number[] = cgEl ? Array.from(cgEl.children).map((c) => parseFloat((c as HTMLElement).style.width) || 0) : [];
   // Column declarations: reuse the preserved ones when the count still matches, else default.
   let cols: { s: string; r: string }[] = [];
   try {
@@ -325,7 +386,13 @@ function buildNewOdtTable(tableEl: HTMLElement, ctx: OdfCtx): Element {
     cols = [];
   }
   const colTotal = cols.reduce((s, c) => s + (Number(c.r) || 1), 0);
-  if (cols.length && colTotal === gridCols) {
+  if (colWidths.length === gridCols && colWidths.every((w) => w > 0)) {
+    for (const wpx of colWidths) {
+      const col = ctx.doc.createElementNS(NS.table, "table:table-column");
+      col.setAttributeNS(NS.table, "table:style-name", colStyleFor(ctx, wpx));
+      tbl.appendChild(col);
+    }
+  } else if (cols.length && colTotal === gridCols) {
     for (const c of cols) {
       const col = ctx.doc.createElementNS(NS.table, "table:table-column");
       if (c.s) col.setAttributeNS(NS.table, "table:style-name", c.s);
@@ -342,6 +409,8 @@ function buildNewOdtTable(tableEl: HTMLElement, ctx: OdfCtx): Element {
   const occupied: ({ rows: number; span: number } | null)[] = [];
   for (const tr of rows) {
     const wtr = ctx.doc.createElementNS(NS.table, "table:table-row");
+    const rh = parseFloat((tr as HTMLElement).style.height);
+    if (rh > 0) wtr.setAttributeNS(NS.table, "table:style-name", rowStyleFor(ctx, rh));
     const domCells = Array.from(tr.cells);
     let di = 0;
     let col = 0;
@@ -358,7 +427,8 @@ function buildNewOdtTable(tableEl: HTMLElement, ctx: OdfCtx): Element {
       const cs = td.colSpan || 1;
       const rs = td.rowSpan || 1;
       const tc = ctx.doc.createElementNS(NS.table, "table:table-cell");
-      const cstyle = td.getAttribute("data-odt-cellstyle");
+      const bstyle = cellBorderStyleFor(ctx, td);
+      const cstyle = bstyle ?? td.getAttribute("data-odt-cellstyle");
       if (cstyle) tc.setAttributeNS(NS.table, "table:style-name", cstyle);
       if (cs > 1) tc.setAttributeNS(NS.table, "table:number-columns-spanned", String(cs));
       if (rs > 1) tc.setAttributeNS(NS.table, "table:number-rows-spanned", String(rs));
