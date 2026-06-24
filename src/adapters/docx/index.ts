@@ -100,6 +100,7 @@ export function createDocxAdapter(bytes: Uint8Array): Adapter {
       textColor: true,
       fontControls: true,
       alignment: true,
+      verticalText: true,
     },
   };
 }

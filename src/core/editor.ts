@@ -59,12 +59,18 @@ export function createRichEditor(container: HTMLElement, adapter: Adapter, optio
   const geometry = parts.page ?? defaultPageGeometry(options.defaultPageSize ?? "a4");
   const applyGeometry = () => {
     page.style.setProperty("--rdoc-page-width", `${geometry.widthPx}px`);
+    page.style.setProperty("--rdoc-page-height", `${geometry.heightPx}px`);
     page.style.setProperty("--rdoc-margin-top", `${geometry.margin.top}px`);
     page.style.setProperty("--rdoc-margin-right", `${geometry.margin.right}px`);
     page.style.setProperty("--rdoc-margin-bottom", `${geometry.margin.bottom}px`);
     page.style.setProperty("--rdoc-margin-left", `${geometry.margin.left}px`);
   };
   applyGeometry();
+  // Vertical (Japanese tategaki): the page is fixed-height and grows horizontally (columns
+  // advance right-to-left), so it renders as one continuous page rather than paginated cards.
+  // Horizontal RTL (Arabic/Hebrew) is just direction:rtl and keeps normal pagination.
+  if (caps.verticalText && geometry.vertical) page.classList.add("is-vertical");
+  else if (caps.verticalText && geometry.rtl) page.classList.add("is-rtl");
 
   const band = (cls: string, label: string, html: string): HTMLElement | null => {
     if (!html) return null;
@@ -87,7 +93,7 @@ export function createRichEditor(container: HTMLElement, adapter: Adapter, optio
   // Paginated view: one continuous editable body (doc) on top of a layer of page-card
   // decorations, with inert spacer gaps inserted at page boundaries. Pageless view keeps
   // the body and header/footer stacked in one card (the previous behaviour).
-  const paginated = options.paginated ?? true;
+  const paginated = (options.paginated ?? true) && !(geometry.vertical && caps.verticalText);
   const pagelayer = document.createElement("div"); // page cards, behind the body
   pagelayer.className = "docxedit-pagelayer";
   pagelayer.setAttribute("aria-hidden", "true");
@@ -144,6 +150,7 @@ export function createRichEditor(container: HTMLElement, adapter: Adapter, optio
   // Page view: rulers (margin handles) + zoom + the centred canvas around the page box.
   const { applyZoom, effectiveZoom, zoomSlider, zoomLabel, isGeometryDirty } = setupPageView({
     page, pagebox, canvas, leftSpacer, rightArea, scroll, geometry, options,
+    vertical: !!(geometry.vertical && caps.verticalText),
     applyGeometry, mark, positionCards, reflow: () => reflow(), scheduleReflow: () => scheduleReflow(),
   });
   wrap.append(toolbar, scroll);

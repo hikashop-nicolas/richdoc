@@ -167,6 +167,26 @@ describe("docx <-> html", () => {
     expect(html).toContain('data-rdoc-br="1px dashed #0000FF"');
   });
 
+  it("reads vertical (tategaki) text direction from the section", () => {
+    const doc = `<?xml version="1.0"?>
+<w:document xmlns:w="http://schemas.openxmlformats.org/wordprocessingml/2006/main"><w:body>
+ <w:p><w:r><w:t>x</w:t></w:r></w:p>
+ <w:sectPr><w:pgSz w:w="11906" w:h="16838"/><w:textDirection w:val="tbRl"/></w:sectPr>
+</w:body></w:document>`;
+    expect(docxToParts(makeDocx(doc)).page?.vertical).toBe(true);
+  });
+
+  it("reads a right-to-left (bidi) section", () => {
+    const doc = `<?xml version="1.0"?>
+<w:document xmlns:w="http://schemas.openxmlformats.org/wordprocessingml/2006/main"><w:body>
+ <w:p><w:r><w:t>x</w:t></w:r></w:p>
+ <w:sectPr><w:pgSz w:w="11906" w:h="16838"/><w:bidi/></w:sectPr>
+</w:body></w:document>`;
+    const page = docxToParts(makeDocx(doc)).page;
+    expect(page?.rtl).toBe(true);
+    expect(page?.vertical).toBe(false);
+  });
+
   it("renders an inline image and preserves the drawing through a save", () => {
     const png = new Uint8Array([0x89, 0x50, 0x4e, 0x47, 1, 2, 3, 4]);
     const drawing =

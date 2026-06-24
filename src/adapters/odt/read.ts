@@ -422,7 +422,10 @@ function parsePageGeometry(files: Record<string, Uint8Array>): PageGeometry | un
   const h = lenToPx(props.getAttribute("fo:page-height"));
   if (!w || !h) return undefined; // no usable size; the engine applies its default
   const m = (a: string) => Math.round(Math.max(0, lenToPx(props.getAttribute(`fo:margin-${a}`)) ?? 96));
-  return { widthPx: Math.round(w), heightPx: Math.round(h), margin: { top: m("top"), right: m("right"), bottom: m("bottom"), left: m("left") } };
+  const wm = props.getAttribute("style:writing-mode") ?? "";
+  const vertical = wm.startsWith("tb"); // tb-rl / tb
+  const rtl = wm.startsWith("rl"); // rl-tb (horizontal right-to-left)
+  return { widthPx: Math.round(w), heightPx: Math.round(h), margin: { top: m("top"), right: m("right"), bottom: m("bottom"), left: m("left") }, vertical, rtl };
 }
 
 export function odtToParts(bytes: Uint8Array): { body: string; comments: CommentThread[]; header: string; footer: string; page?: PageGeometry } {

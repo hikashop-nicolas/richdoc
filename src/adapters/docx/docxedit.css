@@ -140,6 +140,12 @@
 .docxedit-hf-clone:hover { outline: 1px dashed #6e7bff; outline-offset: -1px; }
 .docxedit-header.is-editing, .docxedit-footer.is-editing { outline: 2px solid #6e7bff; outline-offset: -2px; border-radius: 2px; }
 .docxedit-doc { padding: var(--rdoc-margin-top, 40px) var(--rdoc-margin-right, 72px) var(--rdoc-margin-bottom, 56px) var(--rdoc-margin-left, 72px); min-height: 200px; outline: none; }
+/* Vertical writing (tategaki): fixed-height page, columns top-to-bottom advancing right-to-left
+   so the page grows along x. The padding still maps to the physical margins. */
+.docxedit-page.is-vertical { width: max-content; }
+.docxedit-page.is-vertical .docxedit-doc { writing-mode: vertical-rl; box-sizing: border-box; height: var(--rdoc-page-height, 1123px); min-width: var(--rdoc-page-width, 794px); }
+/* Horizontal right-to-left (Arabic/Hebrew): normal pagination, the inline direction flips. */
+.docxedit-page.is-rtl .docxedit-doc, .docxedit-page.is-rtl .docxedit-header, .docxedit-page.is-rtl .docxedit-footer { direction: rtl; }
 .docxedit-header { padding: 24px var(--rdoc-margin-right, 72px) 8px var(--rdoc-margin-left, 72px); margin-bottom: 8px; border-bottom: 1px dashed #c9c9c9; color: #555; font-size: .85em; }
 .docxedit-footer { padding: 8px var(--rdoc-margin-right, 72px) 24px var(--rdoc-margin-left, 72px); margin-top: 8px; border-top: 1px dashed #c9c9c9; color: #555; font-size: .85em; }
 .docxedit-doc h1 { font-size: 2em; } .docxedit-doc h2 { font-size: 1.5em; } .docxedit-doc h3 { font-size: 1.2em; }

@@ -31,6 +31,10 @@ export interface PageGeometry {
   widthPx: number;
   heightPx: number;
   margin: { top: number; right: number; bottom: number; left: number };
+  /** Top-to-bottom, right-to-left text (Japanese tategaki) when true. */
+  vertical?: boolean;
+  /** Horizontal right-to-left text (Arabic/Hebrew) when true. Ignored if `vertical`. */
+  rtl?: boolean;
 }
 
 /** The editable model the engine renders: body + header/footer HTML, comments, fonts. */
@@ -90,6 +94,8 @@ export interface Capabilities {
   fontControls: boolean;
   /** Paragraph alignment buttons. */
   alignment: boolean;
+  /** Vertical (top-to-bottom, right-to-left) writing is supported / rendered. */
+  verticalText: boolean;
 }
 
 /** The irreducible per-format layer: parse, serialize, comment markers, feature flags. */

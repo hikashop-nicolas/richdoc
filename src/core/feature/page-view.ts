@@ -15,6 +15,7 @@ export interface PageViewDeps {
   scroll: HTMLElement;
   geometry: PageGeometry;
   options: EditorOptions;
+  vertical: boolean;
   applyGeometry: () => void;
   mark: () => void;
   positionCards: () => void;
@@ -23,7 +24,7 @@ export interface PageViewDeps {
 }
 
 export function setupPageView(deps: PageViewDeps) {
-  const { page, pagebox, canvas, leftSpacer, rightArea, scroll, geometry, options, applyGeometry, mark, positionCards, reflow, scheduleReflow } = deps;
+  const { page, pagebox, canvas, leftSpacer, rightArea, scroll, geometry, options, vertical, applyGeometry, mark, positionCards, reflow, scheduleReflow } = deps;
   let geometryDirty = false;
 
   // --- Margin rulers --------------------------------------------------------
@@ -60,8 +61,11 @@ export function setupPageView(deps: PageViewDeps) {
   pageWrap.append(hRuler.r, vRuler.r, pagebox);
   canvas.append(leftSpacer, pageWrap, rightArea);
   scroll.appendChild(canvas);
+  // Rulers assume a fixed-width page; a vertical page grows horizontally, so hide them for now.
+  if (vertical) hRuler.r.hidden = vRuler.r.hidden = true;
 
   const updateRulers = () => {
+    if (vertical) return;
     const z = effectiveZoom();
     const g = geometry, m = g.margin;
     hRuler.r.style.width = `${g.widthPx * z}px`;
@@ -119,8 +123,10 @@ export function setupPageView(deps: PageViewDeps) {
   // pagination) stays unscaled because the transform does not affect offsetTop/Height.
   let userZoom: number | null = options.zoom ?? null;
   const fitZoom = (): number => {
-    const avail = scroll.clientWidth - 56; // canvas padding + comment gutter
-    return Math.max(0.2, Math.min(1, avail / Math.max(1, geometry.widthPx)));
+    // Vertical pages grow along x, so fit to the page's fixed height; horizontal fit to width.
+    const avail = (vertical ? scroll.clientHeight : scroll.clientWidth) - 56;
+    const dim = vertical ? geometry.heightPx : geometry.widthPx;
+    return Math.max(0.2, Math.min(1, avail / Math.max(1, dim)));
   };
   const effectiveZoom = (): number => userZoom ?? fitZoom();
   // A slider (like pdfedit) plus a clickable percentage that resets to fit-to-width.
@@ -145,8 +151,9 @@ export function setupPageView(deps: PageViewDeps) {
     const z = effectiveZoom();
     page.style.transformOrigin = "top left";
     page.style.transform = `scale(${z})`;
-    pagebox.style.width = `${Math.round(geometry.widthPx * z)}px`;
-    pagebox.style.height = `${Math.round(page.offsetHeight * z)}px`;
+    // A vertical page grows in width and is fixed in height; a horizontal one is the reverse.
+    pagebox.style.width = `${Math.round((vertical ? page.offsetWidth : geometry.widthPx) * z)}px`;
+    pagebox.style.height = `${Math.round((vertical ? geometry.heightPx : page.offsetHeight) * z)}px`;
     zoomLabel.textContent = `${Math.round(z * 100)}%`;
     zoomSlider.value = String(Math.round(z * 100));
     updateRulers();

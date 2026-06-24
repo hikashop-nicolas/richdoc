@@ -688,7 +688,14 @@ function parsePageGeometry(sectPr: Element | undefined): PageGeometry | undefine
   if (!w || !h) return undefined; // no usable size; let the engine apply its default
   const pgMar = sectPr.getElementsByTagName("w:pgMar")[0];
   const m = (a: string) => Math.max(0, twipToPx(pgMar?.getAttributeNS(W, a) ?? pgMar?.getAttribute("w:" + a)) ?? 96);
-  return { widthPx: Math.round(w), heightPx: Math.round(h), margin: { top: m("top"), right: m("right"), bottom: m("bottom"), left: m("left") } };
+  // East-Asian vertical text: w:sectPr/w:textDirection @w:val starting "tbRl" (tbRl, tbRlV).
+  const td = sectPr.getElementsByTagName("w:textDirection")[0];
+  const dir = td?.getAttributeNS(W, "val") ?? td?.getAttribute("w:val") ?? "";
+  const vertical = dir.startsWith("tbRl") || dir === "tbV";
+  // Horizontal RTL section: w:sectPr/w:bidi (a present, non-false element).
+  const bidi = sectPr.getElementsByTagName("w:bidi")[0];
+  const rtl = !!bidi && (bidi.getAttributeNS(W, "val") ?? bidi.getAttribute("w:val") ?? "1") !== "0";
+  return { widthPx: Math.round(w), heightPx: Math.round(h), margin: { top: m("top"), right: m("right"), bottom: m("bottom"), left: m("left") }, vertical, rtl };
 }
 
 /** The archive key for a relationship target relative to word/ (e.g. "header1.xml"). */

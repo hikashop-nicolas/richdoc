@@ -116,6 +116,26 @@ describe("odt <-> html", () => {
     expect(html).toContain('data-rdoc-br="1px dashed #00ff00"');
   });
 
+  it("reads vertical (tategaki) writing-mode from the page layout", () => {
+    const styles = `<?xml version="1.0"?>
+<office:document-styles xmlns:office="urn:oasis:names:tc:opendocument:xmlns:office:1.0" xmlns:style="urn:oasis:names:tc:opendocument:xmlns:style:1.0" xmlns:fo="urn:oasis:names:tc:opendocument:xmlns:xsl-fo-compatible:1.0"><office:automatic-styles>
+ <style:page-layout style:name="pm1"><style:page-layout-properties fo:page-width="21cm" fo:page-height="29.7cm" style:writing-mode="tb-rl"/></style:page-layout>
+</office:automatic-styles></office:document-styles>`;
+    const odt = zipSync({ mimetype: strToU8("application/vnd.oasis.opendocument.text"), "content.xml": strToU8(CONTENT), "styles.xml": strToU8(styles) });
+    expect(odtToParts(odt).page?.vertical).toBe(true);
+  });
+
+  it("reads a right-to-left (rl-tb) page layout", () => {
+    const styles = `<?xml version="1.0"?>
+<office:document-styles xmlns:office="urn:oasis:names:tc:opendocument:xmlns:office:1.0" xmlns:style="urn:oasis:names:tc:opendocument:xmlns:style:1.0" xmlns:fo="urn:oasis:names:tc:opendocument:xmlns:xsl-fo-compatible:1.0"><office:automatic-styles>
+ <style:page-layout style:name="pm1"><style:page-layout-properties fo:page-width="21cm" fo:page-height="29.7cm" style:writing-mode="rl-tb"/></style:page-layout>
+</office:automatic-styles></office:document-styles>`;
+    const odt = zipSync({ mimetype: strToU8("application/vnd.oasis.opendocument.text"), "content.xml": strToU8(CONTENT), "styles.xml": strToU8(styles) });
+    const page = odtToParts(odt).page;
+    expect(page?.rtl).toBe(true);
+    expect(page?.vertical).toBe(false);
+  });
+
   it("keeps mimetype as the first, uncompressed entry", () => {
     const out = htmlToOdt("<p>x</p>", makeOdt());
     // local file header: signature(4) + ... + compression method at offset 8 (0 = stored)
