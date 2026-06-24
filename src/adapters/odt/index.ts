@@ -127,6 +127,12 @@ function lenToPx(v: string | null | undefined): number | undefined {
 const pxToCm = (px: number): string => `${Math.round((px / (96 / 2.54)) * 1000) / 1000}cm`;
 
 /** Read context: the archive (for image data), the resolved style maps, and comment state. */
+interface ChangeInfo {
+  type: "insertion" | "deletion";
+  author: string;
+  date: string;
+  deleted: string; // for deletions: the removed text
+}
 interface RCtx {
   files: Record<string, Uint8Array>;
   styles: Map<string, Fmt>;
@@ -134,7 +140,33 @@ interface RCtx {
   threads: CommentThread[]; // comments collected while rendering, for the panel
   rangedNames: Set<string>; // annotation names that have a matching annotation-end
   openComment: Set<string>; // comment ranges currently open (reopened per paragraph)
+  changes: Map<string, ChangeInfo>; // tracked-change id -> metadata
+  openIns: Set<string>; // insertion ranges currently open (reopened per paragraph)
 }
+
+/** Parse text:tracked-changes into a map of change id -> metadata. */
+function readChanges(body: Element): Map<string, ChangeInfo> {
+  const map = new Map<string, ChangeInfo>();
+  const tc = body.getElementsByTagName("text:tracked-changes")[0];
+  if (!tc) return map;
+  for (const region of Array.from(tc.getElementsByTagName("text:changed-region"))) {
+    const id = region.getAttribute("text:id") ?? region.getAttribute("xml:id") ?? "";
+    if (!id) continue;
+    const ins = region.getElementsByTagName("text:insertion")[0];
+    const del = region.getElementsByTagName("text:deletion")[0];
+    const info = (ins ?? del)?.getElementsByTagName("office:change-info")[0];
+    const author = info?.getElementsByTagName("dc:creator")[0]?.textContent ?? "";
+    const date = info?.getElementsByTagName("dc:date")[0]?.textContent ?? "";
+    if (ins) map.set(id, { type: "insertion", author, date, deleted: "" });
+    else if (del) {
+      const deleted = Array.from(del.getElementsByTagName("text:p")).map((p) => p.textContent ?? "").join("\n");
+      map.set(id, { type: "deletion", author, date, deleted });
+    }
+  }
+  return map;
+}
+const revAttrs = (c: ChangeInfo | undefined): string =>
+  ` data-author="${escapeAttr(c?.author ?? "")}" data-date="${escapeAttr(c?.date ?? "")}"`;
 
 /** Read a comment's author/date/text from an office:annotation element. */
 function readAnnotation(an: Element): { author: string; date: string; text: string; resolved: boolean } {
@@ -224,6 +256,7 @@ const wrapFmt = (inner: string, f: Fmt): string => {
 
 function inlineToHtml(el: Element, ctx: RCtx): string {
   let html = "";
+  for (const id of ctx.openIns) html += `<ins class="docx-ins"${revAttrs(ctx.changes.get(id))}>`;
   for (const id of ctx.openComment) html += `<span class="docx-comment" data-comment-id="${escapeAttr(id)}">`;
   for (const node of Array.from(el.childNodes)) {
     if (node.nodeType === 3) {
@@ -262,6 +295,26 @@ function inlineToHtml(el: Element, ctx: RCtx): string {
         if (ctx.openComment.delete(name)) html += "</span>";
         break;
       }
+      case "text:change-start": {
+        const id = child.getAttribute("text:change-id") ?? "";
+        if (ctx.changes.get(id)?.type === "insertion") {
+          ctx.openIns.add(id);
+          html += `<ins class="docx-ins"${revAttrs(ctx.changes.get(id))}>`;
+        }
+        break;
+      }
+      case "text:change-end": {
+        const id = child.getAttribute("text:change-id") ?? "";
+        if (ctx.openIns.delete(id)) html += "</ins>";
+        break;
+      }
+      case "text:change": {
+        // a deletion point: show the removed text struck through, from the changed-region
+        const id = child.getAttribute("text:change-id") ?? "";
+        const c = ctx.changes.get(id);
+        if (c?.type === "deletion") html += `<del class="docx-del"${revAttrs(c)}>${escapeHtml(c.deleted)}</del>`;
+        break;
+      }
       case "text:line-break":
         html += "<br>";
         break;
@@ -279,6 +332,7 @@ function inlineToHtml(el: Element, ctx: RCtx): string {
     }
   }
   for (let i = 0; i < ctx.openComment.size; i++) html += "</span>"; // reopened in the next paragraph
+  for (let i = 0; i < ctx.openIns.size; i++) html += "</ins>"; // reopened in the next paragraph
   return html;
 }
 
@@ -326,7 +380,7 @@ function readHeaderFooter(files: Record<string, Uint8Array>): { header: string; 
   const doc = new DOMParser().parseFromString(strFromU8(raw), "application/xml");
   const master = doc.getElementsByTagName("style:master-page")[0];
   if (!master) return { header: "", footer: "" };
-  const ctx: RCtx = { files, styles: collectTextStyles(doc), paras: collectParaStyles(doc), threads: [], rangedNames: new Set(), openComment: new Set() };
+  const ctx: RCtx = { files, styles: collectTextStyles(doc), paras: collectParaStyles(doc), threads: [], rangedNames: new Set(), openComment: new Set(), changes: new Map(), openIns: new Set() };
   const render = (tag: string): string => {
     const el = master.getElementsByTagName(tag)[0];
     if (!el) return "";
@@ -351,9 +405,12 @@ export function odtToParts(bytes: Uint8Array): { body: string; comments: Comment
       .map((e) => e.getAttribute("office:name"))
       .filter((n): n is string => !!n),
   );
-  const ctx: RCtx = { files, styles: collectTextStyles(doc), paras: collectParaStyles(doc), threads: [], rangedNames, openComment: new Set() };
+  const ctx: RCtx = { files, styles: collectTextStyles(doc), paras: collectParaStyles(doc), threads: [], rangedNames, openComment: new Set(), changes: readChanges(body), openIns: new Set() };
   let html = "";
-  for (const block of Array.from(body.children)) html += blockToHtml(block, ctx);
+  for (const block of Array.from(body.children)) {
+    if (block.tagName === "text:tracked-changes") continue; // metadata, parsed into ctx.changes
+    html += blockToHtml(block, ctx);
+  }
   return { body: html || "<p><br></p>", comments: ctx.threads, header, footer };
 }
 
@@ -443,6 +500,7 @@ interface OdfCtx {
   refMeta: Map<string, RefMeta>; // comment id -> metadata, gathered from the body refs
   rangedIds: Set<string>; // comment ids that wrap a text range (vs a point comment)
   done: Map<string, boolean>; // resolve state keyed by comment paraId
+  changes: { id: string; type: "insertion" | "deletion"; author: string; date: string; deleted?: string }[]; // tracked changes to emit
 }
 
 /** Build an office:annotation element for a comment id from its gathered metadata. */
@@ -568,6 +626,28 @@ function htmlInlineToOdf(node: Node, parent: Element, f: Fmt, ctx: OdfCtx): void
       if (!ctx.rangedIds.has(id)) parent.appendChild(makeAnnotation(ctx, id));
       continue;
     }
+    if (el.classList.contains("docx-ins")) {
+      // tracked insertion: change-start ... text ... change-end, region built later
+      const id = `ct${ctx.changes.length + 1}`;
+      ctx.changes.push({ id, type: "insertion", author: el.getAttribute("data-author") ?? "", date: el.getAttribute("data-date") ?? "" });
+      const start = ctx.doc.createElementNS(NS.text, "text:change-start");
+      start.setAttributeNS(NS.text, "text:change-id", id);
+      parent.appendChild(start);
+      htmlInlineToOdf(el, parent, f, ctx);
+      const end = ctx.doc.createElementNS(NS.text, "text:change-end");
+      end.setAttributeNS(NS.text, "text:change-id", id);
+      parent.appendChild(end);
+      continue;
+    }
+    if (el.classList.contains("docx-del")) {
+      // tracked deletion: a point marker in the body; the removed text lives in the region
+      const id = `ct${ctx.changes.length + 1}`;
+      ctx.changes.push({ id, type: "deletion", author: el.getAttribute("data-author") ?? "", date: el.getAttribute("data-date") ?? "", deleted: el.textContent ?? "" });
+      const mark = ctx.doc.createElementNS(NS.text, "text:change");
+      mark.setAttributeNS(NS.text, "text:change-id", id);
+      parent.appendChild(mark);
+      continue;
+    }
     if (el.classList.contains("docx-cmark")) continue; // empty new-comment marker: nothing to emit
     if (tag === "a") {
       const a = ctx.doc.createElementNS(NS.text, "text:a");
@@ -653,6 +733,7 @@ function applyHeaderFooter(files: Record<string, Uint8Array>, parts: { path: str
     refMeta: new Map(),
     rangedIds: new Set(),
     done: new Map(),
+    changes: [],
   };
   for (const p of hf) {
     const tag = p.path === "header" ? "style:header" : "style:footer";
@@ -671,6 +752,39 @@ function applyHeaderFooter(files: Record<string, Uint8Array>, parts: { path: str
   }
   addManifestEntries(files, ctx.pics);
   files["styles.xml"] = strToU8(new XMLSerializer().serializeToString(doc));
+}
+
+/** Build the <text:tracked-changes> region from the changes collected while serializing. */
+function buildTrackedChanges(ctx: OdfCtx): Element | null {
+  if (!ctx.changes.length) return null;
+  const tc = ctx.doc.createElementNS(NS.text, "text:tracked-changes");
+  for (const ch of ctx.changes) {
+    const region = ctx.doc.createElementNS(NS.text, "text:changed-region");
+    region.setAttributeNS(NS.text, "text:id", ch.id);
+    const kind = ctx.doc.createElementNS(NS.text, ch.type === "insertion" ? "text:insertion" : "text:deletion");
+    const info = ctx.doc.createElementNS(NS.office, "office:change-info");
+    if (ch.author) {
+      const cr = ctx.doc.createElementNS(NS.dc, "dc:creator");
+      cr.textContent = ch.author;
+      info.appendChild(cr);
+    }
+    if (ch.date) {
+      const dt = ctx.doc.createElementNS(NS.dc, "dc:date");
+      dt.textContent = ch.date;
+      info.appendChild(dt);
+    }
+    kind.appendChild(info);
+    if (ch.type === "deletion") {
+      for (const line of (ch.deleted ?? "").split("\n")) {
+        const p = ctx.doc.createElementNS(NS.text, "text:p");
+        if (line) p.textContent = line;
+        kind.appendChild(p);
+      }
+    }
+    region.appendChild(kind);
+    tc.appendChild(region);
+  }
+  return tc;
 }
 
 /** Rebuild an .odt from edited HTML, preserving every other part of the archive. */
@@ -704,12 +818,14 @@ export function htmlToOdt(
   const rangedIds = new Set(
     Array.from(htmlDoc.querySelectorAll(".docx-comment[data-comment-id]")).map((s) => s.getAttribute("data-comment-id") ?? ""),
   );
-  const ctx: OdfCtx = { doc, auto: ensureAutoStyles(doc), created: new Map(), files, pics: [], refMeta, rangedIds, done: opts?.done ?? new Map() };
+  const ctx: OdfCtx = { doc, auto: ensureAutoStyles(doc), created: new Map(), files, pics: [], refMeta, rangedIds, done: opts?.done ?? new Map(), changes: [] };
   for (const node of Array.from(htmlDoc.body.childNodes)) {
     const block = htmlBlockToOdf(node, ctx);
     if (block) body.appendChild(block);
   }
   if (!body.firstChild) body.appendChild(doc.createElementNS(NS.text, "text:p"));
+  const tc = buildTrackedChanges(ctx); // tracked-changes region goes first in office:text
+  if (tc) body.insertBefore(tc, body.firstChild);
   addManifestEntries(files, ctx.pics); // register any images embedded above
   if (opts?.parts) applyHeaderFooter(files, opts.parts); // header/footer -> styles.xml
 
@@ -780,7 +896,7 @@ export function createOdtAdapter(bytes: Uint8Array): Adapter {
       comments: true,
       commentReplies: false,
       commentReactions: false,
-      trackChanges: false,
+      trackChanges: true,
       images: true,
       headerFooter: true,
       pageBreak: false,

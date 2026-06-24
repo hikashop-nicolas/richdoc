@@ -64,8 +64,8 @@ describe("odt <-> html", () => {
   it("preserves tables, comments and tracked changes through an edit", () => {
     const content = `<?xml version="1.0"?>
 <office:document-content xmlns:office="urn:oasis:names:tc:opendocument:xmlns:office:1.0" xmlns:text="urn:oasis:names:tc:opendocument:xmlns:text:1.0" xmlns:table="urn:oasis:names:tc:opendocument:xmlns:table:1.0" xmlns:dc="http://purl.org/dc/elements/1.1/"><office:body><office:text>
- <text:tracked-changes><text:changed-region text:id="c1"><text:deletion><office:change-info><dc:creator>Al</dc:creator></office:change-info></text:deletion></text:changed-region></text:tracked-changes>
- <text:p>before<office:annotation><dc:creator>Al</dc:creator><text:p>my note</text:p></office:annotation> after</text:p>
+ <text:tracked-changes><text:changed-region text:id="c1"><text:deletion><office:change-info><dc:creator>Al</dc:creator></office:change-info><text:p>gone</text:p></text:deletion></text:changed-region></text:tracked-changes>
+ <text:p>before<text:change text:change-id="c1"/><office:annotation><dc:creator>Al</dc:creator><text:p>my note</text:p></office:annotation> after</text:p>
  <table:table table:name="T"><table:table-row><table:table-cell><text:p>A1</text:p></table:table-cell></table:table-row></table:table>
 </office:text></office:body></office:document-content>`;
     const html = odtToHtml(makeOdt(content));
@@ -292,3 +292,66 @@ describe("odt header/footer (styles.xml master page)", () => {
     expect(again.footer).toContain("F1");
   });
 });
+
+describe("odt track changes (text:tracked-changes)", () => {
+  const ROOT =
+    'xmlns:office="urn:oasis:names:tc:opendocument:xmlns:office:1.0" ' +
+    'xmlns:text="urn:oasis:names:tc:opendocument:xmlns:text:1.0" ' +
+    'xmlns:dc="http://purl.org/dc/elements/1.1/"';
+  const make = (inner: string) =>
+    makeOdt(`<?xml version="1.0"?><office:document-content ${ROOT}><office:body><office:text>${inner}</office:text></office:body></office:document-content>`);
+
+  it("reads an insertion range into <ins>", () => {
+    const odt = make(
+      '<text:tracked-changes><text:changed-region text:id="c1"><text:insertion><office:change-info><dc:creator>Ann</dc:creator><dc:date>2026-06-24T00:00:00</dc:date></office:change-info></text:insertion></text:changed-region></text:tracked-changes>' +
+        '<text:p>keep <text:change-start text:change-id="c1"/>added<text:change-end text:change-id="c1"/> end</text:p>',
+    );
+    const html = odtToHtml(odt);
+    expect(html).toContain('<ins class="docx-ins"');
+    expect(html).toContain('data-author="Ann"');
+    expect(html).toContain(">added</ins>");
+  });
+
+  it("reads a deletion into <del> with the removed text", () => {
+    const odt = make(
+      '<text:tracked-changes><text:changed-region text:id="d1"><text:deletion><office:change-info><dc:creator>Bo</dc:creator></office:change-info><text:p>removed words</text:p></text:deletion></text:changed-region></text:tracked-changes>' +
+        '<text:p>a <text:change text:change-id="d1"/>b</text:p>',
+    );
+    const html = odtToHtml(odt);
+    expect(html).toContain('<del class="docx-del"');
+    expect(html).toContain("removed words</del>");
+  });
+
+  it("writes <ins>/<del> back to tracked-changes regions + body markers", () => {
+    const html =
+      '<p>x<ins class="docx-ins" data-author="Ann" data-date="2026-06-24T00:00:00">new</ins>y' +
+      '<del class="docx-del" data-author="Bo">old</del>z</p>';
+    const out = htmlToOdt(html, make("<text:p/>"));
+    const xml = strFromU8(unzipSync(out)["content.xml"]);
+    expect(xml).toContain("text:tracked-changes");
+    expect(xml).toContain("text:insertion");
+    expect(xml).toContain("<dc:creator>Ann</dc:creator>");
+    expect(xml).toContain("text:change-start");
+    expect(xml).toContain("text:change-end");
+    expect(xml).toContain("text:deletion");
+    expect(xml).toContain("<text:p>old</text:p>"); // deleted text lives in the region
+    expect(xml).toContain("text:change "); // the deletion point marker in the body
+    expect(xml).toContain(">new<"); // inserted text stays in the body
+    // the body paragraph holds only the marker, not the deleted text
+    expect(xml).toMatch(/<text:p>x.*?new.*?y<text:change [^>]*\/>z<\/text:p>/);
+  });
+
+  it("round-trips an insertion and a deletion", () => {
+    const odt = make(
+      '<text:tracked-changes>' +
+        '<text:changed-region text:id="c1"><text:insertion><office:change-info><dc:creator>A</dc:creator></office:change-info></text:insertion></text:changed-region>' +
+        '<text:changed-region text:id="d1"><text:deletion><office:change-info><dc:creator>B</dc:creator></office:change-info><text:p>dead</text:p></text:deletion></text:changed-region>' +
+        '</text:tracked-changes>' +
+        '<text:p>k<text:change-start text:change-id="c1"/>ins<text:change-end text:change-id="c1"/> <text:change text:change-id="d1"/>m</text:p>',
+    );
+    const out = htmlToOdt(odtToHtml(odt), odt);
+    const html2 = odtToHtml(out);
+    expect(html2).toContain(">ins</ins>");
+    expect(html2).toContain("dead</del>");
+  });
+})
