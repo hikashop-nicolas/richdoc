@@ -159,13 +159,26 @@ export function setupToolbar(deps: ToolbarDeps) {
   const bgClear = btn("⌫", t("none"), () => exec("hiliteColor", "transparent"), "docxedit-bg-clear");
   bgWrap.append(bgInput, bgClear);
 
-  const FONTS = ["Arial", "Calibri", "Century", "Courier New", "Georgia", "Times New Roman", "Verdana"];
+  // Fonts/sizes the document actually uses but that are not in the defaults are added to
+  // the pickers, so the caret-sync can show them instead of falling back to the placeholder.
+  const BASE_FONTS = ["Arial", "Calibri", "Century", "Courier New", "Georgia", "Times New Roman", "Verdana"];
+  const BASE_SIZES = ["8", "9", "10", "11", "12", "14", "16", "18", "20", "24", "28", "32", "48"];
+  const docFonts = new Set<string>();
+  const docSizes = new Set<string>();
+  for (const el of Array.from(doc.querySelectorAll<HTMLElement>("[style]"))) {
+    const fam = firstFontFamily(el.style.fontFamily);
+    if (fam) docFonts.add(fam);
+    const hp = fontSizeToHalfPt(el.style.fontSize);
+    if (hp) docSizes.add(String(Math.round(hp / 2)));
+  }
+  if (parts.defaultFont) docFonts.add(parts.defaultFont);
+  const FONTS = [...BASE_FONTS, ...[...docFonts].filter((f) => !BASE_FONTS.includes(f)).sort()];
+  const SIZES = [...new Set([...BASE_SIZES, ...docSizes])].sort((a, b) => Number(a) - Number(b));
   const fontSel = pickerSelect(t("font"), FONTS.map((f) => [f, f] as [string, string]), (v) => {
     beginFormatChange();
     exec("fontName", v);
   });
 
-  const SIZES = ["8", "9", "10", "11", "12", "14", "16", "18", "20", "24", "28", "32", "48"];
   const sizeSel = pickerSelect(t("size"), SIZES.map((s) => [s, s] as [string, string]), (v) => {
     beginFormatChange();
     styleSel("fontSize", `${v}pt`);
