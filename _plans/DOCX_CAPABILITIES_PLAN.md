@@ -67,19 +67,19 @@ Add the common Office sizes and make a size change actually save.
   (portrait, px @96dpi): A3 1123x1587, A5 559x794, B4 971x1374, B5 687x971,
   Legal 816x1344, Tabloid 1056x1632, Executive 696x1008 (A4 794x1123 and
   Letter 816x1056 exist).
-- **Write path (new)**: write `w:pgSz` (px -> twips, `px*15`) in the docx write,
-  and `fo:page-width/height` (px -> cm) in the odt write, alongside the existing
-  margin write. Mark geometry dirty when the size changes (reuse the ruler's
-  `isGeometryDirty` flag, extended to cover size).
-- **UI (settled)**: a page-**size** picker in the richdoc page-view (per open
-  doc; sits with the zoom control), **and** a size option in Omnitext's New
-  docx/odt popup. (Orientation is New-popup only, see W2.) The picker sets
-  `geometry.widthPx/heightPx` from the chosen named size, re-paginates, and writes
-  back, preserving the document's current orientation (if it is landscape, keep
-  `w:orient`/`print-orientation` and apply the size with w/h swapped).
-- Extend Omnitext `PageSize`/`Paper` unions + the New dialog + blank templates to
-  the full size list.
-- Effort M, risk low.
+- **UI (settled)**: New-popup only, like orientation. **No in-editor size
+  picker.** A page-size choice in Omnitext's New docx/odt popup makes the blank
+  template generate the chosen size; an opened file keeps whatever size it
+  declares (already rendered correctly from its geometry).
+- **No richdoc write path needed**: because size is set only at creation, the
+  blank template carries `w:pgSz` / `fo:page-width/height`, and richdoc preserves
+  it on save (the write path rewrites margins only; the section properties /
+  page-layout pass through). So no `w:pgSz` write in richdoc.
+- **Omnitext**: extend the `Paper` map in blank-templates.ts (docx twips + odt
+  cm/in) and the New-dialog size dropdown to the full list. The richdoc
+  `PageSizeName`/`PAGE_SIZES` only need extending if the `defaultPageSize`
+  fallback (for files with no geometry) should also offer the new sizes; optional.
+- Effort S, risk low (Omnitext-only).
 
 ### W2. Orientation (portrait/landscape)
 - **UI (settled)**: New-popup only. No in-editor orientation control. A
@@ -207,9 +207,8 @@ W7 slots in whenever lists become a priority.
 
 1. **Page sizes**: expose the full list (A3, A4, A5, B4, B5, Letter, Legal,
    Tabloid, Executive).
-2. **Size UI**: a control in the richdoc page-view (per open doc) and an option
-   in Omnitext's New docx/odt popup. **Orientation UI**: New-popup only (no
-   in-editor control).
+2. **Size + orientation UI**: New-popup only (Omnitext New docx/odt dialog). No
+   in-editor controls; an opened file keeps its declared size/orientation.
 3. **Table v1 scope**: text cells + row/col insert-delete **and** cell
    merge/split.
 4. **Vertical writing**: ship edit support directly (no display-only first pass);
