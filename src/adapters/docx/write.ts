@@ -375,6 +375,33 @@ function makeParagraph(ctx: DocxCtx, src: HTMLElement, opts: { heading?: number;
   return p;
 }
 
+/** Rebuild a w:tbl from its preserved skeleton, replacing each (non-vMerge-continue) cell's
+    blocks with the edited content from the matching .docx-cell. Structure, properties and
+    spans are kept from the skeleton; only cell content changes. */
+function rebuildTable(ctx: DocxCtx, tableEl: HTMLElement, stash: string): Element | null {
+  const tbl = importPassthrough(ctx, stash);
+  if (!tbl || tbl.tagName !== "w:tbl") return tbl;
+  const cells = Array.from(tableEl.querySelectorAll(".docx-cell"));
+  let i = 0;
+  for (const tr of Array.from(tbl.children)) {
+    if (tr.tagName !== "w:tr") continue;
+    for (const tc of Array.from(tr.children)) {
+      if (tc.tagName !== "w:tc") continue;
+      const tcPr = tc.getElementsByTagName("w:tcPr")[0];
+      const vm = tcPr?.getElementsByTagName("w:vMerge")[0];
+      if (vm && (vm.getAttribute("w:val") ?? "continue") === "continue") continue; // continuation cell, untouched
+      const cellEl = cells[i++];
+      if (!cellEl) continue;
+      for (const ch of Array.from(tc.children)) if (ch.tagName !== "w:tcPr") tc.removeChild(ch);
+      for (const node of Array.from(cellEl.childNodes)) appendBlock(ctx, tc, node);
+      if (!Array.from(tc.children).some((ch) => ch.tagName === "w:p" || ch.tagName === "w:tbl")) {
+        tc.appendChild(ctx.doc.createElementNS(W, "w:p")); // a cell needs at least one block
+      }
+    }
+  }
+  return tbl;
+}
+
 function appendBlock(ctx: DocxCtx, body: Element, node: Node): void {
   if (node.nodeType === 3) {
     if (!(node.textContent ?? "").trim()) return;
@@ -388,7 +415,13 @@ function appendBlock(ctx: DocxCtx, body: Element, node: Node): void {
   const tag = el.tagName.toLowerCase();
   const stash = el.getAttribute("data-docx-xml");
   if (stash) {
-    // A passthrough block (table, etc.): re-emit the original OOXML verbatim.
+    // An editable table: rebuild from the preserved w:tbl skeleton with the edited cell
+    // content. Any other passthrough block re-emits the original OOXML verbatim.
+    if (el.classList.contains("docx-table")) {
+      const t = rebuildTable(ctx, el, stash);
+      if (t) body.appendChild(t);
+      return;
+    }
     const node2 = importPassthrough(ctx, stash);
     if (node2) body.appendChild(node2);
     return;

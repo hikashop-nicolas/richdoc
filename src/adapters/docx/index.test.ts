@@ -527,6 +527,39 @@ describe("create a header/footer from scratch", () => {
   });
 });
 
+describe("editable tables (cell content round-trip)", () => {
+  const TABLE_DOC = `<?xml version="1.0"?>
+<w:document xmlns:w="http://schemas.openxmlformats.org/wordprocessingml/2006/main"><w:body>
+  <w:tbl><w:tblPr><w:tblBorders><w:top w:val="single" w:sz="4" w:color="000000"/></w:tblBorders></w:tblPr>
+  <w:tblGrid><w:gridCol w:w="4000"/><w:gridCol w:w="4000"/></w:tblGrid>
+  <w:tr><w:tc><w:tcPr><w:tcW w:w="4000" w:type="dxa"/></w:tcPr><w:p><w:r><w:t>A1</w:t></w:r></w:p></w:tc><w:tc><w:p><w:r><w:t>B1</w:t></w:r></w:p></w:tc></w:tr>
+  <w:tr><w:tc><w:p><w:r><w:t>A2</w:t></w:r></w:p></w:tc><w:tc><w:p><w:r><w:t>B2</w:t></w:r></w:p></w:tc></w:tr>
+  </w:tbl>
+  <w:p><w:r><w:t>after</w:t></w:r></w:p>
+</w:body></w:document>`;
+
+  it("renders a table with editable cells", () => {
+    const html = docxToHtml(makeDocx(TABLE_DOC));
+    expect(html).toContain('class="docx-table"');
+    expect(html).toContain('class="docx-cell"');
+    expect(html).toContain("A1");
+    expect(html).toContain("B2");
+  });
+
+  it("writes back edited cell content while keeping structure (tblGrid, rows, spans)", () => {
+    const docx = makeDocx(TABLE_DOC);
+    const html = docxToHtml(docx).replace(">A1<", ">EDITED<");
+    const out = htmlToDocx(html, docx);
+    const xml = strFromU8(unzipSync(out)["word/document.xml"]!);
+    expect(xml).toContain("EDITED");
+    expect(xml).not.toContain(">A1<");
+    expect(xml).toContain("B2"); // other cells intact
+    expect(xml).toContain("w:tblGrid"); // grid preserved
+    expect((xml.match(/<w:tr\b/g) || []).length).toBe(2); // still 2 rows
+    expect((xml.match(/<w:tc\b/g) || []).length).toBe(4); // still 4 cells
+  });
+});
+
 describe("paragraph indent + line spacing", () => {
   it("writes w:ind / w:spacing and reads them back", () => {
     const out = htmlToDocx('<p style="margin-left:48px;line-height:1.5">x</p>', makeDocx());

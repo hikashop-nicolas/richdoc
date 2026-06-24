@@ -262,7 +262,9 @@ function tableHtml(tbl: Element, ctx: RenderCtx): string {
       }
       const cs = Number(span) > 1 ? ` colspan="${Number(span)}"` : "";
       const bdr = showBorder ? `border:${cellBorder};` : "";
-      cells += `<td${cs} style="${bdr}${bg}padding:3px 6px;vertical-align:top">${inner || "<br>"}</td>`;
+      // The table structure is locked (contenteditable=false on the table), but each cell's
+      // content is its own editable region; on save only the edited content is written back.
+      cells += `<td${cs} style="${bdr}${bg}padding:0;vertical-align:top"><div class="docx-cell" contenteditable="true" style="padding:3px 6px;min-height:1.2em;outline:none">${inner || "<br>"}</div></td>`;
     }
     rows += `<tr>${cells}</tr>`;
   }
