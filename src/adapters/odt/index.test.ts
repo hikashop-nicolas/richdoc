@@ -89,6 +89,7 @@ describe("odt <-> html", () => {
     const html = odtToHtml(makeOdt(content));
     const edited = html
       .replace(/ data-odt-xml="[^"]*"/, "")
+      .replace('<table class="docx-table"', '<table class="docx-table" style="margin-left: 48px"')
       .replace(/(<table class="docx-table"[^>]*>)/, '$1<colgroup><col style="width: 120px"><col style="width: 90px"></colgroup>')
       .replace(/<tr>/, '<tr style="height: 40px">')
       .replace(/<td>(<div class="docx-cell")/, '<td class="rdoc-bordered" data-rdoc-bt="2px dashed #ff0000" data-rdoc-bl="1px solid #000000">$1');
@@ -100,6 +101,7 @@ describe("odt <-> html", () => {
     expect(xml).toContain('style:column-width="3.175cm"'); // 120px
     expect(xml).toContain('style:column-width="2.381cm"'); // 90px
     expect(xml).toContain('style:min-row-height="1.058cm"'); // 40px
+    expect(xml).toContain('fo:margin-left="1.27cm"'); // 48px table indent
   });
 
   it("resolves a cell style's borders into the editor's per-side model on read", () => {

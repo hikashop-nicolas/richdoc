@@ -39,8 +39,10 @@ export function setupPageView(deps: PageViewDeps) {
     r.className = `docxedit-ruler ${cls}`;
     const fill = document.createElement("div");
     fill.className = "docxedit-ruler-fill";
-    r.appendChild(fill);
-    return { r, fill };
+    const ticks = document.createElement("div"); // graduation marks (drawn above the fill)
+    ticks.className = "docxedit-ruler-ticks";
+    r.append(fill, ticks);
+    return { r, fill, ticks };
   };
   const mkHandle = (cls: string, label: string) => {
     const h = document.createElement("div");
@@ -61,15 +63,22 @@ export function setupPageView(deps: PageViewDeps) {
   pageWrap.append(hRuler.r, vRuler.r, pagebox);
   canvas.append(leftSpacer, pageWrap, rightArea);
   scroll.appendChild(canvas);
-  // Rulers assume a fixed-width page; a vertical page grows horizontally, so hide them for now.
-  if (vertical) hRuler.r.hidden = vRuler.r.hidden = true;
 
+  // Graduations: a minor tick every 0.5cm and a darker major tick every 1cm, scaled with zoom.
+  const CM = 96 / 2.54;
+  const tickGradient = (dir: "to right" | "to bottom", z: number): string =>
+    `repeating-linear-gradient(${dir}, #6b7682 0, #6b7682 1px, transparent 1px, transparent ${CM * z}px),` +
+    `repeating-linear-gradient(${dir}, #aab2bc 0, #aab2bc 1px, transparent 1px, transparent ${(CM / 2) * z}px)`;
   const updateRulers = () => {
-    if (vertical) return;
     const z = effectiveZoom();
     const g = geometry, m = g.margin;
     hRuler.r.style.width = `${g.widthPx * z}px`;
     vRuler.r.style.height = `${g.heightPx * z}px`;
+    hRuler.ticks.style.backgroundImage = tickGradient("to right", z);
+    vRuler.ticks.style.backgroundImage = tickGradient("to bottom", z);
+    // Vertical: the page grows along x, so align the (one-page-wide) horizontal ruler with the
+    // rightmost page (page 1, the reading start). The vertical ruler maps to the fixed height.
+    hRuler.r.style.left = vertical ? `${22 + Math.max(0, page.offsetWidth - g.widthPx) * z}px` : "";
     hRuler.fill.style.left = `${m.left * z}px`;
     hRuler.fill.style.right = `${m.right * z}px`;
     vRuler.fill.style.top = `${m.top * z}px`;
@@ -91,7 +100,13 @@ export function setupPageView(deps: PageViewDeps) {
       const onMove = (ev: PointerEvent) => {
         const z = effectiveZoom();
         const rect = ruler.getBoundingClientRect();
-        const pos = (axis === "h" ? ev.clientX - rect.left : ev.clientY - rect.top) / z;
+        let pos = (axis === "h" ? ev.clientX - rect.left : ev.clientY - rect.top) / z;
+        // Magnet: snap to the nearest 0.5cm graduation when within ~5 screen px (hold Alt to bypass).
+        if (!ev.altKey) {
+          const step = CM / 2;
+          const snapped = Math.round(pos / step) * step;
+          if (Math.abs(snapped - pos) * z < 5) pos = snapped;
+        }
         const m = geometry.margin, W = geometry.widthPx, H = geometry.heightPx;
         if (side === "left") m.left = Math.max(0, Math.min(pos, W - m.right - MIN_CONTENT));
         else if (side === "right") m.right = Math.max(0, Math.min(W - pos, W - m.left - MIN_CONTENT));

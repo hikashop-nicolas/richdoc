@@ -311,6 +311,39 @@ let odtTableSeq = 0;
 let odtCellBorderSeq = 0;
 let odtColSeq = 0;
 let odtRowSeq = 0;
+let odtTableIndentSeq = 0;
+
+function findTableStyle(ctx: OdfCtx, name: string): Element | undefined {
+  for (const st of Array.from(ctx.doc.getElementsByTagName("style:style")))
+    if (st.getAttribute("style:name") === name && st.getAttribute("style:family") === "table") return st;
+  return undefined;
+}
+/** A table style carrying a left indent (fo:margin-left), cloning the preserved table style so
+    its other properties (width, borders) survive. Cached per (base style + indent). */
+function tableIndentStyleFor(ctx: OdfCtx, px: number, baseName: string | null): string {
+  const key = `tind:${baseName ?? ""}|${Math.round(px)}`;
+  const cached = ctx.created.get(key);
+  if (cached) return cached;
+  const name = `OTtbl${++odtTableIndentSeq}`;
+  const base = baseName ? findTableStyle(ctx, baseName) : undefined;
+  let st: Element;
+  let props: Element;
+  if (base) {
+    st = base.cloneNode(true) as Element;
+    st.setAttributeNS(NS.style, "style:name", name);
+    props = st.getElementsByTagName("style:table-properties")[0] ?? st.appendChild(ctx.doc.createElementNS(NS.style, "style:table-properties"));
+  } else {
+    st = ctx.doc.createElementNS(NS.style, "style:style");
+    st.setAttributeNS(NS.style, "style:name", name);
+    st.setAttributeNS(NS.style, "style:family", "table");
+    props = st.appendChild(ctx.doc.createElementNS(NS.style, "style:table-properties"));
+  }
+  props.setAttributeNS(NS.fo, "fo:margin-left", pxToCm(px));
+  props.setAttributeNS(NS.table, "table:align", "left");
+  ctx.auto.appendChild(st);
+  ctx.created.set(key, name);
+  return name;
+}
 
 /** A table-column automatic style carrying a resized column width (px). Cached per width. */
 function colStyleFor(ctx: OdfCtx, px: number): string {
@@ -397,7 +430,10 @@ function buildNewOdtTable(tableEl: HTMLElement, ctx: OdfCtx): Element {
   const tbl = ctx.doc.createElementNS(NS.table, "table:table");
   tbl.setAttributeNS(NS.table, "table:name", `Table${++odtTableSeq}`);
   const tstyle = tableEl.getAttribute("data-odt-tablestyle");
-  if (tstyle) tbl.setAttributeNS(NS.table, "table:style-name", tstyle);
+  // Table indent (dragging the outer-left edge) -> a table style with fo:margin-left.
+  const indentPx = parseFloat((tableEl as HTMLElement).style.marginLeft) || 0;
+  const styleName = indentPx > 0 ? tableIndentStyleFor(ctx, indentPx, tstyle) : tstyle;
+  if (styleName) tbl.setAttributeNS(NS.table, "table:style-name", styleName);
   // Resized column widths from a <colgroup> (px) take precedence over the preserved columns.
   const cgEl = tableEl.querySelector(":scope > colgroup");
   const colWidths: number[] = cgEl ? Array.from(cgEl.children).map((c) => parseFloat((c as HTMLElement).style.width) || 0) : [];

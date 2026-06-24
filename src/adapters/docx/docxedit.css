@@ -119,6 +119,10 @@
 .docxedit-ruler-fill { position: absolute; background: #fff; }
 .docxedit-ruler-h .docxedit-ruler-fill { top: 2px; bottom: 2px; }
 .docxedit-ruler-v .docxedit-ruler-fill { left: 2px; right: 2px; }
+/* Graduation marks (background gradient set per zoom), drawn above the fill, below the handles. */
+.docxedit-ruler-ticks { position: absolute; z-index: 1; pointer-events: none; background-repeat: no-repeat; }
+.docxedit-ruler-h .docxedit-ruler-ticks { left: 0; right: 0; bottom: 0; height: 6px; }
+.docxedit-ruler-v .docxedit-ruler-ticks { top: 0; bottom: 0; right: 0; width: 6px; }
 .docxedit-ruler-handle { position: absolute; width: 0; height: 0; z-index: 2; }
 .docxedit-ruler-handle::before { content: ""; position: absolute; } /* enlarged hit area */
 .docxedit-rh-h { top: 4px; margin-left: -5px; border-left: 5px solid transparent; border-right: 5px solid transparent; border-top: 9px solid #5b6b7b; cursor: ew-resize; }
@@ -156,6 +160,9 @@
    (it grows leftward), and page cards advance right-to-left (positioned in JS). */
 .docxedit-page.is-vertical.is-paginated { text-align: right; }
 .docxedit-page.is-vertical.is-paginated .docxedit-doc { display: inline-block; vertical-align: top; text-align: start; }
+/* Header/footer stay horizontal bands at the page top/bottom; don't inherit the page's right
+   alignment used to pin the body. */
+.docxedit-page.is-vertical.is-paginated .docxedit-hf-clone { text-align: start; }
 /* Horizontal right-to-left (Arabic/Hebrew): normal pagination, the inline direction flips. */
 .docxedit-page.is-rtl .docxedit-doc, .docxedit-page.is-rtl .docxedit-header, .docxedit-page.is-rtl .docxedit-footer { direction: rtl; }
 .docxedit-header { padding: 24px var(--rdoc-margin-right, 72px) 8px var(--rdoc-margin-left, 72px); margin-bottom: 8px; border-bottom: 1px dashed #c9c9c9; color: #555; font-size: .85em; }

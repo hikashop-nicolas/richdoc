@@ -132,6 +132,7 @@ describe("docx <-> html", () => {
     // a row height, and top+left borders on the first cell.
     const edited = html
       .replace(/ data-docx-xml="[^"]*"/, "")
+      .replace('<table class="docx-table"', '<table class="docx-table" style="margin-left: 48px"')
       .replace(/(<table class="docx-table"[^>]*>)/, '$1<colgroup><col style="width: 120px"><col style="width: 90px"></colgroup>')
       .replace(/<tr>/, '<tr style="height: 40px">')
       .replace("<td", '<td class="rdoc-bordered" data-rdoc-bt="2px dashed #ff0000" data-rdoc-bl="1px solid #000000" ');
@@ -146,6 +147,7 @@ describe("docx <-> html", () => {
     expect(xml).toContain('w:w="1350"'); // 90px -> twips
     expect(xml).toContain("<w:trHeight");
     expect(xml).toContain('w:val="600"'); // 40px -> twips
+    expect(xml).toContain('<w:tblInd w:w="720"'); // 48px indent -> twips
   });
 
   it("resolves table and cell borders into the editor's per-side model on read", () => {

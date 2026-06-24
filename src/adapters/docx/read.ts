@@ -324,7 +324,11 @@ function tableHtml(tbl: Element, ctx: RenderCtx): string {
     }
     rows += `<tr>${cells}</tr>`;
   }
-  return `<table class="docx-table" contenteditable="false"${passthroughAttr(tbl)}${propAttr("tblpr", tblPr)}${propAttr("tblgrid", tblGrid)}>${rows}</table>`;
+  // Table indent (w:tblInd) -> inline margin-left so it shows and round-trips.
+  const tblInd = tblPr?.getElementsByTagName("w:tblInd")[0];
+  const indPx = twipToPx(tblInd?.getAttributeNS(W, "w") ?? tblInd?.getAttribute("w:w"));
+  const indStyle = indPx && indPx > 0 ? ` style="margin-left:${Math.round(indPx)}px"` : "";
+  return `<table class="docx-table" contenteditable="false"${passthroughAttr(tbl)}${indStyle}${propAttr("tblpr", tblPr)}${propAttr("tblgrid", tblGrid)}>${rows}</table>`;
 }
 
 // ---------------------------------------------------------------------------

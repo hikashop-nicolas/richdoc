@@ -45,6 +45,7 @@ interface RCtx {
   styles: Map<string, Fmt>;
   paras: Map<string, PFmt>;
   cellStyles: Map<string, CellBorders>;
+  tableMargins: Map<string, number>; // table style-name -> left indent (px)
   threads: CommentThread[]; // comments collected while rendering, for the panel
   rangedNames: Set<string>; // annotation names that have a matching annotation-end
   openComment: Set<string>; // comment ranges currently open (reopened per paragraph)
@@ -213,6 +214,19 @@ function collectCellStyles(doc: Document): Map<string, CellBorders> {
   return map;
 }
 
+/** Map table style-name -> left indent (px) from fo:margin-left on the table style. */
+function collectTableMargins(doc: Document): Map<string, number> {
+  const map = new Map<string, number>();
+  for (const st of Array.from(doc.getElementsByTagName("style:style"))) {
+    if (st.getAttribute("style:family") !== "table") continue;
+    const name = st.getAttribute("style:name");
+    if (!name) continue;
+    const ml = lenToPx(st.getElementsByTagName("style:table-properties")[0]?.getAttribute("fo:margin-left"));
+    if (ml && ml > 0) map.set(name, Math.round(ml));
+  }
+  return map;
+}
+
 const wrapFmt = (inner: string, f: Fmt): string => {
   let s = inner;
   const css: string[] = [];
@@ -354,11 +368,13 @@ function odtTableHtml(el: Element, ctx: RCtx): string {
   // Preserve the table style-name and the column declarations so a structural edit keeps styling.
   const tstyle = el.getAttribute("table:style-name");
   const tableStyle = tstyle ? ` data-odt-tablestyle="${escapeAttr(tstyle)}"` : "";
+  const indPx = tstyle ? ctx.tableMargins.get(tstyle) : undefined; // table left indent -> margin-left
+  const indStyle = indPx ? ` style="margin-left:${indPx}px"` : "";
   const cols = Array.from(el.children)
     .filter((c) => c.tagName === "table:table-column")
     .map((c) => ({ s: c.getAttribute("table:style-name") ?? "", r: c.getAttribute("table:number-columns-repeated") ?? "1" }));
   const colsAttr = cols.length ? ` data-odt-cols="${escapeAttr(JSON.stringify(cols))}"` : "";
-  return `<table class="docx-table" contenteditable="false"${passthroughAttr(el)}${tableStyle}${colsAttr}>${rows}</table>`;
+  return `<table class="docx-table" contenteditable="false"${passthroughAttr(el)}${indStyle}${tableStyle}${colsAttr}>${rows}</table>`;
 }
 
 function blockToHtml(el: Element, ctx: RCtx): string {
@@ -398,7 +414,7 @@ function readHeaderFooter(files: Record<string, Uint8Array>): { header: string; 
   const doc = new DOMParser().parseFromString(strFromU8(raw), "application/xml");
   const master = doc.getElementsByTagName("style:master-page")[0];
   if (!master) return { header: "", footer: "" };
-  const ctx: RCtx = { files, styles: collectTextStyles(doc), paras: collectParaStyles(doc), cellStyles: collectCellStyles(doc), threads: [], rangedNames: new Set(), openComment: new Set(), changes: new Map(), openIns: new Set() };
+  const ctx: RCtx = { files, styles: collectTextStyles(doc), paras: collectParaStyles(doc), cellStyles: collectCellStyles(doc), tableMargins: collectTableMargins(doc), threads: [], rangedNames: new Set(), openComment: new Set(), changes: new Map(), openIns: new Set() };
   const render = (tag: string): string => {
     const el = master.getElementsByTagName(tag)[0];
     if (!el) return "";
@@ -442,7 +458,7 @@ export function odtToParts(bytes: Uint8Array): { body: string; comments: Comment
       .map((e) => e.getAttribute("office:name"))
       .filter((n): n is string => !!n),
   );
-  const ctx: RCtx = { files, styles: collectTextStyles(doc), paras: collectParaStyles(doc), cellStyles: collectCellStyles(doc), threads: [], rangedNames, openComment: new Set(), changes: readChanges(body), openIns: new Set() };
+  const ctx: RCtx = { files, styles: collectTextStyles(doc), paras: collectParaStyles(doc), cellStyles: collectCellStyles(doc), tableMargins: collectTableMargins(doc), threads: [], rangedNames, openComment: new Set(), changes: readChanges(body), openIns: new Set() };
   let html = "";
   for (const block of Array.from(body.children)) {
     if (block.tagName === "text:tracked-changes") continue; // metadata, parsed into ctx.changes

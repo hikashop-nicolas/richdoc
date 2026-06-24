@@ -472,6 +472,17 @@ function buildNewTable(ctx: DocxCtx, tableEl: HTMLElement): Element {
   }
   tbl.appendChild(tblPr);
 
+  // Table indent (dragging the table's outer-left edge) -> w:tblInd.
+  const indentPx = parseFloat((tableEl as HTMLElement).style.marginLeft) || 0;
+  const oldInd = tblPr.getElementsByTagName("w:tblInd")[0];
+  if (oldInd) oldInd.parentNode?.removeChild(oldInd);
+  if (indentPx > 0) {
+    const ind = ctx.doc.createElementNS(W, "w:tblInd");
+    ind.setAttributeNS(W, "w:w", String(Math.round(indentPx * 15)));
+    ind.setAttributeNS(W, "w:type", "dxa");
+    tblPr.appendChild(ind);
+  }
+
   // Column widths from a <colgroup> (px) take precedence: it only exists once a column was
   // dragged to resize, so untouched tables keep their preserved grid.
   const cgEl = tableEl.querySelector(":scope > colgroup");

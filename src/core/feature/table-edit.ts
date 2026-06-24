@@ -541,7 +541,7 @@ export function setupTableEdit(deps: TableEditDeps) {
   rowResize.hidden = true;
   let colInfo: { table: HTMLTableElement; gridCol: number } | null = null;
   let rowInfo: { table: HTMLTableElement; row: number } | null = null;
-  let rdrag: { axis: "col" | "row"; table: HTMLTableElement; start: number; a: HTMLElement; aSize: number; b: HTMLElement | null; bSize: number } | null = null;
+  let rdrag: { axis: "col" | "row" | "indent"; table: HTMLTableElement; start: number; a: HTMLElement | null; aSize: number; b: HTMLElement | null; bSize: number } | null = null;
   const updateResizers = (e: MouseEvent, td: HTMLTableCellElement, table: HTMLTableElement): void => {
     const { pos } = computeGrid(table);
     const p = pos.get(td);
@@ -549,15 +549,19 @@ export function setupTableEdit(deps: TableEditDeps) {
     const tr = table.getBoundingClientRect();
     const wr = wrap.getBoundingClientRect();
     const NEAR = 4;
-    // The outer right/bottom edges resize the table itself (no neighbour to give back to).
-    if (p && e.clientX >= cr.right - NEAR) {
+    const showCol = (clientLeft: number, gridCol: number): void => {
       colResize.hidden = false;
-      colResize.style.left = `${cr.right - wr.left - 2}px`;
+      colResize.style.left = `${clientLeft - wr.left - 2}px`;
       colResize.style.top = `${tr.top - wr.top}px`;
       colResize.style.width = "4px";
       colResize.style.height = `${tr.height}px`;
-      colInfo = { table, gridCol: p.col + p.colspan - 1 };
-    } else colResize.hidden = true;
+      colInfo = { table, gridCol }; // gridCol = the column LEFT of this boundary (-1 = table's left edge)
+    };
+    // A boundary resizes the columns on each side; the outer left/right edges resize the end
+    // column (or, on the far left, indent the whole table). gridCol = boundary's left column.
+    if (p && e.clientX >= cr.right - NEAR) showCol(cr.right, p.col + p.colspan - 1);
+    else if (p && e.clientX <= cr.left + NEAR) showCol(cr.left, p.col - 1);
+    else colResize.hidden = true;
     if (p && e.clientY >= cr.bottom - NEAR) {
       rowResize.hidden = false;
       rowResize.style.left = `${tr.left - wr.left}px`;
@@ -575,12 +579,16 @@ export function setupTableEdit(deps: TableEditDeps) {
       const MIN = 24;
       // Each side clamps to its own minimum: the dragged column follows the cursor and, once
       // the neighbour hits its minimum, the table widens rather than the drag stalling.
-      rdrag.a.style.width = `${Math.round(Math.max(MIN, rdrag.aSize + dx))}px`;
+      if (rdrag.a) rdrag.a.style.width = `${Math.round(Math.max(MIN, rdrag.aSize + dx))}px`;
       if (rdrag.b) rdrag.b.style.width = `${Math.round(Math.max(MIN, rdrag.bSize - dx))}px`;
+      colResize.style.left = `${e.clientX - wr.left - 2}px`;
+    } else if (rdrag.axis === "indent") {
+      const dx = e.clientX - rdrag.start; // the table's outer-left edge: drag to indent the table
+      rdrag.table.style.marginLeft = `${Math.round(Math.max(0, rdrag.aSize + dx))}px`;
       colResize.style.left = `${e.clientX - wr.left - 2}px`;
     } else {
       const dy = e.clientY - rdrag.start;
-      rdrag.a.style.height = `${Math.round(Math.max(16, rdrag.aSize + dy))}px`;
+      if (rdrag.a) rdrag.a.style.height = `${Math.round(Math.max(16, rdrag.aSize + dy))}px`;
       rowResize.style.top = `${e.clientY - wr.top - 2}px`;
     }
   };
@@ -597,10 +605,16 @@ export function setupTableEdit(deps: TableEditDeps) {
   colResize.addEventListener("pointerdown", (e) => {
     if (!colInfo) return;
     e.preventDefault();
-    const cg = ensureColgroup(colInfo.table);
-    const a = cg.children[colInfo.gridCol] as HTMLElement;
-    const b = (cg.children[colInfo.gridCol + 1] as HTMLElement) ?? null;
-    rdrag = { axis: "col", table: colInfo.table, start: e.clientX, a, aSize: parseFloat(a.style.width) || 64, b, bSize: b ? parseFloat(b.style.width) || 64 : 0 };
+    const table = colInfo.table;
+    if (colInfo.gridCol < 0) {
+      // The table's outer-left edge: drag to indent the whole table (not a column resize).
+      rdrag = { axis: "indent", table, start: e.clientX, a: table, aSize: parseFloat(table.style.marginLeft) || 0, b: null, bSize: 0 };
+    } else {
+      const cg = ensureColgroup(table);
+      const a = (cg.children[colInfo.gridCol] as HTMLElement) ?? null;
+      const b = (cg.children[colInfo.gridCol + 1] as HTMLElement) ?? null;
+      rdrag = { axis: "col", table, start: e.clientX, a, aSize: a ? parseFloat(a.style.width) || 64 : 0, b, bSize: b ? parseFloat(b.style.width) || 64 : 0 };
+    }
     colResize.classList.add("dragging");
     wrap.classList.add("docxedit-resizing-col"); // global col-resize cursor during the drag
     document.addEventListener("pointermove", onResizeMove);

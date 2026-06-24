@@ -180,15 +180,68 @@ export function createRichEditor(container: HTMLElement, adapter: Adapter, optio
     });
     return set;
   };
+
+  // Editable clone of a header/footer band, positioned by posCss (top/left/right/width). Clicking
+  // it places the caret natively; edits sync into the canonical band (the save source); on blur the
+  // pages re-clone. Shared by horizontal and vertical pagination.
+  const mkClone = (src: HTMLElement, posCss: string): HTMLElement => {
+    const c = src.cloneNode(true) as HTMLElement;
+    c.removeAttribute("role");
+    c.removeAttribute("aria-label");
+    c.classList.add("docxedit-hf-clone");
+    c.contentEditable = "true";
+    c.spellcheck = false;
+    c.style.cssText = posCss;
+    c.title = t("editHeaderFooter");
+    c.addEventListener("focus", () => {
+      editingBand = src;
+      activeEl = c;
+      c.classList.add("is-editing");
+    });
+    c.addEventListener("input", () => {
+      src.innerHTML = c.innerHTML; // keep the canonical (save source) current
+      mark();
+    });
+    c.addEventListener("blur", () => {
+      c.classList.remove("is-editing");
+      editingBand = null;
+      // A band created by double-click but left empty is dropped, not saved. Defer the check so
+      // moving between page-clones of the same band does not count as leaving.
+      if (src.dataset.pending === "1") {
+        setTimeout(() => {
+          if ((document.activeElement as HTMLElement | null)?.classList.contains("docxedit-hf-clone")) return;
+          if (isBandEmpty(src)) {
+            if (src === header) header = null;
+            else if (src === footer) footer = null;
+            src.remove();
+            activeEl = doc;
+          } else {
+            delete src.dataset.pending; // it has content now: keep it
+          }
+          reflow();
+        }, 0);
+        return;
+      }
+      reflow();
+    });
+    return c;
+  };
   const repaginateVertical = () => {
     for (const s of Array.from(doc.querySelectorAll(":scope > .docxedit-pagespacer"))) s.remove();
     pagelayer.replaceChildren();
-    hflayer.replaceChildren(); // header/footer not paginated in vertical v1
+    hflayer.replaceChildren();
     const { left, right } = geometry.margin;
     const contentExtent = geometry.widthPx - left - right; // usable page width along the fill axis
     const pageStep = geometry.widthPx + PAGE_GAP;
+    // Header/footer are horizontal bands at the page top/bottom (measured at page width); the
+    // body columns fill the height between them.
+    measure.style.width = `${geometry.widthPx}px`;
+    const headerH = header ? header.offsetHeight : 0;
+    const footerH = footer ? footer.offsetHeight : 0;
+    const contentTop = geometry.margin.top + headerH;
+    const contentBottomInset = geometry.margin.bottom + footerH;
     doc.style.height = `${geometry.heightPx}px`;
-    doc.style.padding = `${geometry.margin.top}px ${right}px ${geometry.margin.bottom}px ${left}px`;
+    doc.style.padding = `${contentTop}px ${right}px ${contentBottomInset}px ${left}px`;
     for (const el of Array.from(doc.querySelectorAll(".docxedit-pagetop"))) el.classList.remove("docxedit-pagetop");
 
     const kids = Array.from(doc.children).filter((c) => !c.classList.contains("docxedit-pagespacer")) as HTMLElement[];
@@ -215,6 +268,9 @@ export function createRichEditor(container: HTMLElement, adapter: Adapter, optio
       card.style.width = `${geometry.widthPx}px`;
       card.style.height = `${geometry.heightPx}px`;
       pagelayer.appendChild(card);
+      const rightPx = p * pageStep;
+      if (header) hflayer.appendChild(mkClone(header, `top:${geometry.margin.top}px;right:${rightPx}px;width:${geometry.widthPx}px`));
+      if (footer) hflayer.appendChild(mkClone(footer, `top:${geometry.heightPx - contentBottomInset}px;right:${rightPx}px;width:${geometry.widthPx}px`));
     }
     page.style.width = `${cardCount * pageStep - PAGE_GAP}px`;
     page.style.minHeight = `${geometry.heightPx}px`;
@@ -273,51 +329,6 @@ export function createRichEditor(container: HTMLElement, adapter: Adapter, optio
       kids[idx]!.classList.add("docxedit-pagetop");
     }
 
-    // Editable clone of the canonical band: clicking it places the caret natively at the
-    // click point; edits sync into the canonical (save source); on blur the pages re-clone.
-    const mkClone = (src: HTMLElement, topPx: number): HTMLElement => {
-      const c = src.cloneNode(true) as HTMLElement;
-      c.removeAttribute("role");
-      c.removeAttribute("aria-label");
-      c.classList.add("docxedit-hf-clone");
-      c.contentEditable = "true";
-      c.spellcheck = false;
-      c.style.cssText = `top:${topPx}px;left:0;width:100%`;
-      c.title = t("editHeaderFooter");
-      c.addEventListener("focus", () => {
-        editingBand = src;
-        activeEl = c;
-        c.classList.add("is-editing");
-      });
-      c.addEventListener("input", () => {
-        src.innerHTML = c.innerHTML; // keep the canonical (save source) current
-        mark();
-      });
-      c.addEventListener("blur", () => {
-        c.classList.remove("is-editing");
-        editingBand = null;
-        // A band created by double-click but left empty is dropped, not saved. Defer the
-        // check so moving between page-clones of the same band does not count as leaving.
-        if (src.dataset.pending === "1") {
-          setTimeout(() => {
-            if ((document.activeElement as HTMLElement | null)?.classList.contains("docxedit-hf-clone")) return;
-            if (isBandEmpty(src)) {
-              if (src === header) header = null;
-              else if (src === footer) footer = null;
-              src.remove();
-              activeEl = doc;
-            } else {
-              delete src.dataset.pending; // it has content now: keep it
-            }
-            reflow();
-          }, 0);
-          return;
-        }
-        reflow();
-      });
-      return c;
-    };
-
     for (let p = 0; p < cardCount; p++) {
       const base = p * pageStep;
       const card = document.createElement("div");
@@ -325,8 +336,8 @@ export function createRichEditor(container: HTMLElement, adapter: Adapter, optio
       card.style.top = `${base}px`;
       card.style.height = `${geometry.heightPx}px`;
       pagelayer.appendChild(card);
-      if (header) hflayer.appendChild(mkClone(header, base + geometry.margin.top));
-      if (footer) hflayer.appendChild(mkClone(footer, base + geometry.heightPx - contentBottomInset));
+      if (header) hflayer.appendChild(mkClone(header, `top:${base + geometry.margin.top}px;left:0;width:100%`));
+      if (footer) hflayer.appendChild(mkClone(footer, `top:${base + geometry.heightPx - contentBottomInset}px;left:0;width:100%`));
     }
 
     page.style.minHeight = `${cardCount * pageStep - PAGE_GAP}px`;
@@ -377,13 +388,16 @@ export function createRichEditor(container: HTMLElement, adapter: Adapter, optio
     const sel = `.docxedit-hf-clone.docxedit-${kind}`;
     (hflayer.querySelector(sel) as HTMLElement | null)?.focus();
   };
-  if (paginated && caps.headerFooter && !isVertical) {
+  if (paginated && caps.headerFooter) {
     page.addEventListener("dblclick", (e) => {
       if ((e.target as HTMLElement).closest(".docxedit-hf-clone")) return; // editing an existing band
       if (header && footer) return;
       const z = effectiveZoom();
-      const within = ((e.clientY - page.getBoundingClientRect().top) / z) % (geometry.heightPx + PAGE_GAP);
-      if (within > geometry.heightPx) return; // in the gap between two pages
+      // Vertical pages share one y band (they stack along x); horizontal pages stack along y.
+      const within = isVertical
+        ? (e.clientY - page.getBoundingClientRect().top) / z
+        : ((e.clientY - page.getBoundingClientRect().top) / z) % (geometry.heightPx + PAGE_GAP);
+      if (within < 0 || within > geometry.heightPx) return; // outside a page (in the gap)
       if (!header && within < geometry.margin.top) createBand("header");
       else if (!footer && within > geometry.heightPx - geometry.margin.bottom) createBand("footer");
     });
