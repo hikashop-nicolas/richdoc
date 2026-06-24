@@ -337,13 +337,31 @@ function buildNewOdtTable(tableEl: HTMLElement, ctx: OdfCtx): Element {
     col.setAttributeNS(NS.table, "table:number-columns-repeated", String(gridCols));
     tbl.appendChild(col);
   }
+  // Walk the grid so a vertical merge writes number-rows-spanned + covered cells below.
+  const covered = (): Element => ctx.doc.createElementNS(NS.table, "table:covered-table-cell");
+  const occupied: ({ rows: number; span: number } | null)[] = [];
   for (const tr of rows) {
     const wtr = ctx.doc.createElementNS(NS.table, "table:table-row");
-    for (const td of Array.from(tr.cells)) {
+    const domCells = Array.from(tr.cells);
+    let di = 0;
+    let col = 0;
+    while (col < gridCols) {
+      const occ = occupied[col];
+      if (occ && occ.rows > 0) {
+        for (let k = 0; k < occ.span; k++) wtr.appendChild(covered());
+        occ.rows--;
+        col += occ.span;
+        continue;
+      }
+      const td = domCells[di++] as HTMLTableCellElement | undefined;
+      if (!td) break;
+      const cs = td.colSpan || 1;
+      const rs = td.rowSpan || 1;
       const tc = ctx.doc.createElementNS(NS.table, "table:table-cell");
       const cstyle = td.getAttribute("data-odt-cellstyle");
       if (cstyle) tc.setAttributeNS(NS.table, "table:style-name", cstyle);
-      if ((td as HTMLTableCellElement).colSpan > 1) tc.setAttributeNS(NS.table, "table:number-columns-spanned", String((td as HTMLTableCellElement).colSpan));
+      if (cs > 1) tc.setAttributeNS(NS.table, "table:number-columns-spanned", String(cs));
+      if (rs > 1) tc.setAttributeNS(NS.table, "table:number-rows-spanned", String(rs));
       const cell = (td.querySelector(".docx-cell") as HTMLElement) ?? td;
       for (const node of Array.from(cell.childNodes)) {
         const b = htmlBlockToOdf(node, ctx);
@@ -351,9 +369,9 @@ function buildNewOdtTable(tableEl: HTMLElement, ctx: OdfCtx): Element {
       }
       if (!tc.firstChild) tc.appendChild(ctx.doc.createElementNS(NS.text, "text:p"));
       wtr.appendChild(tc);
-      for (let k = 1; k < ((td as HTMLTableCellElement).colSpan || 1); k++) {
-        wtr.appendChild(ctx.doc.createElementNS(NS.table, "table:covered-table-cell"));
-      }
+      for (let k = 1; k < cs; k++) wtr.appendChild(covered()); // same-row covered (colspan)
+      if (rs > 1) occupied[col] = { rows: rs - 1, span: cs };
+      col += cs;
     }
     tbl.appendChild(wtr);
   }

@@ -275,12 +275,14 @@ function odtTableHtml(el: Element, ctx: RCtx): string {
     for (const tc of Array.from(tr.children)) {
       if (tc.tagName !== "table:table-cell") continue; // skip table:covered-table-cell (covered by a span)
       const span = Number(tc.getAttribute("table:number-columns-spanned")) || 1;
+      const rspan = Number(tc.getAttribute("table:number-rows-spanned")) || 1;
       let inner = "";
       for (const child of Array.from(tc.children)) inner += blockToHtml(child, ctx);
       const cs = span > 1 ? ` colspan="${span}"` : "";
+      const rs = rspan > 1 ? ` rowspan="${rspan}"` : "";
       const cstyle = tc.getAttribute("table:style-name"); // preserve cell style (borders/bg/padding)
       const cellStyle = cstyle ? ` data-odt-cellstyle="${escapeAttr(cstyle)}"` : "";
-      cells += `<td${cs}${cellStyle} style="border:1px solid #999;padding:0;vertical-align:top"><div class="docx-cell" contenteditable="true" style="padding:3px 6px;min-height:1.2em;outline:none">${inner || "<br>"}</div></td>`;
+      cells += `<td${cs}${rs}${cellStyle} style="border:1px solid #999;padding:0;vertical-align:top"><div class="docx-cell" contenteditable="true" style="padding:3px 6px;min-height:1.2em;outline:none">${inner || "<br>"}</div></td>`;
     }
     rows += `<tr>${cells}</tr>`;
   }
