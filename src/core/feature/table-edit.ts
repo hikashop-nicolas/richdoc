@@ -23,11 +23,9 @@ export function setupTableEdit(deps: TableEditDeps) {
 
   const newCell = (): HTMLTableCellElement => {
     const td = document.createElement("td");
-    td.setAttribute("style", "border:1px solid #999;padding:0;vertical-align:top");
     const div = document.createElement("div");
     div.className = "docx-cell";
     div.contentEditable = "true";
-    div.setAttribute("style", "padding:3px 6px;min-height:1.2em;outline:none");
     div.innerHTML = "<br>";
     td.appendChild(div);
     return td;

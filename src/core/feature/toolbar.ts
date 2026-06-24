@@ -384,16 +384,13 @@ export function setupToolbar(deps: ToolbarDeps) {
     const table = document.createElement("table");
     table.className = "docx-table";
     table.contentEditable = "false";
-    table.setAttribute("style", "border-collapse:collapse;margin:0 0 .6em");
     for (let r = 0; r < rows; r++) {
       const tr = table.insertRow();
       for (let c = 0; c < cols; c++) {
         const td = tr.insertCell();
-        td.setAttribute("style", "border:1px solid #999;padding:0;vertical-align:top");
         const div = document.createElement("div");
         div.className = "docx-cell";
         div.contentEditable = "true";
-        div.setAttribute("style", "padding:3px 6px;min-height:1.2em;outline:none");
         div.innerHTML = "<br>";
         td.appendChild(div);
       }

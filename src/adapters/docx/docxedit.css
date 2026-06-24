@@ -26,6 +26,11 @@
 .docxedit-toolbar .docxedit-tb-underline { text-decoration: underline; }
 .docxedit-toolbar .docxedit-tb-strike { text-decoration: line-through; }
 
+/* Editable tables: structural chrome lives here, not inline on each cell. */
+.docx-table { border-collapse: collapse; margin: 0 0 .6em; }
+.docx-table td { border: 1px solid #999; padding: 0; vertical-align: top; }
+.docx-cell { padding: 3px 6px; min-height: 1.2em; outline: none; }
+
 /* Insert-table grid picker (drag/hover to choose size). */
 .docxedit-table-picker { position: absolute; z-index: 30; background: #2b2f36; border: 1px solid #4a4f57; border-radius: 8px; padding: 8px; box-shadow: 0 6px 20px rgba(0,0,0,.5); }
 .docxedit-table-grid { display: grid; grid-template-columns: repeat(10, 16px); grid-auto-rows: 16px; gap: 2px; }

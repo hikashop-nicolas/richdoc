@@ -245,9 +245,6 @@ const propAttr = (name: string, el: Element | undefined): string => (el ? ` data
 function tableHtml(tbl: Element, ctx: RenderCtx): string {
   const tblPr = tbl.getElementsByTagName("w:tblPr")[0];
   const tblGrid = tbl.getElementsByTagName("w:tblGrid")[0];
-  const tblBorders = tblPr?.getElementsByTagName("w:tblBorders")[0];
-  const cellBorder = borderCss(tblBorders?.getElementsByTagName("w:top")[0]) || "1px solid #999";
-  const showBorder = cellBorder !== "none";
   // Grid model: assign each cell its grid column (cumulative gridSpan); a vMerge=restart cell
   // spans down over the following rows' vMerge=continue cells in the same column.
   const trs = Array.from(tbl.children).filter((c) => c.tagName === "w:tr");
@@ -278,8 +275,6 @@ function tableHtml(tbl: Element, ctx: RenderCtx): string {
     let cells = "";
     for (const ci of grid[r]) {
       if (ci.cont) continue; // a vMerge continuation cell: covered by the restart above
-      const shd = ci.tcPr?.getElementsByTagName("w:shd")[0]?.getAttribute("w:fill");
-      const bg = shd && shd !== "auto" && /^[0-9a-fA-F]{6}$/.test(shd) ? `background:#${shd};` : "";
       let inner = "";
       for (const p of Array.from(ci.tc.children)) {
         if (p.tagName === "w:p") inner += `<div>${inlineToHtml(p, ctx) || "<br>"}</div>`;
@@ -288,14 +283,13 @@ function tableHtml(tbl: Element, ctx: RenderCtx): string {
       const cs = ci.gridSpan > 1 ? ` colspan="${ci.gridSpan}"` : "";
       const rsN = ci.restart ? rowspanOf(r, ci.gridCol) : 1;
       const rs = rsN > 1 ? ` rowspan="${rsN}"` : "";
-      const bdr = showBorder ? `border:${cellBorder};` : "";
-      // The table structure is locked (contenteditable=false on the table), but each cell's
-      // content is its own editable region; on save only the edited content is written back.
-      cells += `<td${cs}${rs}${propAttr("tcpr", ci.tcPr)} style="${bdr}${bg}padding:0;vertical-align:top"><div class="docx-cell" contenteditable="true" style="padding:3px 6px;min-height:1.2em;outline:none">${inner || "<br>"}</div></td>`;
+      // Structure is locked (contenteditable=false on the table); each cell's content is its
+      // own editable region. Cell shading/borders round-trip via the preserved tcPr.
+      cells += `<td${cs}${rs}${propAttr("tcpr", ci.tcPr)}><div class="docx-cell" contenteditable="true">${inner || "<br>"}</div></td>`;
     }
     rows += `<tr>${cells}</tr>`;
   }
-  return `<table class="docx-table" contenteditable="false"${passthroughAttr(tbl)}${propAttr("tblpr", tblPr)}${propAttr("tblgrid", tblGrid)} style="border-collapse:collapse;margin:0 0 .6em">${rows}</table>`;
+  return `<table class="docx-table" contenteditable="false"${passthroughAttr(tbl)}${propAttr("tblpr", tblPr)}${propAttr("tblgrid", tblGrid)}>${rows}</table>`;
 }
 
 // ---------------------------------------------------------------------------

@@ -282,7 +282,7 @@ function odtTableHtml(el: Element, ctx: RCtx): string {
       const rs = rspan > 1 ? ` rowspan="${rspan}"` : "";
       const cstyle = tc.getAttribute("table:style-name"); // preserve cell style (borders/bg/padding)
       const cellStyle = cstyle ? ` data-odt-cellstyle="${escapeAttr(cstyle)}"` : "";
-      cells += `<td${cs}${rs}${cellStyle} style="border:1px solid #999;padding:0;vertical-align:top"><div class="docx-cell" contenteditable="true" style="padding:3px 6px;min-height:1.2em;outline:none">${inner || "<br>"}</div></td>`;
+      cells += `<td${cs}${rs}${cellStyle}><div class="docx-cell" contenteditable="true">${inner || "<br>"}</div></td>`;
     }
     rows += `<tr>${cells}</tr>`;
   }
@@ -293,7 +293,7 @@ function odtTableHtml(el: Element, ctx: RCtx): string {
     .filter((c) => c.tagName === "table:table-column")
     .map((c) => ({ s: c.getAttribute("table:style-name") ?? "", r: c.getAttribute("table:number-columns-repeated") ?? "1" }));
   const colsAttr = cols.length ? ` data-odt-cols="${escapeAttr(JSON.stringify(cols))}"` : "";
-  return `<table class="docx-table" contenteditable="false"${passthroughAttr(el)}${tableStyle}${colsAttr} style="border-collapse:collapse;margin:0 0 .6em">${rows}</table>`;
+  return `<table class="docx-table" contenteditable="false"${passthroughAttr(el)}${tableStyle}${colsAttr}>${rows}</table>`;
 }
 
 function blockToHtml(el: Element, ctx: RCtx): string {
