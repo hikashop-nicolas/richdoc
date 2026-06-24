@@ -46,6 +46,10 @@
 .docxedit-table-sq.on { background: #6e7bff; border-color: #6e7bff; }
 .docxedit-table-label { margin-top: 6px; text-align: center; color: #cbd1d8; font-size: 12px; }
 
+/* These controls set display:flex/inline-flex, which beats the UA [hidden]{display:none};
+   restore hiding via a higher-specificity rule so .hidden = true actually hides them. */
+.docxedit-th[hidden], .docxedit-th-cell[hidden], .docxedit-menu[hidden], .docxedit-tb-overflow[hidden], .docxedit-table-picker[hidden] { display: none; }
+
 /* Hover handles around a table (Google-Docs style): row handle on the left, column handle
    on top (a drag grip + a "+" menu), and a per-cell options button. */
 .docxedit-th { position: absolute; z-index: 26; display: flex; align-items: center; gap: 1px; background: #2b2f36; border: 1px solid #4a4f57; border-radius: 6px; padding: 1px; box-shadow: 0 2px 8px rgba(0,0,0,.4); }

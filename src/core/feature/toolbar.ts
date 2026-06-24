@@ -384,6 +384,17 @@ export function setupToolbar(deps: ToolbarDeps) {
     const table = document.createElement("table");
     table.className = "docx-table";
     table.contentEditable = "false";
+    // Fill the available content width with equal columns (a <colgroup> the adapters read).
+    const cs = getComputedStyle(doc);
+    const avail = Math.max(120, doc.clientWidth - (parseFloat(cs.paddingLeft) || 0) - (parseFloat(cs.paddingRight) || 0));
+    const colW = Math.floor(avail / cols);
+    const colgroup = document.createElement("colgroup");
+    for (let c = 0; c < cols; c++) {
+      const col = document.createElement("col");
+      col.style.width = `${colW}px`;
+      colgroup.appendChild(col);
+    }
+    table.appendChild(colgroup);
     for (let r = 0; r < rows; r++) {
       const tr = table.insertRow();
       for (let c = 0; c < cols; c++) {

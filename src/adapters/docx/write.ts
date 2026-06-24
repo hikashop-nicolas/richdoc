@@ -466,6 +466,22 @@ function buildNewTable(ctx: DocxCtx, tableEl: HTMLElement): Element {
   const cgEl = tableEl.querySelector(":scope > colgroup");
   const colWidths: number[] = cgEl ? Array.from(cgEl.children).map((c) => parseFloat((c as HTMLElement).style.width) || 0) : [];
   const useCols = colWidths.length === gridCols && colWidths.every((w) => w > 0);
+  if (useCols) {
+    // Pin the table width to the column sum and use fixed layout so Word honours the widths.
+    const sum = colWidths.reduce((a, b) => a + b, 0);
+    const oldW = tblPr.getElementsByTagName("w:tblW")[0];
+    if (oldW) oldW.parentNode?.removeChild(oldW);
+    const tblW = ctx.doc.createElementNS(W, "w:tblW");
+    tblW.setAttributeNS(W, "w:w", String(Math.round(sum * 15)));
+    tblW.setAttributeNS(W, "w:type", "dxa");
+    tblPr.insertBefore(tblW, tblPr.firstChild);
+    let lay = tblPr.getElementsByTagName("w:tblLayout")[0];
+    if (!lay) {
+      lay = ctx.doc.createElementNS(W, "w:tblLayout");
+      tblPr.appendChild(lay);
+    }
+    lay.setAttributeNS(W, "w:type", "fixed");
+  }
 
   let grid = importEl(tableEl.getAttribute("data-docx-tblgrid"), "w:tblGrid");
   if (useCols) {

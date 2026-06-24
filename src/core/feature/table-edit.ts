@@ -490,12 +490,10 @@ export function setupTableEdit(deps: TableEditDeps) {
     if (rdrag.axis === "col") {
       const dx = e.clientX - rdrag.start;
       const MIN = 24;
-      let na = rdrag.aSize + dx;
-      let nb = rdrag.bSize - dx;
-      if (na < MIN) ((nb -= MIN - na), (na = MIN));
-      if (rdrag.b && nb < MIN) ((na -= MIN - nb), (nb = MIN));
-      rdrag.a.style.width = `${Math.round(na)}px`;
-      if (rdrag.b) rdrag.b.style.width = `${Math.round(nb)}px`;
+      // Each side clamps to its own minimum: the dragged column follows the cursor and, once
+      // the neighbour hits its minimum, the table widens rather than the drag stalling.
+      rdrag.a.style.width = `${Math.round(Math.max(MIN, rdrag.aSize + dx))}px`;
+      if (rdrag.b) rdrag.b.style.width = `${Math.round(Math.max(MIN, rdrag.bSize - dx))}px`;
       colResize.style.left = `${e.clientX - wr.left - 2}px`;
     } else {
       const dy = e.clientY - rdrag.start;
@@ -619,7 +617,15 @@ export function setupTableEdit(deps: TableEditDeps) {
   document.addEventListener("mouseup", onSelUp);
 
   const onDocClick = (e: MouseEvent): void => {
-    if (menuOpen && !menu.contains(e.target as Node)) closeMenu();
+    const tgt = e.target as HTMLElement;
+    if (menuOpen && !menu.contains(tgt)) closeMenu();
+    // Clicking outside any table cell and outside the chrome retracts the handles and selection.
+    const inCell = tgt.closest?.(".docx-cell");
+    const inChrome = tgt.closest?.(".docxedit-th, .docxedit-th-cell, .docxedit-menu, .docxedit-resize");
+    if (!inCell && !inChrome) {
+      hideHandles();
+      clearSelection();
+    }
   };
   document.addEventListener("click", onDocClick);
 
