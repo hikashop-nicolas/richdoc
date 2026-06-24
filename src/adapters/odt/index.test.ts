@@ -411,6 +411,37 @@ describe("odt page geometry (page-layout)", () => {
   });
 });
 
+describe("odt editable tables (cell content round-trip)", () => {
+  const TABLE = makeOdt(
+    '<?xml version="1.0"?><office:document-content xmlns:office="urn:oasis:names:tc:opendocument:xmlns:office:1.0" ' +
+      'xmlns:text="urn:oasis:names:tc:opendocument:xmlns:text:1.0" xmlns:table="urn:oasis:names:tc:opendocument:xmlns:table:1.0">' +
+      "<office:body><office:text>" +
+      '<table:table table:name="T1"><table:table-column table:number-columns-repeated="2"/>' +
+      "<table:table-row><table:table-cell><text:p>A1</text:p></table:table-cell><table:table-cell><text:p>B1</text:p></table:table-cell></table:table-row>" +
+      "<table:table-row><table:table-cell><text:p>A2</text:p></table:table-cell><table:table-cell><text:p>B2</text:p></table:table-cell></table:table-row>" +
+      "</table:table><text:p>after</text:p></office:text></office:body></office:document-content>",
+  );
+
+  it("renders a table:table with editable cells", () => {
+    const html = odtToHtml(TABLE);
+    expect(html).toContain('class="docx-table"');
+    expect(html).toContain('class="docx-cell"');
+    expect(html).toContain("A1");
+    expect(html).toContain("B2");
+  });
+
+  it("writes back edited cell content, keeping rows/cells", () => {
+    const html = odtToHtml(TABLE).replace(">A1<", ">EDITED<");
+    const out = htmlToOdt(html, TABLE);
+    const xml = strFromU8(unzipSync(out)["content.xml"]);
+    expect(xml).toContain("EDITED");
+    expect(xml).not.toContain("<text:p>A1</text:p>");
+    expect(xml).toContain("B2");
+    expect((xml.match(/<table:table-row\b/g) || []).length).toBe(2);
+    expect((xml.match(/<table:table-cell\b/g) || []).length).toBe(4);
+  });
+});
+
 describe("odt paragraph indent + line spacing", () => {
   it("writes fo:margin-left / fo:line-height and reads them back", () => {
     const out = htmlToOdt('<p style="margin-left:48px;line-height:1.5">x</p>', makeOdt());

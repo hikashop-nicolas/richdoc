@@ -3,7 +3,7 @@
 import { strFromU8, unzipSync } from "fflate";
 import { bytesToBase64 } from "../../core/util";
 import type { CommentThread, PageGeometry } from "../../core/types";
-import { ODF_ALIGN, escapeHtml, escapeAttr, inlinePass, blockPass, FMT0, IMG_MIME } from "./shared";
+import { ODF_ALIGN, escapeHtml, escapeAttr, inlinePass, blockPass, passthroughAttr, FMT0, IMG_MIME } from "./shared";
 import type { Fmt, PFmt } from "./shared";
 
 
@@ -265,6 +265,26 @@ function listToHtml(el: Element, ctx: RCtx): string {
   return `<ul>${items}</ul>`;
 }
 
+/** Render a table:table to an editable HTML table (cells editable, structure locked and
+    preserved as passthrough), mirroring the docx adapter so the engine treats both alike. */
+function odtTableHtml(el: Element, ctx: RCtx): string {
+  let rows = "";
+  for (const tr of Array.from(el.children)) {
+    if (tr.tagName !== "table:table-row") continue;
+    let cells = "";
+    for (const tc of Array.from(tr.children)) {
+      if (tc.tagName !== "table:table-cell") continue; // skip table:covered-table-cell (covered by a span)
+      const span = Number(tc.getAttribute("table:number-columns-spanned")) || 1;
+      let inner = "";
+      for (const child of Array.from(tc.children)) inner += blockToHtml(child, ctx);
+      const cs = span > 1 ? ` colspan="${span}"` : "";
+      cells += `<td${cs} style="border:1px solid #999;padding:0;vertical-align:top"><div class="docx-cell" contenteditable="true" style="padding:3px 6px;min-height:1.2em;outline:none">${inner || "<br>"}</div></td>`;
+    }
+    rows += `<tr>${cells}</tr>`;
+  }
+  return `<table class="docx-table" contenteditable="false"${passthroughAttr(el)} style="border-collapse:collapse;margin:0 0 .6em">${rows}</table>`;
+}
+
 function blockToHtml(el: Element, ctx: RCtx): string {
   const alignAttr = (): string => {
     const pf = ctx.paras.get(el.getAttribute("text:style-name") ?? "");
@@ -283,6 +303,8 @@ function blockToHtml(el: Element, ctx: RCtx): string {
     }
     case "text:list":
       return listToHtml(el, ctx);
+    case "table:table":
+      return odtTableHtml(el, ctx);
     case "text:p": {
       const inner = inlineToHtml(el, ctx);
       return `<p${alignAttr()}>${inner || "<br>"}</p>`;

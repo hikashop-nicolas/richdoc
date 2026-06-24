@@ -283,6 +283,30 @@ function htmlListToOdf(el: HTMLElement, ctx: OdfCtx): Element {
   return list;
 }
 
+/** Rebuild a table:table from its preserved skeleton, replacing each (non-covered) cell's
+    content with the edited content from the matching .docx-cell; structure/spans preserved. */
+function rebuildOdtTable(tableEl: HTMLElement, stash: string, ctx: OdfCtx): Element | null {
+  const tbl = importPassthrough(ctx.doc, stash);
+  if (!tbl || tbl.tagName !== "table:table") return tbl;
+  const cells = Array.from(tableEl.querySelectorAll(".docx-cell"));
+  let i = 0;
+  for (const tr of Array.from(tbl.children)) {
+    if (tr.tagName !== "table:table-row") continue;
+    for (const tc of Array.from(tr.children)) {
+      if (tc.tagName !== "table:table-cell") continue; // covered cells stay as-is
+      const cellEl = cells[i++];
+      if (!cellEl) continue;
+      while (tc.firstChild) tc.removeChild(tc.firstChild);
+      for (const node of Array.from(cellEl.childNodes)) {
+        const b = htmlBlockToOdf(node, ctx);
+        if (b) tc.appendChild(b);
+      }
+      if (!tc.firstChild) tc.appendChild(ctx.doc.createElementNS(NS.text, "text:p"));
+    }
+  }
+  return tbl;
+}
+
 function htmlBlockToOdf(node: Node, ctx: OdfCtx): Element | null {
   if (node.nodeType === 3) {
     if (!(node.textContent ?? "").trim()) return null;
@@ -294,7 +318,7 @@ function htmlBlockToOdf(node: Node, ctx: OdfCtx): Element | null {
   const el = node as HTMLElement;
   const tag = el.tagName.toLowerCase();
   const stash = el.getAttribute("data-odt-xml");
-  if (stash) return importPassthrough(ctx.doc, stash);
+  if (stash) return el.classList.contains("docx-table") ? rebuildOdtTable(el, stash, ctx) : importPassthrough(ctx.doc, stash);
   if (tag === "ul" || tag === "ol") return htmlListToOdf(el, ctx);
   const applyAlign = (block: Element): void => {
     const name = paraStyleFor(ctx.doc, ctx.auto, ctx.created, {
