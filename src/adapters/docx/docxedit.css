@@ -30,12 +30,22 @@
 .docx-table { border-collapse: collapse; margin: 0 0 .6em; }
 .docx-table td { border: 1px solid #999; padding: 0; vertical-align: top; }
 .docx-cell { padding: 3px 6px; min-height: 1.2em; outline: none; }
-/* Cells whose borders were edited via the cell menu: faint base, explicit sides added. */
-.docx-table td.rdoc-bordered { border: 1px dashed #d7d7d7; }
-.docx-table td.rdoc-bordered.rdoc-bt { border-top: 1px solid #000; }
-.docx-table td.rdoc-bordered.rdoc-br { border-right: 1px solid #000; }
-.docx-table td.rdoc-bordered.rdoc-bb { border-bottom: 1px solid #000; }
-.docx-table td.rdoc-bordered.rdoc-bl { border-left: 1px solid #000; }
+/* Cells whose borders were edited via the cell menu. border-collapse would give a shared
+   edge to the neighbour (leftmost/topmost wins), so an interior cell's left/top border could
+   vanish. Instead suppress the collapsed edges (border-style:hidden) and draw the chosen
+   sides with inset box-shadows, which are per-cell and immune to the collapse conflict. */
+.docx-table td.rdoc-bordered {
+  border-style: hidden;
+  box-shadow:
+    var(--rdoc-bt, 0 0 transparent),
+    var(--rdoc-br, 0 0 transparent),
+    var(--rdoc-bb, 0 0 transparent),
+    var(--rdoc-bl, 0 0 transparent);
+}
+.docx-table td.rdoc-bordered.rdoc-bt { --rdoc-bt: inset 0 1px 0 0 #000; }
+.docx-table td.rdoc-bordered.rdoc-br { --rdoc-br: inset -1px 0 0 0 #000; }
+.docx-table td.rdoc-bordered.rdoc-bb { --rdoc-bb: inset 0 -1px 0 0 #000; }
+.docx-table td.rdoc-bordered.rdoc-bl { --rdoc-bl: inset 1px 0 0 0 #000; }
 /* Cells selected together (drag or shift-click): the cell menu acts on all of them. */
 .docx-table td.rdoc-sel { background: rgba(110,123,255,.18); }
 

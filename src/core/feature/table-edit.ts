@@ -543,22 +543,27 @@ export function setupTableEdit(deps: TableEditDeps) {
     curTable = null;
   }
   const position = (cellDiv: HTMLElement): void => {
-    if (!curTable) return;
+    if (!curTable || !curCell) return;
     const cr = cellDiv.getBoundingClientRect();
     const tr = curTable.getBoundingClientRect();
     const wr = wrap.getBoundingClientRect();
-    rowHandle.hidden = false;
-    colHandle.hidden = false;
+    const p = computeGrid(curTable).pos.get(curCell);
+    // cell menu button: top-right of the hovered cell (always reachable, shown for any cell)
     cellBtn.hidden = false;
-    // row handle: left of the table, centred on the hovered row
-    rowHandle.style.left = `${tr.left - wr.left - rowHandle.offsetWidth - 4}px`;
-    rowHandle.style.top = `${cr.top - wr.top + cr.height / 2 - rowHandle.offsetHeight / 2}px`;
-    // column handle: above the table, centred on the hovered column
-    colHandle.style.left = `${cr.left - wr.left + cr.width / 2 - colHandle.offsetWidth / 2}px`;
-    colHandle.style.top = `${tr.top - wr.top - colHandle.offsetHeight - 4}px`;
-    // cell menu button: top-right of the hovered cell
     cellBtn.style.left = `${cr.right - wr.left - cellBtn.offsetWidth - 2}px`;
     cellBtn.style.top = `${cr.top - wr.top + 2}px`;
+    // The row/column handles sit at the table edge; only show them for a cell on that edge,
+    // overlapping the table slightly so there is no gap to cross when reaching for them.
+    if (p && p.col === 0) {
+      rowHandle.hidden = false;
+      rowHandle.style.left = `${tr.left - wr.left - rowHandle.offsetWidth + 6}px`;
+      rowHandle.style.top = `${cr.top - wr.top + cr.height / 2 - rowHandle.offsetHeight / 2}px`;
+    } else rowHandle.hidden = true;
+    if (p && p.row === 0) {
+      colHandle.hidden = false;
+      colHandle.style.left = `${cr.left - wr.left + cr.width / 2 - colHandle.offsetWidth / 2}px`;
+      colHandle.style.top = `${tr.top - wr.top - colHandle.offsetHeight + 6}px`;
+    } else colHandle.hidden = true;
   };
   const onMove = (e: MouseEvent): void => {
     if (menuOpen || drag || selDragging || rdrag) return;
