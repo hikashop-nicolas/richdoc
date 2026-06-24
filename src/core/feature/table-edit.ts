@@ -366,33 +366,81 @@ export function setupTableEdit(deps: TableEditDeps) {
   // Per-side border state. A side is either off (the cell keeps its light editing-guide
   // border) or on with a chosen colour, drawn as an inset box-shadow so it survives the
   // border-collapse conflict; the side class suppresses the guide on that one edge.
+  // Per-side border state lives in data-rdoc-b{t,r,b,l} = "<w>px <style> <#color>". A side is
+  // off (the cell keeps its light editing-guide border) or on, drawn as a CSS gradient line in
+  // a background layer: gradients give us colour, width and solid/dashed/dotted/double while
+  // being immune to the border-collapse conflict that hands a shared edge to the neighbour.
+  type SideKey = "t" | "r" | "b" | "l";
   const SIDE = { t: "rdoc-bt", r: "rdoc-br", b: "rdoc-bb", l: "rdoc-bl" } as const;
-  const SIDES = ["t", "r", "b", "l"] as const;
-  const OFFSET = { t: "inset 0 1px 0 0", r: "inset -1px 0 0 0", b: "inset 0 -1px 0 0", l: "inset 1px 0 0 0" } as const;
+  const SIDES: readonly SideKey[] = ["t", "r", "b", "l"];
   let lastBorderColor = "#000000";
+  let lastBorderStyle = "solid";
+  let lastBorderWidth = 1;
+  const buildSpec = (): string => `${lastBorderWidth}px ${lastBorderStyle} ${lastBorderColor}`;
   const borderIcon = (on: ReadonlySet<string>): string => {
     const line = (x1: number, y1: number, x2: number, y2: number, k: string): string =>
       `<line x1="${x1}" y1="${y1}" x2="${x2}" y2="${y2}" stroke="${on.has(k) ? "#fff" : "#777"}" stroke-width="${on.has(k) ? 2 : 1}"${on.has(k) ? "" : ' stroke-dasharray="1.5 1.5"'}/>`;
     return `<svg width="16" height="16" viewBox="0 0 16 16" aria-hidden="true">${line(3, 3, 13, 3, "t")}${line(13, 3, 13, 13, "r")}${line(3, 13, 13, 13, "b")}${line(3, 3, 3, 13, "l")}</svg>`;
   };
-  const setSide = (cell: HTMLTableCellElement, s: "t" | "r" | "b" | "l", color: string | null): void => {
-    if (color) {
-      cell.classList.add(SIDE[s]);
-      cell.style.setProperty(`--rdoc-b${s}`, `${OFFSET[s]} ${color}`);
-    } else {
-      cell.classList.remove(SIDE[s]);
-      cell.style.removeProperty(`--rdoc-b${s}`);
-    }
-    cell.classList.toggle("rdoc-bordered", SIDES.some((k) => cell.classList.contains(SIDE[k])));
+  const parseSpec = (v: string): { w: number; style: string; color: string } => {
+    const m = v.match(/^([\d.]+)px\s+(\w+)\s+(#[0-9a-fA-F]{3,8}|[a-z]+)/i);
+    return m ? { w: parseFloat(m[1]!), style: m[2]!.toLowerCase(), color: m[3]! } : { w: 1, style: "solid", color: "#000000" };
   };
-  const applyBorder = (preset: "all" | "none" | "t" | "r" | "b" | "l", color: string): void => {
+  const lineGradient = (horizontal: boolean, style: string, color: string, w: number): string => {
+    const along = horizontal ? "to right" : "to bottom";
+    const cross = horizontal ? "to bottom" : "to right";
+    if (style === "double") {
+      if (w < 3) return `linear-gradient(${color}, ${color})`;
+      const band = Math.max(1, Math.round(w / 3));
+      return `linear-gradient(${cross}, ${color} 0, ${color} ${band}px, transparent ${band}px, transparent ${w - band}px, ${color} ${w - band}px)`;
+    }
+    if (style === "dashed" || style === "dotted") {
+      const dash = style === "dotted" ? Math.max(1, w) : Math.max(2, w * 2);
+      const gap = style === "dotted" ? Math.max(1, w) : Math.max(2, Math.round(w * 1.2));
+      return `repeating-linear-gradient(${along}, ${color} 0, ${color} ${dash}px, transparent ${dash}px, transparent ${dash + gap}px)`;
+    }
+    return `linear-gradient(${color}, ${color})`; // solid
+  };
+  const paintBorders = (cell: HTMLTableCellElement): void => {
+    const imgs: string[] = [];
+    const poss: string[] = [];
+    const sizes: string[] = [];
+    let any = false;
+    for (const s of SIDES) {
+      const v = cell.getAttribute(`data-rdoc-b${s}`);
+      cell.classList.toggle(SIDE[s], !!v); // suppress the guide on an on side
+      if (!v) continue;
+      any = true;
+      const { w, style, color } = parseSpec(v);
+      const horizontal = s === "t" || s === "b";
+      imgs.push(lineGradient(horizontal, style, color, w));
+      poss.push(s === "t" ? "left top" : s === "b" ? "left bottom" : s === "l" ? "left top" : "right top");
+      sizes.push(horizontal ? `100% ${w}px` : `${w}px 100%`);
+    }
+    cell.classList.toggle("rdoc-bordered", any);
+    if (any) {
+      cell.style.backgroundImage = imgs.join(", ");
+      cell.style.backgroundPosition = poss.join(", ");
+      cell.style.backgroundSize = sizes.join(", ");
+    } else {
+      cell.style.removeProperty("background-image");
+      cell.style.removeProperty("background-position");
+      cell.style.removeProperty("background-size");
+    }
+  };
+  const setSide = (cell: HTMLTableCellElement, s: SideKey, spec: string | null): void => {
+    if (spec) cell.setAttribute(`data-rdoc-b${s}`, spec);
+    else cell.removeAttribute(`data-rdoc-b${s}`);
+    paintBorders(cell);
+  };
+  const applyBorder = (preset: "all" | "none" | SideKey, spec: string): void => {
     const cells = targets();
     if (!cells.length || !curTable) return;
-    if (preset === "all") for (const c of cells) for (const s of SIDES) setSide(c, s, color);
+    if (preset === "all") for (const c of cells) for (const s of SIDES) setSide(c, s, spec);
     else if (preset === "none") for (const c of cells) for (const s of SIDES) setSide(c, s, null);
     else {
-      const allOn = cells.every((c) => c.classList.contains(SIDE[preset])); // group toggle
-      for (const c of cells) setSide(c, preset, allOn ? null : color);
+      const allOn = cells.every((c) => c.hasAttribute(`data-rdoc-b${preset}`)); // group toggle
+      for (const c of cells) setSide(c, preset, allOn ? null : spec);
     }
     dirty(curTable);
   };
@@ -427,15 +475,28 @@ export function setupTableEdit(deps: TableEditDeps) {
       });
       menu.appendChild(b);
     }
-    const colorRow = document.createElement("label");
-    colorRow.className = "docxedit-border-color";
-    colorRow.textContent = t("borderColor");
+    const opts = document.createElement("div");
+    opts.className = "docxedit-border-opts";
     const colorInput = document.createElement("input");
     colorInput.type = "color";
     colorInput.value = lastBorderColor;
+    colorInput.title = t("borderColor");
+    colorInput.setAttribute("aria-label", t("borderColor"));
     colorInput.addEventListener("input", () => (lastBorderColor = colorInput.value));
-    colorRow.appendChild(colorInput);
-    menu.appendChild(colorRow);
+    const styleSel = document.createElement("select");
+    styleSel.title = t("borderStyle");
+    styleSel.setAttribute("aria-label", t("borderStyle"));
+    for (const [v, key] of [["solid", "bsSolid"], ["dashed", "bsDashed"], ["dotted", "bsDotted"], ["double", "bsDouble"]] as const) styleSel.add(new Option(t(key), v));
+    styleSel.value = lastBorderStyle;
+    styleSel.addEventListener("change", () => (lastBorderStyle = styleSel.value));
+    const widthSel = document.createElement("select");
+    widthSel.title = t("borderWidth");
+    widthSel.setAttribute("aria-label", t("borderWidth"));
+    for (const w of [1, 2, 3, 4]) widthSel.add(new Option(`${w} px`, String(w)));
+    widthSel.value = String(lastBorderWidth);
+    widthSel.addEventListener("change", () => (lastBorderWidth = Number(widthSel.value)));
+    opts.append(colorInput, styleSel, widthSel);
+    menu.appendChild(opts);
     const grid = document.createElement("div");
     grid.className = "docxedit-border-grid";
     for (const bp of BORDER_PRESETS) {
@@ -448,7 +509,7 @@ export function setupTableEdit(deps: TableEditDeps) {
       b.addEventListener("mousedown", (e) => e.preventDefault());
       b.addEventListener("click", (e) => {
         e.stopPropagation();
-        applyBorder(bp.p, lastBorderColor);
+        applyBorder(bp.p, buildSpec());
       });
       grid.appendChild(b);
     }

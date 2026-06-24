@@ -31,20 +31,19 @@
 .docx-table td { border: 1px solid #999; padding: 0; vertical-align: top; }
 .docx-cell { padding: 3px 6px; min-height: 1.2em; outline: none; }
 /* A cell side is either off (it keeps the light editing-guide border above) or on with a
-   chosen colour. On sides are drawn as inset box-shadows (per-cell, immune to the
-   border-collapse conflict that would hand a shared edge to the neighbour); the side class
-   suppresses the guide on just that edge, so the other sides keep their guide. */
-.docx-table td.rdoc-bordered {
-  box-shadow:
-    var(--rdoc-bt, 0 0 transparent),
-    var(--rdoc-br, 0 0 transparent),
-    var(--rdoc-bb, 0 0 transparent),
-    var(--rdoc-bl, 0 0 transparent);
-}
+   chosen colour, width and style. On sides are drawn as CSS gradient lines in background
+   layers (set inline by the editor): gradients render colour/width/solid-dashed-dotted-double
+   and are immune to the border-collapse conflict that would hand a shared edge to the
+   neighbour. The side class suppresses the guide on just that edge. */
+.docx-table td.rdoc-bordered { background-repeat: no-repeat; background-origin: border-box; background-clip: border-box; }
 .docx-table td.rdoc-bt { border-top-style: hidden; }
 .docx-table td.rdoc-br { border-right-style: hidden; }
 .docx-table td.rdoc-bb { border-bottom-style: hidden; }
 .docx-table td.rdoc-bl { border-left-style: hidden; }
+/* Border options row in the cell menu (colour swatch + style + width). */
+.docxedit-border-opts { display: flex; gap: 4px; align-items: center; margin-top: 4px; padding-top: 4px; border-top: 1px solid #4a4f57; }
+.docxedit-border-opts select { font: 12px/1 system-ui, sans-serif; }
+.docxedit-border-opts input[type="color"] { width: 26px; height: 24px; padding: 1px; }
 /* Cells selected together (drag or shift-click): the cell menu acts on all of them. */
 .docx-table td.rdoc-sel { background: rgba(110,123,255,.18); }
 

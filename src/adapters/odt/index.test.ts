@@ -91,11 +91,11 @@ describe("odt <-> html", () => {
       .replace(/ data-odt-xml="[^"]*"/, "")
       .replace(/(<table class="docx-table"[^>]*>)/, '$1<colgroup><col style="width: 120px"><col style="width: 90px"></colgroup>')
       .replace(/<tr>/, '<tr style="height: 40px">')
-      .replace(/<td>(<div class="docx-cell")/, '<td class="rdoc-bordered rdoc-bt rdoc-bl" style="--rdoc-bt: inset 0 1px 0 0 #ff0000">$1');
+      .replace(/<td>(<div class="docx-cell")/, '<td class="rdoc-bordered" data-rdoc-bt="2px dashed #ff0000" data-rdoc-bl="1px solid #000000">$1');
     const out = htmlToOdt(edited, makeOdt(content));
     const xml = strFromU8(unzipSync(out)["content.xml"]);
-    expect(xml).toContain('fo:border-top="0.018cm solid #ff0000"'); // chosen border colour
-    expect(xml).toContain('fo:border-left="0.018cm solid #000000"'); // default for an on side
+    expect(xml).toContain('fo:border-top="0.053cm dashed #ff0000"'); // chosen width/style/colour
+    expect(xml).toContain('fo:border-left="0.026cm solid #000000"');
     expect(xml).toContain('fo:border-bottom="none"');
     expect(xml).toContain('style:column-width="3.175cm"'); // 120px
     expect(xml).toContain('style:column-width="2.381cm"'); // 90px

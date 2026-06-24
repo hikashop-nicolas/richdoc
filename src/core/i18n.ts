@@ -96,6 +96,12 @@ const en: Dict = {
   borderLeft: "Left border",
   borderRight: "Right border",
   borderColor: "Border colour",
+  borderStyle: "Border style",
+  borderWidth: "Border width",
+  bsSolid: "Solid",
+  bsDashed: "Dashed",
+  bsDotted: "Dotted",
+  bsDouble: "Double",
 };
 
 const fr: Dict = {
@@ -189,6 +195,12 @@ const fr: Dict = {
   borderLeft: "Bordure de gauche",
   borderRight: "Bordure de droite",
   borderColor: "Couleur de bordure",
+  borderStyle: "Style de bordure",
+  borderWidth: "Épaisseur de bordure",
+  bsSolid: "Continu",
+  bsDashed: "Tirets",
+  bsDotted: "Pointillés",
+  bsDouble: "Double",
 };
 
 const LOCALES: Record<string, Dict> = { en, fr };

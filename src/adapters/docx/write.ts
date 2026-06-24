@@ -404,15 +404,19 @@ function rebuildTable(ctx: DocxCtx, tableEl: HTMLElement, stash: string): Elemen
 
 const colSpanOf = (td: HTMLTableCellElement): number => td.colSpan || 1;
 
-/** The colour of an edited cell side, read from the inline --rdoc-b<side> custom property the
-    picker sets (falls back to black for an on side with no explicit colour). */
-function sideColor(td: HTMLTableCellElement, side: string): string {
-  const m = td.style.getPropertyValue(`--rdoc-b${side}`).trim().match(/(#[0-9a-fA-F]{3,8})\s*$/);
-  return m ? m[1]! : "#000000";
+const DOCX_BORDER_VAL: Record<string, string> = { solid: "single", dashed: "dashed", dotted: "dotted", double: "double" };
+
+/** The spec of an edited cell side, read from data-rdoc-b<side> = "<w>px <style> <#color>". */
+function sideSpec(td: HTMLTableCellElement, side: string): { w: number; style: string; color: string } | null {
+  const v = td.getAttribute(`data-rdoc-b${side}`);
+  if (!v) return null;
+  const m = v.match(/^([\d.]+)px\s+(\w+)\s+(#[0-9a-fA-F]{3,8})/i);
+  return m ? { w: parseFloat(m[1]!), style: m[2]!.toLowerCase(), color: m[3]! } : { w: 1, style: "solid", color: "#000000" };
 }
 
-/** Write per-cell borders (w:tcBorders) from the picker state. On sides become a single
-    border in their chosen colour; off sides become w:nil so they override the table grid. */
+/** Write per-cell borders (w:tcBorders) from the picker state. On sides carry their style,
+    width (px -> eighths of a point) and colour; off sides become w:nil so they override the
+    table grid. */
 function applyCellBorders(ctx: DocxCtx, tcPr: Element, td: HTMLTableCellElement): void {
   if (!td.classList.contains("rdoc-bordered")) return;
   const old = tcPr.getElementsByTagName("w:tcBorders")[0];
@@ -420,11 +424,12 @@ function applyCellBorders(ctx: DocxCtx, tcPr: Element, td: HTMLTableCellElement)
   const tb = ctx.doc.createElementNS(W, "w:tcBorders");
   for (const [side, tag] of [["t", "w:top"], ["l", "w:left"], ["b", "w:bottom"], ["r", "w:right"]] as const) {
     const b = ctx.doc.createElementNS(W, tag);
-    if (td.classList.contains(`rdoc-b${side}`)) {
-      b.setAttributeNS(W, "w:val", "single");
-      b.setAttributeNS(W, "w:sz", "4");
+    const spec = sideSpec(td, side);
+    if (spec) {
+      b.setAttributeNS(W, "w:val", DOCX_BORDER_VAL[spec.style] ?? "single");
+      b.setAttributeNS(W, "w:sz", String(Math.max(2, Math.round(spec.w * 6)))); // px -> 1/8 pt
       b.setAttributeNS(W, "w:space", "0");
-      b.setAttributeNS(W, "w:color", sideColor(td, side).replace("#", ""));
+      b.setAttributeNS(W, "w:color", spec.color.replace("#", ""));
     } else {
       b.setAttributeNS(W, "w:val", "nil");
     }
