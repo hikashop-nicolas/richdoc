@@ -102,6 +102,20 @@ describe("odt <-> html", () => {
     expect(xml).toContain('style:min-row-height="1.058cm"'); // 40px
   });
 
+  it("resolves a cell style's borders into the editor's per-side model on read", () => {
+    const content = `<?xml version="1.0"?>
+<office:document-content xmlns:office="urn:oasis:names:tc:opendocument:xmlns:office:1.0" xmlns:text="urn:oasis:names:tc:opendocument:xmlns:text:1.0" xmlns:table="urn:oasis:names:tc:opendocument:xmlns:table:1.0" xmlns:style="urn:oasis:names:tc:opendocument:xmlns:style:1.0" xmlns:fo="urn:oasis:names:tc:opendocument:xmlns:xsl-fo-compatible:1.0"><office:automatic-styles>
+ <style:style style:name="Tc1" style:family="table-cell"><style:table-cell-properties fo:border="0.5pt dashed #00ff00"/></style:style>
+</office:automatic-styles><office:body><office:text>
+ <table:table table:name="T"><table:table-column table:number-columns-repeated="1"/><table:table-row><table:table-cell table:style-name="Tc1"><text:p>A1</text:p></table:table-cell></table:table-row></table:table>
+</office:text></office:body></office:document-content>`;
+    const html = odtToHtml(makeOdt(content));
+    // 0.5pt -> 1px, fo:border shorthand applies to all four sides.
+    expect(html).toContain('data-rdoc-bt="1px dashed #00ff00"');
+    expect(html).toContain('data-rdoc-bl="1px dashed #00ff00"');
+    expect(html).toContain('data-rdoc-br="1px dashed #00ff00"');
+  });
+
   it("keeps mimetype as the first, uncompressed entry", () => {
     const out = htmlToOdt("<p>x</p>", makeOdt());
     // local file header: signature(4) + ... + compression method at offset 8 (0 = stored)

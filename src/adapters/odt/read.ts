@@ -33,10 +33,18 @@ interface ChangeInfo {
   date: string;
   deleted: string; // for deletions: the removed text
 }
+interface CellBorders {
+  t: string | null;
+  r: string | null;
+  b: string | null;
+  l: string | null;
+}
+
 interface RCtx {
   files: Record<string, Uint8Array>;
   styles: Map<string, Fmt>;
   paras: Map<string, PFmt>;
+  cellStyles: Map<string, CellBorders>;
   threads: CommentThread[]; // comments collected while rendering, for the panel
   rangedNames: Set<string>; // annotation names that have a matching annotation-end
   openComment: Set<string>; // comment ranges currently open (reopened per paragraph)
@@ -149,6 +157,59 @@ function collectParaStyles(doc: Document): Map<string, PFmt> {
     const lineHeight = lh && lh.endsWith("%") ? Math.round((parseFloat(lh) / 100) * 100) / 100 : undefined;
     if (align || indentPx || lineHeight) map.set(name, { align, indentPx, lineHeight });
   }
+  return map;
+}
+
+const ODT_BORDER_STYLE: Record<string, string> = {
+  solid: "solid", dashed: "dashed", dotted: "dotted", double: "double",
+  groove: "solid", ridge: "solid", inset: "solid", outset: "solid", fine: "solid",
+};
+// An fo:border value ("0.5pt solid #000000") -> the editor's "<w>px <style> <#color>", or null.
+function parseOdtBorder(v: string | null | undefined): string | null {
+  if (!v) return null;
+  const s = v.trim();
+  if (!s || /^(none|hidden)$/i.test(s)) return null;
+  let style = "solid";
+  let color = "#000000";
+  let w = 1;
+  for (const p of s.split(/\s+/)) {
+    const lp = p.toLowerCase();
+    if (ODT_BORDER_STYLE[lp]) style = ODT_BORDER_STYLE[lp]!;
+    else if (/^#[0-9a-f]{3,8}$/i.test(p)) color = p;
+    else {
+      const px = lenToPx(p);
+      if (px) w = Math.max(1, Math.round(px));
+    }
+  }
+  return `${w}px ${style} ${color}`;
+}
+
+/** Map table-cell style-name -> its four border specs, resolving fo:border (shorthand),
+    per-side fo:border-* and the style:parent-style-name chain. */
+function collectCellStyles(doc: Document): Map<string, CellBorders> {
+  const raw = new Map<string, { own: CellBorders; parent?: string }>();
+  for (const st of Array.from(doc.getElementsByTagName("style:style"))) {
+    if (st.getAttribute("style:family") !== "table-cell") continue;
+    const name = st.getAttribute("style:name");
+    if (!name) continue;
+    const cp = st.getElementsByTagName("style:table-cell-properties")[0];
+    const all = cp?.getAttribute("fo:border") ?? undefined;
+    const side = (a: string): string | null => parseOdtBorder(cp?.getAttribute(a) ?? all);
+    raw.set(name, {
+      own: { t: side("fo:border-top"), r: side("fo:border-right"), b: side("fo:border-bottom"), l: side("fo:border-left") },
+      parent: st.getAttribute("style:parent-style-name") ?? undefined,
+    });
+  }
+  const empty: CellBorders = { t: null, r: null, b: null, l: null };
+  const resolve = (name: string, seen: Set<string>): CellBorders => {
+    const e = raw.get(name);
+    if (!e || seen.has(name)) return empty;
+    seen.add(name);
+    const base = e.parent ? resolve(e.parent, seen) : empty;
+    return { t: e.own.t ?? base.t, r: e.own.r ?? base.r, b: e.own.b ?? base.b, l: e.own.l ?? base.l };
+  };
+  const map = new Map<string, CellBorders>();
+  for (const name of raw.keys()) map.set(name, resolve(name, new Set()));
   return map;
 }
 
@@ -282,7 +343,11 @@ function odtTableHtml(el: Element, ctx: RCtx): string {
       const rs = rspan > 1 ? ` rowspan="${rspan}"` : "";
       const cstyle = tc.getAttribute("table:style-name"); // preserve cell style (borders/bg/padding)
       const cellStyle = cstyle ? ` data-odt-cellstyle="${escapeAttr(cstyle)}"` : "";
-      cells += `<td${cs}${rs}${cellStyle}><div class="docx-cell" contenteditable="true">${inner || "<br>"}</div></td>`;
+      // Resolve the cell style's borders into the editor's per-side model so they show on load.
+      const cb = cstyle ? ctx.cellStyles.get(cstyle) : undefined;
+      const bAttr = (k: string, spec: string | null | undefined): string => (spec ? ` data-rdoc-b${k}="${spec}"` : "");
+      const borders = cb ? bAttr("t", cb.t) + bAttr("r", cb.r) + bAttr("b", cb.b) + bAttr("l", cb.l) : "";
+      cells += `<td${cs}${rs}${cellStyle}${borders}><div class="docx-cell" contenteditable="true">${inner || "<br>"}</div></td>`;
     }
     rows += `<tr>${cells}</tr>`;
   }
@@ -333,7 +398,7 @@ function readHeaderFooter(files: Record<string, Uint8Array>): { header: string; 
   const doc = new DOMParser().parseFromString(strFromU8(raw), "application/xml");
   const master = doc.getElementsByTagName("style:master-page")[0];
   if (!master) return { header: "", footer: "" };
-  const ctx: RCtx = { files, styles: collectTextStyles(doc), paras: collectParaStyles(doc), threads: [], rangedNames: new Set(), openComment: new Set(), changes: new Map(), openIns: new Set() };
+  const ctx: RCtx = { files, styles: collectTextStyles(doc), paras: collectParaStyles(doc), cellStyles: collectCellStyles(doc), threads: [], rangedNames: new Set(), openComment: new Set(), changes: new Map(), openIns: new Set() };
   const render = (tag: string): string => {
     const el = master.getElementsByTagName(tag)[0];
     if (!el) return "";
@@ -374,7 +439,7 @@ export function odtToParts(bytes: Uint8Array): { body: string; comments: Comment
       .map((e) => e.getAttribute("office:name"))
       .filter((n): n is string => !!n),
   );
-  const ctx: RCtx = { files, styles: collectTextStyles(doc), paras: collectParaStyles(doc), threads: [], rangedNames, openComment: new Set(), changes: readChanges(body), openIns: new Set() };
+  const ctx: RCtx = { files, styles: collectTextStyles(doc), paras: collectParaStyles(doc), cellStyles: collectCellStyles(doc), threads: [], rangedNames, openComment: new Set(), changes: readChanges(body), openIns: new Set() };
   let html = "";
   for (const block of Array.from(body.children)) {
     if (block.tagName === "text:tracked-changes") continue; // metadata, parsed into ctx.changes

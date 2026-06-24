@@ -345,9 +345,6 @@ function rowStyleFor(ctx: OdfCtx, px: number): string {
   return name;
 }
 
-/** A table-cell automatic style carrying the borders set by the cell-border picker.
-    Cached per side-combination. Border-only: other preserved cell properties (background,
-    padding) are not merged in when a cell's borders are edited. */
 // fo:border accepts the CSS-style keywords directly (solid/dashed/dotted/double).
 function odtBorderValue(td: HTMLTableCellElement, side: string): string {
   const v = td.getAttribute(`data-rdoc-b${side}`);
@@ -356,20 +353,38 @@ function odtBorderValue(td: HTMLTableCellElement, side: string): string {
   if (!m) return "0.018cm solid #000000";
   return `${pxToCm(parseFloat(m[1]!))} ${m[2]!.toLowerCase()} ${m[3]}`;
 }
+function findCellStyle(ctx: OdfCtx, name: string): Element | undefined {
+  for (const st of Array.from(ctx.doc.getElementsByTagName("style:style")))
+    if (st.getAttribute("style:name") === name && st.getAttribute("style:family") === "table-cell") return st;
+  return undefined;
+}
+/** A table-cell automatic style carrying the cell's borders. The preserved cell style (if any)
+    is cloned so its other properties (background, padding) survive, then its borders are
+    replaced with the per-side spec. Cached per (base style + border spec). */
 function cellBorderStyleFor(ctx: OdfCtx, td: HTMLTableCellElement): string | null {
   if (!td.classList.contains("rdoc-bordered")) return null;
-  const sides = [["t", "fo:border-top"], ["r", "fo:border-right"], ["b", "fo:border-bottom"], ["l", "fo:border-left"]] as const;
+  const sides = [["t", "border-top"], ["r", "border-right"], ["b", "border-bottom"], ["l", "border-left"]] as const;
   const spec = sides.map(([s]) => odtBorderValue(td, s));
-  const key = "cellb:" + spec.join("|");
+  const baseName = td.getAttribute("data-odt-cellstyle") ?? "";
+  const key = "cellb:" + baseName + "|" + spec.join("|");
   const cached = ctx.created.get(key);
   if (cached) return cached;
   const name = `OTc${++odtCellBorderSeq}`;
-  const st = ctx.doc.createElementNS(NS.style, "style:style");
-  st.setAttributeNS(NS.style, "style:name", name);
-  st.setAttributeNS(NS.style, "style:family", "table-cell");
-  const props = ctx.doc.createElementNS(NS.style, "style:table-cell-properties");
-  sides.forEach(([, attr], i) => props.setAttributeNS(NS.fo, attr, spec[i]!));
-  st.appendChild(props);
+  const base = baseName ? findCellStyle(ctx, baseName) : undefined;
+  let st: Element;
+  let props: Element;
+  if (base) {
+    st = base.cloneNode(true) as Element;
+    st.setAttributeNS(NS.style, "style:name", name);
+    props = st.getElementsByTagName("style:table-cell-properties")[0] ?? st.appendChild(ctx.doc.createElementNS(NS.style, "style:table-cell-properties"));
+    for (const a of ["border", "border-top", "border-right", "border-bottom", "border-left"]) props.removeAttributeNS(NS.fo, a);
+  } else {
+    st = ctx.doc.createElementNS(NS.style, "style:style");
+    st.setAttributeNS(NS.style, "style:name", name);
+    st.setAttributeNS(NS.style, "style:family", "table-cell");
+    props = st.appendChild(ctx.doc.createElementNS(NS.style, "style:table-cell-properties"));
+  }
+  sides.forEach(([, attr], i) => props.setAttributeNS(NS.fo, `fo:${attr}`, spec[i]!));
   ctx.auto.appendChild(st);
   ctx.created.set(key, name);
   return name;

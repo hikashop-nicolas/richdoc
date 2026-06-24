@@ -242,9 +242,33 @@ function paragraphBorderStyle(pPr: Element | undefined): string {
 // structurally-edited table can be rebuilt from the DOM without losing its styling.
 const propAttr = (name: string, el: Element | undefined): string => (el ? ` data-docx-${name}="${escapeAttr(serializePassthrough(el))}"` : "");
 
+const DOCX_BORDER_STYLE: Record<string, string> = {
+  single: "solid", thick: "solid", double: "double", dashed: "dashed", dotted: "dotted",
+  dashSmallGap: "dashed", dotDash: "dashed", dotDotDash: "dashed", wave: "solid", doubleWave: "double",
+};
+// A w:tblBorders/w:tcBorders side element -> "<w>px <style> <#color>", or null if absent/nil.
+const docxBorderSpec = (el: Element | undefined): string | null => {
+  if (!el) return null;
+  const val = el.getAttribute("w:val");
+  if (!val || val === "nil" || val === "none") return null;
+  const style = DOCX_BORDER_STYLE[val] ?? "solid";
+  const w = Math.max(1, Math.round((Number(el.getAttribute("w:sz")) || 4) / 6)); // eighths of pt -> px
+  const c = el.getAttribute("w:color");
+  const color = !c || c === "auto" ? "#000000" : `#${c.replace(/^#/, "")}`;
+  return `${w}px ${style} ${color}`;
+};
+// Resolve a cell side: an explicit tcBorders side wins (even nil = off); else the table's
+// outer border on an edge cell, or its inside border for an interior edge.
+const resolveCellBorder = (tcB: Element | undefined, tblB: Element | undefined, side: string, inside: string, edge: boolean): string | null => {
+  const tcEl = tcB?.getElementsByTagName(side)[0];
+  if (tcEl) return docxBorderSpec(tcEl);
+  return docxBorderSpec(tblB?.getElementsByTagName(edge ? side : inside)[0]);
+};
+
 function tableHtml(tbl: Element, ctx: RenderCtx): string {
   const tblPr = tbl.getElementsByTagName("w:tblPr")[0];
   const tblGrid = tbl.getElementsByTagName("w:tblGrid")[0];
+  const tblB = tblPr?.getElementsByTagName("w:tblBorders")[0];
   // Grid model: assign each cell its grid column (cumulative gridSpan); a vMerge=restart cell
   // spans down over the following rows' vMerge=continue cells in the same column.
   const trs = Array.from(tbl.children).filter((c) => c.tagName === "w:tr");
@@ -270,6 +294,8 @@ function tableHtml(tbl: Element, ctx: RenderCtx): string {
     }
     return span;
   };
+  const totalRows = grid.length;
+  const totalCols = Math.max(0, ...grid.flat().map((c) => c.gridCol + c.gridSpan));
   let rows = "";
   for (let r = 0; r < grid.length; r++) {
     let cells = "";
@@ -283,9 +309,18 @@ function tableHtml(tbl: Element, ctx: RenderCtx): string {
       const cs = ci.gridSpan > 1 ? ` colspan="${ci.gridSpan}"` : "";
       const rsN = ci.restart ? rowspanOf(r, ci.gridCol) : 1;
       const rs = rsN > 1 ? ` rowspan="${rsN}"` : "";
+      // Resolve the cell's real borders (Word's tcBorders-over-tblBorders rules) into the
+      // editor's per-side model, so the document's borders show on load.
+      const tcB = ci.tcPr?.getElementsByTagName("w:tcBorders")[0];
+      const bAttr = (k: string, spec: string | null): string => (spec ? ` data-rdoc-b${k}="${spec}"` : "");
+      const borders =
+        bAttr("t", resolveCellBorder(tcB, tblB, "w:top", "w:insideH", r === 0)) +
+        bAttr("b", resolveCellBorder(tcB, tblB, "w:bottom", "w:insideH", r + rsN === totalRows)) +
+        bAttr("l", resolveCellBorder(tcB, tblB, "w:left", "w:insideV", ci.gridCol === 0)) +
+        bAttr("r", resolveCellBorder(tcB, tblB, "w:right", "w:insideV", ci.gridCol + ci.gridSpan === totalCols));
       // Structure is locked (contenteditable=false on the table); each cell's content is its
-      // own editable region. Cell shading/borders round-trip via the preserved tcPr.
-      cells += `<td${cs}${rs}${propAttr("tcpr", ci.tcPr)}><div class="docx-cell" contenteditable="true">${inner || "<br>"}</div></td>`;
+      // own editable region. Cell shading round-trips via the preserved tcPr.
+      cells += `<td${cs}${rs}${propAttr("tcpr", ci.tcPr)}${borders}><div class="docx-cell" contenteditable="true">${inner || "<br>"}</div></td>`;
     }
     rows += `<tr>${cells}</tr>`;
   }

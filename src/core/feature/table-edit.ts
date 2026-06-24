@@ -720,6 +720,11 @@ export function setupTableEdit(deps: TableEditDeps) {
   };
   document.addEventListener("click", onDocClick);
 
+  // Paint borders the reader resolved from the document so they show on load (not just on edit).
+  for (const td of Array.from(wrap.querySelectorAll<HTMLTableCellElement>(".docx-table td"))) {
+    if (SIDES.some((s) => td.hasAttribute(`data-rdoc-b${s}`))) paintBorders(td);
+  }
+
   const teardown = (): void => {
     scroll.removeEventListener("mousemove", onMove);
     scroll.removeEventListener("mousedown", onSelDown);

@@ -134,7 +134,7 @@ describe("docx <-> html", () => {
       .replace(/ data-docx-xml="[^"]*"/, "")
       .replace(/(<table class="docx-table"[^>]*>)/, '$1<colgroup><col style="width: 120px"><col style="width: 90px"></colgroup>')
       .replace(/<tr>/, '<tr style="height: 40px">')
-      .replace(/<td>(<div class="docx-cell")/, '<td class="rdoc-bordered" data-rdoc-bt="2px dashed #ff0000" data-rdoc-bl="1px solid #000000">$1');
+      .replace("<td", '<td class="rdoc-bordered" data-rdoc-bt="2px dashed #ff0000" data-rdoc-bl="1px solid #000000" ');
     const out = htmlToDocx(edited, makeDocx(doc));
     const xml = strFromU8(unzipSync(out)["word/document.xml"]);
     expect(xml).toContain("<w:tcBorders");
@@ -146,6 +146,25 @@ describe("docx <-> html", () => {
     expect(xml).toContain('w:w="1350"'); // 90px -> twips
     expect(xml).toContain("<w:trHeight");
     expect(xml).toContain('w:val="600"'); // 40px -> twips
+  });
+
+  it("resolves table and cell borders into the editor's per-side model on read", () => {
+    const tbl =
+      "<w:tbl><w:tblPr><w:tblBorders>" +
+      '<w:top w:val="single" w:sz="12" w:color="FF0000"/><w:left w:val="single" w:sz="12" w:color="FF0000"/>' +
+      '<w:bottom w:val="single" w:sz="12" w:color="FF0000"/><w:right w:val="single" w:sz="12" w:color="FF0000"/>' +
+      '<w:insideH w:val="dashed" w:sz="6" w:color="0000FF"/><w:insideV w:val="dashed" w:sz="6" w:color="0000FF"/>' +
+      "</w:tblBorders></w:tblPr>" +
+      "<w:tr><w:tc><w:p><w:r><w:t>A1</w:t></w:r></w:p></w:tc><w:tc><w:p><w:r><w:t>B1</w:t></w:r></w:p></w:tc></w:tr>" +
+      "<w:tr><w:tc><w:p><w:r><w:t>A2</w:t></w:r></w:p></w:tc><w:tc><w:p><w:r><w:t>B2</w:t></w:r></w:p></w:tc></w:tr></w:tbl>";
+    const doc = `<?xml version="1.0"?>
+<w:document xmlns:w="http://schemas.openxmlformats.org/wordprocessingml/2006/main"><w:body>${tbl}</w:body></w:document>`;
+    const html = docxToHtml(makeDocx(doc));
+    // First cell: red outer top/left (12 eighths -> 2px), blue dashed inner bottom/right (6 -> 1px).
+    expect(html).toContain('data-rdoc-bt="2px solid #FF0000"');
+    expect(html).toContain('data-rdoc-bl="2px solid #FF0000"');
+    expect(html).toContain('data-rdoc-bb="1px dashed #0000FF"');
+    expect(html).toContain('data-rdoc-br="1px dashed #0000FF"');
   });
 
   it("renders an inline image and preserves the drawing through a save", () => {
