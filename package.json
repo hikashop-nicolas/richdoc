@@ -27,7 +27,9 @@
     "build": "tsc -p tsconfig.json && cp src/adapters/docx/docxedit.css dist/adapters/docx/docxedit.css",
     "prepare": "tsc -p tsconfig.json && cp src/adapters/docx/docxedit.css dist/adapters/docx/docxedit.css",
     "typecheck": "tsc -p tsconfig.json --noEmit",
-    "test": "vitest run"
+    "test": "vitest run",
+    "dev:demo": "vite --config vite.demo.config.ts",
+    "build:demo": "vite build --config vite.demo.config.ts"
   },
   "dependencies": {
     "fflate": "^0.8.2"
@@ -35,6 +37,7 @@
   "devDependencies": {
     "jsdom": "^28.0.0",
     "typescript": "^6.0.3",
+    "vite": "^8.1.0",
     "vitest": "^4.0.0"
   }
 }
