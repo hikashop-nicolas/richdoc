@@ -138,6 +138,19 @@ describe("odt <-> html", () => {
     expect(page?.vertical).toBe(false);
   });
 
+  it("writes inserted fields (page number/count) and a table of contents", () => {
+    const body =
+      '<h1>Alpha</h1>' +
+      '<div class="docx-field-toc"><div class="docx-field-toc-title">Contents</div>' +
+      '<div class="docx-field-toc-row toc-h1"><span class="docx-field-toc-text">Alpha</span><span class="docx-field-toc-page">1</span></div></div>' +
+      '<p>Page <span class="docx-field" data-field="PAGE">2</span> / <span class="docx-field" data-field="NUMPAGES">5</span></p>';
+    const xml = strFromU8(unzipSync(htmlToOdt(body, makeOdt()))["content.xml"]);
+    expect(xml).toContain("<text:page-number");
+    expect(xml).toContain("<text:page-count");
+    expect(xml).toContain("<text:table-of-content");
+    expect(xml).toContain("<text:index-body");
+  });
+
   it("keeps mimetype as the first, uncompressed entry", () => {
     const out = htmlToOdt("<p>x</p>", makeOdt());
     // local file header: signature(4) + ... + compression method at offset 8 (0 = stored)

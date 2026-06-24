@@ -201,6 +201,20 @@ function htmlInlineToOdf(node: Node, parent: Element, f: Fmt, ctx: OdfCtx): void
       parent.appendChild(ctx.doc.createElementNS(NS.text, "text:line-break"));
       continue;
     }
+    if (el.classList.contains("docx-field")) {
+      const k = el.getAttribute("data-field");
+      if (k === "PAGE") {
+        const e = ctx.doc.createElementNS(NS.text, "text:page-number");
+        e.setAttributeNS(NS.text, "text:select-page", "current");
+        e.appendChild(ctx.doc.createTextNode(el.textContent || "1"));
+        parent.appendChild(e);
+      } else if (k === "NUMPAGES") {
+        const e = ctx.doc.createElementNS(NS.text, "text:page-count");
+        e.appendChild(ctx.doc.createTextNode(el.textContent || "1"));
+        parent.appendChild(e);
+      }
+      continue;
+    }
     if (tag === "img") {
       const frame = buildImageFrame(el, ctx);
       if (frame) parent.appendChild(frame);
@@ -312,6 +326,35 @@ let odtCellBorderSeq = 0;
 let odtColSeq = 0;
 let odtRowSeq = 0;
 let odtTableIndentSeq = 0;
+let odtTocSeq = 0;
+
+/** A table of contents as text:table-of-content carrying the cached entries; ODF apps update it. */
+function buildOdtToc(el: HTMLElement, ctx: OdfCtx): Element {
+  const toc = ctx.doc.createElementNS(NS.text, "text:table-of-content");
+  toc.setAttributeNS(NS.text, "text:name", `TOC${++odtTocSeq}`);
+  const source = ctx.doc.createElementNS(NS.text, "text:table-of-content-source");
+  source.setAttributeNS(NS.text, "text:outline-level", "3");
+  toc.appendChild(source);
+  const idx = ctx.doc.createElementNS(NS.text, "text:index-body");
+  const title = el.querySelector(".docx-field-toc-title")?.textContent;
+  if (title) {
+    const tp = ctx.doc.createElementNS(NS.text, "text:p");
+    tp.appendChild(ctx.doc.createTextNode(title));
+    idx.appendChild(tp);
+  }
+  for (const row of Array.from(el.querySelectorAll(".docx-field-toc-row"))) {
+    const p = ctx.doc.createElementNS(NS.text, "text:p");
+    p.appendChild(ctx.doc.createTextNode(row.querySelector(".docx-field-toc-text")?.textContent ?? ""));
+    const page = row.querySelector(".docx-field-toc-page")?.textContent ?? "";
+    if (page) {
+      p.appendChild(ctx.doc.createElementNS(NS.text, "text:tab"));
+      p.appendChild(ctx.doc.createTextNode(page));
+    }
+    idx.appendChild(p);
+  }
+  toc.appendChild(idx);
+  return toc;
+}
 
 function findTableStyle(ctx: OdfCtx, name: string): Element | undefined {
   for (const st of Array.from(ctx.doc.getElementsByTagName("style:style")))
@@ -521,6 +564,7 @@ function htmlBlockToOdf(node: Node, ctx: OdfCtx): Element | null {
     const skel = el.getAttribute("data-odt-xml");
     return skel ? rebuildOdtTable(el, skel, ctx) : buildNewOdtTable(el, ctx);
   }
+  if (el.classList.contains("docx-field-toc")) return buildOdtToc(el, ctx);
   const stash = el.getAttribute("data-odt-xml");
   if (stash) return importPassthrough(ctx.doc, stash);
   if (tag === "ul" || tag === "ol") return htmlListToOdf(el, ctx);

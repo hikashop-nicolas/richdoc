@@ -174,6 +174,18 @@
 .docxedit-doc img.sel { outline: 2px solid #6e7bff; outline-offset: 1px; }
 .docxedit-table td { border: 1px solid #999; }
 .docxedit-img-ph { display: inline-block; padding: 2px 8px; border: 1px dashed #aaa; color: #777; font-size: .85em; }
+/* Inserted fields (page number / count) and the table of contents. */
+.docx-field { background: rgba(110,123,255,.12); border-radius: 2px; padding: 0 1px; cursor: default; }
+.docx-field-toc { border: 1px dashed #cdd3da; border-radius: 4px; padding: 8px 12px; margin: 0 0 .6em; }
+.docx-field-toc-title { font-weight: 600; margin-bottom: 4px; }
+.docx-field-toc-empty { color: #888; font-style: italic; }
+.docx-field-toc-row { display: flex; align-items: baseline; gap: 6px; cursor: pointer; padding: 1px 0; }
+.docx-field-toc-row:hover .docx-field-toc-text { text-decoration: underline; }
+.docx-field-toc-text { order: 0; flex: 0 1 auto; }
+.docx-field-toc-row::after { content: ""; order: 1; flex: 1 1 auto; border-bottom: 1px dotted #c2c8d0; transform: translateY(-3px); }
+.docx-field-toc-page { order: 2; flex: 0 0 auto; color: #555; font-variant-numeric: tabular-nums; }
+.docx-field-toc-row.toc-h2 { padding-left: 16px; }
+.docx-field-toc-row.toc-h3 { padding-left: 32px; }
 
 .docx-pagebreak { display: block; height: 0; margin: 20px 0; border-top: 2px dashed #b9b9b9; position: relative; user-select: none; }
 .docx-pagebreak[data-docx-pagebreak="manual"]::after {

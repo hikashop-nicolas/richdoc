@@ -231,6 +231,14 @@ function appendInline(ctx: DocxCtx, node: Node, parent: Element, f: Fmt, del = f
     if (child.nodeType !== 1) continue;
     const el = child as HTMLElement;
     const tag = el.tagName.toLowerCase();
+    // A field (page number / count): a w:fldSimple whose cached result is the displayed text.
+    if (el.classList.contains("docx-field")) {
+      const fld = ctx.doc.createElementNS(W, "w:fldSimple");
+      fld.setAttributeNS(W, "w:instr", ` ${el.getAttribute("data-field") || "PAGE"} `);
+      fld.appendChild(makeRun(ctx, el.textContent || "", f, del, change));
+      parent.appendChild(fld);
+      continue;
+    }
     // Tracked formatting change: record the previous run properties via rPrChange.
     if (tag === "span" && el.classList.contains("docx-rpr-change")) {
       let old: Fmt = FMT0;
@@ -626,6 +634,10 @@ function appendBlock(ctx: DocxCtx, body: Element, node: Node): void {
     if (t) body.appendChild(t);
     return;
   }
+  if (el.classList.contains("docx-field-toc")) {
+    appendTOC(ctx, body, el);
+    return;
+  }
   const stash = el.getAttribute("data-docx-xml");
   if (stash) {
     // A passthrough block (a preserved element we do not model): re-emit it verbatim.
@@ -651,6 +663,51 @@ function appendBlock(ctx: DocxCtx, body: Element, node: Node): void {
   }
   const hm = /^h([1-6])$/.exec(tag);
   body.appendChild(makeParagraph(ctx, el, hm ? { heading: Number(hm[1]) } : {}));
+}
+
+/** Emit a table of contents as a complex TOC field: the begin/instr/separate lead the first
+    entry paragraph, the cached entries follow, and the end closes the last. Word can update it. */
+function appendTOC(ctx: DocxCtx, body: Element, el: HTMLElement): void {
+  const fldChar = (type: string): Element => {
+    const r = ctx.doc.createElementNS(W, "w:r");
+    const fc = ctx.doc.createElementNS(W, "w:fldChar");
+    fc.setAttributeNS(W, "w:fldCharType", type);
+    r.appendChild(fc);
+    return r;
+  };
+  const instr = (): Element => {
+    const r = ctx.doc.createElementNS(W, "w:r");
+    const it = ctx.doc.createElementNS(W, "w:instrText");
+    it.setAttribute("xml:space", "preserve");
+    it.textContent = ' TOC \\o "1-3" \\h \\z \\u ';
+    r.appendChild(it);
+    return r;
+  };
+  const rows = Array.from(el.querySelectorAll<HTMLElement>(".docx-field-toc-row"));
+  if (!rows.length) {
+    const p = ctx.doc.createElementNS(W, "w:p");
+    p.append(fldChar("begin"), instr(), fldChar("separate"), fldChar("end"));
+    body.appendChild(p);
+    return;
+  }
+  rows.forEach((row, i) => {
+    const p = ctx.doc.createElementNS(W, "w:p");
+    const lvl = /toc-h([1-3])/.exec(row.className)?.[1] ?? "1";
+    const pPr = ctx.doc.createElementNS(W, "w:pPr");
+    const st = ctx.doc.createElementNS(W, "w:pStyle");
+    st.setAttributeNS(W, "w:val", `TOC${lvl}`);
+    pPr.appendChild(st);
+    p.appendChild(pPr);
+    if (i === 0) p.append(fldChar("begin"), instr(), fldChar("separate"));
+    p.appendChild(makeRun(ctx, row.querySelector(".docx-field-toc-text")?.textContent ?? "", FMT0));
+    const tab = ctx.doc.createElementNS(W, "w:r");
+    tab.appendChild(ctx.doc.createElementNS(W, "w:tab"));
+    p.appendChild(tab);
+    const page = row.querySelector(".docx-field-toc-page")?.textContent ?? "";
+    if (page) p.appendChild(makeRun(ctx, page, FMT0));
+    if (i === rows.length - 1) p.appendChild(fldChar("end"));
+    body.appendChild(p);
+  });
 }
 
 function firstNumId(file: Uint8Array | undefined): string | null {

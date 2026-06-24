@@ -226,6 +226,56 @@ export function createRichEditor(container: HTMLElement, adapter: Adapter, optio
     });
     return c;
   };
+  // Fields (page number / count / table of contents). Clone bands get per-page values; body
+  // fields and the TOC are computed from the laid-out positions after pagination.
+  const setCloneFields = (el: HTMLElement, page: number, total: number): void => {
+    for (const f of Array.from(el.querySelectorAll<HTMLElement>(".docx-field"))) {
+      const k = f.getAttribute("data-field");
+      if (k === "PAGE") f.textContent = String(page);
+      else if (k === "NUMPAGES") f.textContent = String(total);
+    }
+  };
+  const tocSig = new WeakMap<Element, string>();
+  const decorateFields = (cardCount: number, pageStep: number, vertical: boolean): void => {
+    for (const f of Array.from(doc.querySelectorAll<HTMLElement>('.docx-field[data-field="NUMPAGES"]'))) f.textContent = String(cardCount);
+    for (const f of Array.from(doc.querySelectorAll<HTMLElement>('.docx-field[data-field="PAGE"]')))
+      f.textContent = String(vertical ? 1 : Math.max(1, Math.floor(f.offsetTop / pageStep) + 1));
+    let needReflow = false;
+    for (const toc of Array.from(doc.querySelectorAll<HTMLElement>(".docx-field-toc"))) {
+      const headings = Array.from(doc.querySelectorAll<HTMLElement>("h1,h2,h3")).filter((h) => !h.closest(".docx-field-toc"));
+      const pageOf = (el: HTMLElement) => (vertical ? "" : String(Math.max(1, Math.floor(el.offsetTop / pageStep) + 1)));
+      const sig = `${cardCount}|` + headings.map((h) => `${h.tagName}:${h.textContent}:${pageOf(h)}`).join("|");
+      if (tocSig.get(toc) === sig) continue; // unchanged: don't rebuild (and don't loop reflow)
+      tocSig.set(toc, sig);
+      needReflow = true;
+      toc.replaceChildren();
+      if (!headings.length) {
+        const e = document.createElement("div");
+        e.className = "docx-field-toc-empty";
+        e.textContent = t("tocEmpty");
+        toc.appendChild(e);
+        continue;
+      }
+      const title = document.createElement("div");
+      title.className = "docx-field-toc-title";
+      title.textContent = t("tocTitle");
+      toc.appendChild(title);
+      for (const h of headings) {
+        const row = document.createElement("div");
+        row.className = `docx-field-toc-row toc-${h.tagName.toLowerCase()}`;
+        const txt = document.createElement("span");
+        txt.className = "docx-field-toc-text";
+        txt.textContent = h.textContent || "";
+        const pg = document.createElement("span");
+        pg.className = "docx-field-toc-page";
+        pg.textContent = pageOf(h);
+        row.append(txt, pg);
+        toc.appendChild(row);
+      }
+    }
+    if (needReflow) scheduleReflow(); // TOC height changed; one more pass settles pagination
+  };
+
   const repaginateVertical = () => {
     for (const s of Array.from(doc.querySelectorAll(":scope > .docxedit-pagespacer"))) s.remove();
     pagelayer.replaceChildren();
@@ -269,11 +319,20 @@ export function createRichEditor(container: HTMLElement, adapter: Adapter, optio
       card.style.height = `${geometry.heightPx}px`;
       pagelayer.appendChild(card);
       const rightPx = p * pageStep;
-      if (header) hflayer.appendChild(mkClone(header, `top:${geometry.margin.top}px;right:${rightPx}px;width:${geometry.widthPx}px`));
-      if (footer) hflayer.appendChild(mkClone(footer, `top:${geometry.heightPx - contentBottomInset}px;right:${rightPx}px;width:${geometry.widthPx}px`));
+      if (header) {
+        const hc = mkClone(header, `top:${geometry.margin.top}px;right:${rightPx}px;width:${geometry.widthPx}px`);
+        setCloneFields(hc, p + 1, cardCount);
+        hflayer.appendChild(hc);
+      }
+      if (footer) {
+        const fc = mkClone(footer, `top:${geometry.heightPx - contentBottomInset}px;right:${rightPx}px;width:${geometry.widthPx}px`);
+        setCloneFields(fc, p + 1, cardCount);
+        hflayer.appendChild(fc);
+      }
     }
     page.style.width = `${cardCount * pageStep - PAGE_GAP}px`;
     page.style.minHeight = `${geometry.heightPx}px`;
+    decorateFields(cardCount, pageStep, true);
   };
 
   const repaginate = () => {
@@ -336,11 +395,20 @@ export function createRichEditor(container: HTMLElement, adapter: Adapter, optio
       card.style.top = `${base}px`;
       card.style.height = `${geometry.heightPx}px`;
       pagelayer.appendChild(card);
-      if (header) hflayer.appendChild(mkClone(header, `top:${base + geometry.margin.top}px;left:0;width:100%`));
-      if (footer) hflayer.appendChild(mkClone(footer, `top:${base + geometry.heightPx - contentBottomInset}px;left:0;width:100%`));
+      if (header) {
+        const hc = mkClone(header, `top:${base + geometry.margin.top}px;left:0;width:100%`);
+        setCloneFields(hc, p + 1, cardCount);
+        hflayer.appendChild(hc);
+      }
+      if (footer) {
+        const fc = mkClone(footer, `top:${base + geometry.heightPx - contentBottomInset}px;left:0;width:100%`);
+        setCloneFields(fc, p + 1, cardCount);
+        hflayer.appendChild(fc);
+      }
     }
 
     page.style.minHeight = `${cardCount * pageStep - PAGE_GAP}px`;
+    decorateFields(cardCount, pageStep, false);
   };
 
   // Body HTML for saving: the live doc minus pagination artifacts (inert spacers and the
@@ -439,6 +507,15 @@ export function createRichEditor(container: HTMLElement, adapter: Adapter, optio
   } catch {
     /* not supported; legacy tags still round-trip */
   }
+
+  // Clicking a table-of-contents row scrolls to its heading (rows match headings in order).
+  doc.addEventListener("click", (e) => {
+    const row = (e.target as HTMLElement).closest?.(".docx-field-toc-row") as HTMLElement | null;
+    if (!row || !row.parentElement) return;
+    const i = Array.from(row.parentElement.querySelectorAll(".docx-field-toc-row")).indexOf(row);
+    const headings = Array.from(doc.querySelectorAll<HTMLElement>("h1,h2,h3")).filter((h) => !h.closest(".docx-field-toc"));
+    headings[i]?.scrollIntoView({ block: "center", behavior: "smooth" });
+  });
 
   for (const r of regions) {
     r.addEventListener("input", mark);

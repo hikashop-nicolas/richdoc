@@ -96,6 +96,8 @@ export interface Capabilities {
   alignment: boolean;
   /** Vertical (top-to-bottom, right-to-left) writing is supported / rendered. */
   verticalText: boolean;
+  /** Insertable fields: page number, page count, table of contents. */
+  fields: boolean;
 }
 
 /** The irreducible per-format layer: parse, serialize, comment markers, feature flags. */

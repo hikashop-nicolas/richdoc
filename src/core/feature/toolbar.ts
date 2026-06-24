@@ -474,6 +474,93 @@ export function setupToolbar(deps: ToolbarDeps) {
     if (!tablePicker.hidden) highlight(-1, -1);
   });
 
+  // --- Insert field: page number / count / table of contents (docx fields) ---------------
+  const fieldIcon =
+    '<svg width="14" height="14" viewBox="0 0 16 16" fill="none" stroke="currentColor" stroke-width="1.2" aria-hidden="true">' +
+    '<path d="M5 2.5C3.5 2.5 3.5 5 3.5 8s0 5.5-1.5 5.5"/><path d="M11 2.5c1.5 0 1.5 2.5 1.5 5.5s0 5.5 1.5 5.5"/></svg>';
+  const insertAtCaret = (node: Node): void => {
+    getActiveEl().focus();
+    const sel = window.getSelection();
+    if (!sel || !sel.rangeCount) return;
+    const range = sel.getRangeAt(0);
+    range.deleteContents();
+    range.insertNode(node);
+    range.setStartAfter(node);
+    range.collapse(true);
+    sel.removeAllRanges();
+    sel.addRange(range);
+    getActiveEl().dispatchEvent(new Event("input", { bubbles: true })); // sync header/footer clone + reflow
+  };
+  const fieldSpan = (instr: string, text: string): HTMLElement => {
+    const s = document.createElement("span");
+    s.className = "docx-field";
+    s.contentEditable = "false";
+    s.setAttribute("data-field", instr);
+    s.textContent = text;
+    return s;
+  };
+  const insertField = (instr: string) => insertAtCaret(fieldSpan(instr, "1"));
+  const insertPageXofY = () => {
+    const frag = document.createDocumentFragment();
+    frag.append(fieldSpan("PAGE", "1"), document.createTextNode(" / "), fieldSpan("NUMPAGES", "1"));
+    insertAtCaret(frag);
+  };
+  const insertTOC = () => {
+    const toc = document.createElement("div");
+    toc.className = "docx-field-toc";
+    toc.contentEditable = "false";
+    toc.setAttribute("data-field", "TOC");
+    toc.innerHTML = `<div class="docx-field-toc-empty">${t("tocEmpty")}</div>`;
+    const trailing = document.createElement("p");
+    trailing.innerHTML = "<br>";
+    // The TOC belongs in the body: insert after the caret's top-level block, else at the top.
+    const sel = window.getSelection();
+    let anchor: HTMLElement | null = null;
+    if (sel && sel.rangeCount && doc.contains(sel.getRangeAt(0).startContainer)) {
+      let el: Element | null = ((n) => (n.nodeType === 3 ? n.parentElement : (n as Element)))(sel.getRangeAt(0).startContainer);
+      while (el && el.parentElement !== doc) el = el.parentElement;
+      anchor = el as HTMLElement | null;
+    }
+    if (anchor && anchor.parentElement === doc) {
+      doc.insertBefore(toc, anchor.nextSibling);
+      doc.insertBefore(trailing, toc.nextSibling);
+    } else {
+      doc.insertBefore(trailing, doc.firstChild);
+      doc.insertBefore(toc, doc.firstChild);
+    }
+    doc.dispatchEvent(new Event("input", { bubbles: true }));
+  };
+  const fieldsMenu = document.createElement("div");
+  fieldsMenu.className = "docxedit-menu";
+  fieldsMenu.hidden = true;
+  for (const it of [
+    { label: t("fieldPageNumber"), fn: () => insertField("PAGE") },
+    { label: t("fieldPageCount"), fn: () => insertField("NUMPAGES") },
+    { label: t("fieldPageXofY"), fn: insertPageXofY },
+    { label: t("fieldToc"), fn: insertTOC },
+  ]) {
+    const b = document.createElement("button");
+    b.type = "button";
+    b.className = "docxedit-menu-item";
+    b.textContent = it.label;
+    b.addEventListener("mousedown", (e) => e.preventDefault());
+    b.addEventListener("click", (e) => {
+      e.stopPropagation();
+      it.fn();
+      fieldsMenu.hidden = true;
+    });
+    fieldsMenu.appendChild(b);
+  }
+  const fieldsBtn = iconBtn(fieldIcon, t("insertField"), () => {});
+  fieldsBtn.addEventListener("click", (e) => {
+    e.stopPropagation();
+    const r = fieldsBtn.getBoundingClientRect();
+    const wr = wrap.getBoundingClientRect();
+    fieldsMenu.style.left = `${r.left - wr.left}px`;
+    fieldsMenu.style.top = `${r.bottom - wr.top + 2}px`;
+    fieldsMenu.hidden = !fieldsMenu.hidden;
+  });
+
   // Reflect the caret's formatting in the controls: the font / size / paragraph-style
   // pickers track the text under the caret, and bold/italic/underline/alignment show their
   // pressed state. Runs (rAF-coalesced) on every selection change and after a command.
@@ -545,6 +632,7 @@ export function setupToolbar(deps: ToolbarDeps) {
     sep(),
     caps.images ? iconBtn(imgIcon, t("insertImage"), insertImage) : null,
     caps.tables ? tableBtn : null,
+    caps.fields ? fieldsBtn : null,
     caps.comments ? iconBtn(cmtIcon, t("addComment"), addComment) : null,
     caps.pageBreak ? iconBtn(pbIcon, t("insertPageBreak"), insertPageBreak) : null,
     linkBtn,
@@ -581,12 +669,14 @@ export function setupToolbar(deps: ToolbarDeps) {
     if (!overflow.hidden && !overflow.contains(e.target as Node) && e.target !== moreBtn) overflow.hidden = true;
     if (!tablePicker.hidden && !tablePicker.contains(e.target as Node) && !tableBtn.contains(e.target as Node)) tablePicker.hidden = true;
     if (!lineSpacingMenu.hidden && !lineSpacingMenu.contains(e.target as Node) && !lineSpacingBtn.contains(e.target as Node)) lineSpacingMenu.hidden = true;
+    if (!fieldsMenu.hidden && !fieldsMenu.contains(e.target as Node) && !fieldsBtn.contains(e.target as Node)) fieldsMenu.hidden = true;
   };
   document.addEventListener("click", closeOverflow);
   toolbar.append(...toolbarItems, moreBtn);
   wrap.appendChild(overflow);
   wrap.appendChild(tablePicker);
   wrap.appendChild(lineSpacingMenu);
+  wrap.appendChild(fieldsMenu);
 
   const layoutToolbar = () => {
     overflow.hidden = true;

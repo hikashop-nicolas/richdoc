@@ -189,6 +189,20 @@ describe("docx <-> html", () => {
     expect(page?.vertical).toBe(false);
   });
 
+  it("writes inserted fields (page number/count) and a table of contents", () => {
+    const body =
+      '<h1>Alpha</h1>' +
+      '<div class="docx-field-toc"><div class="docx-field-toc-title">Contents</div>' +
+      '<div class="docx-field-toc-row toc-h1"><span class="docx-field-toc-text">Alpha</span><span class="docx-field-toc-page">1</span></div></div>' +
+      '<p>Page <span class="docx-field" data-field="PAGE">2</span> / <span class="docx-field" data-field="NUMPAGES">5</span></p>';
+    const xml = strFromU8(unzipSync(htmlToDocx(body, makeDocx()))["word/document.xml"]);
+    expect(xml).toContain('<w:fldSimple w:instr=" PAGE "');
+    expect(xml).toContain('<w:fldSimple w:instr=" NUMPAGES "');
+    expect(xml).toContain('w:fldCharType="begin"'); // TOC complex field
+    expect(xml).toMatch(/TOC \\o/); // TOC instruction
+    expect(xml).toContain('w:fldCharType="end"');
+  });
+
   it("renders an inline image and preserves the drawing through a save", () => {
     const png = new Uint8Array([0x89, 0x50, 0x4e, 0x47, 1, 2, 3, 4]);
     const drawing =

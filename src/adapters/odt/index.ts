@@ -75,6 +75,7 @@ export function createOdtAdapter(bytes: Uint8Array): Adapter {
       fontControls: true,
       alignment: true,
       verticalText: true,
+      fields: true,
     },
   };
 }
