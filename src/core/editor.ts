@@ -6,7 +6,7 @@
 import { t } from "./i18n";
 import { defaultPageGeometry, paginate } from "./page";
 import { bytesToBase64, toHex6, fontSizeToHalfPt, firstFontFamily } from "./util";
-import type { Adapter, EditorOptions, RichEditor, RichDoc, CommentEntry, CommentThread, PageGeometry } from "./types";
+import type { Adapter, EditorOptions, RichEditor, RichDoc, CommentEntry, CommentThread } from "./types";
 import "../adapters/docx/docxedit.css";
 
 export function createRichEditor(container: HTMLElement, adapter: Adapter, options: EditorOptions = {}): RichEditor {
@@ -119,8 +119,94 @@ export function createRichEditor(container: HTMLElement, adapter: Adapter, optio
   const pagebox = document.createElement("div");
   pagebox.className = "docxedit-pagebox";
   pagebox.appendChild(page);
-  canvas.append(leftSpacer, pagebox, rightArea);
+
+  // --- Margin rulers --------------------------------------------------------
+  // Google-Docs-style rulers frame the page: a horizontal one (top) carries draggable
+  // left/right margin handles, a vertical one (left) carries top/bottom handles. They sit
+  // in a wrapper around the page so they track the scaled footprint, and dragging a handle
+  // rewrites geometry.margin, re-renders, re-paginates, and writes back via getBytes.
+  const pageWrap = document.createElement("div");
+  pageWrap.className = "docxedit-pagewrap";
+  const mkRuler = (cls: string) => {
+    const r = document.createElement("div");
+    r.className = `docxedit-ruler ${cls}`;
+    const fill = document.createElement("div");
+    fill.className = "docxedit-ruler-fill";
+    r.appendChild(fill);
+    return { r, fill };
+  };
+  const mkHandle = (cls: string, label: string) => {
+    const h = document.createElement("div");
+    h.className = `docxedit-ruler-handle ${cls}`;
+    h.title = label;
+    h.setAttribute("role", "slider");
+    h.setAttribute("aria-label", label);
+    return h;
+  };
+  const hRuler = mkRuler("docxedit-ruler-h");
+  const vRuler = mkRuler("docxedit-ruler-v");
+  const hLeft = mkHandle("docxedit-rh-h", t("marginLeft"));
+  const hRight = mkHandle("docxedit-rh-h", t("marginRight"));
+  const vTop = mkHandle("docxedit-rh-v", t("marginTop"));
+  const vBottom = mkHandle("docxedit-rh-v", t("marginBottom"));
+  hRuler.r.append(hLeft, hRight);
+  vRuler.r.append(vTop, vBottom);
+  pageWrap.append(hRuler.r, vRuler.r, pagebox);
+  canvas.append(leftSpacer, pageWrap, rightArea);
   scroll.appendChild(canvas);
+
+  const updateRulers = () => {
+    const z = effectiveZoom();
+    const g = geometry, m = g.margin;
+    hRuler.r.style.width = `${g.widthPx * z}px`;
+    vRuler.r.style.height = `${g.heightPx * z}px`;
+    hRuler.fill.style.left = `${m.left * z}px`;
+    hRuler.fill.style.right = `${m.right * z}px`;
+    vRuler.fill.style.top = `${m.top * z}px`;
+    vRuler.fill.style.bottom = `${m.bottom * z}px`;
+    hLeft.style.left = `${m.left * z}px`;
+    hRight.style.left = `${(g.widthPx - m.right) * z}px`;
+    vTop.style.top = `${m.top * z}px`;
+    vBottom.style.top = `${(g.heightPx - m.bottom) * z}px`;
+  };
+
+  // Drag a handle: map the pointer position within its ruler to unscaled page px, clamp so
+  // opposing margins keep a minimum content band, then live-update (debounced reflow).
+  const MIN_CONTENT = 96; // ~1in of content must remain between opposing margins
+  const dragHandle = (handle: HTMLElement, axis: "h" | "v", side: "left" | "right" | "top" | "bottom") => {
+    handle.addEventListener("pointerdown", (e) => {
+      e.preventDefault();
+      const ruler = axis === "h" ? hRuler.r : vRuler.r;
+      try { handle.setPointerCapture(e.pointerId); } catch { /* no active pointer */ }
+      const onMove = (ev: PointerEvent) => {
+        const z = effectiveZoom();
+        const rect = ruler.getBoundingClientRect();
+        const pos = (axis === "h" ? ev.clientX - rect.left : ev.clientY - rect.top) / z;
+        const m = geometry.margin, W = geometry.widthPx, H = geometry.heightPx;
+        if (side === "left") m.left = Math.max(0, Math.min(pos, W - m.right - MIN_CONTENT));
+        else if (side === "right") m.right = Math.max(0, Math.min(W - pos, W - m.left - MIN_CONTENT));
+        else if (side === "top") m.top = Math.max(0, Math.min(pos, H - m.bottom - MIN_CONTENT));
+        else m.bottom = Math.max(0, Math.min(H - pos, H - m.top - MIN_CONTENT));
+        geometryDirty = true;
+        applyGeometry();
+        updateRulers();
+        scheduleReflow();
+        mark();
+      };
+      const onUp = (ev: PointerEvent) => {
+        try { handle.releasePointerCapture(ev.pointerId); } catch { /* not captured */ }
+        handle.removeEventListener("pointermove", onMove);
+        handle.removeEventListener("pointerup", onUp);
+        reflow();
+      };
+      handle.addEventListener("pointermove", onMove);
+      handle.addEventListener("pointerup", onUp);
+    });
+  };
+  dragHandle(hLeft, "h", "left");
+  dragHandle(hRight, "h", "right");
+  dragHandle(vTop, "v", "top");
+  dragHandle(vBottom, "v", "bottom");
   wrap.append(toolbar, scroll);
   container.appendChild(wrap);
 
@@ -159,42 +245,13 @@ export function createRichEditor(container: HTMLElement, adapter: Adapter, optio
     pagebox.style.height = `${Math.round(page.offsetHeight * z)}px`;
     zoomLabel.textContent = `${Math.round(z * 100)}%`;
     zoomSlider.value = String(Math.round(z * 100));
+    updateRulers();
   };
   const setZoom = (z: number | null) => {
     userZoom = z == null ? null : Math.max(0.3, Math.min(2.5, Math.round(z * 100) / 100));
     applyZoom();
     positionCards();
   };
-
-  // --- Margins --------------------------------------------------------------
-  // Preset page margins (px at 96 dpi); changing them re-renders, re-paginates, and writes
-  // the new values back to the file (w:pgMar / ODF page-layout) via getBytes.
-  const MARGIN_PRESETS: Record<string, PageGeometry["margin"]> = {
-    normal: { top: 96, right: 96, bottom: 96, left: 96 },
-    narrow: { top: 48, right: 48, bottom: 48, left: 48 },
-    moderate: { top: 96, right: 72, bottom: 96, left: 72 },
-    wide: { top: 96, right: 192, bottom: 96, left: 192 },
-  };
-  const matchPreset = (m: PageGeometry["margin"]): string =>
-    Object.entries(MARGIN_PRESETS).find(([, p]) => p.top === m.top && p.right === m.right && p.bottom === m.bottom && p.left === m.left)?.[0] ?? "custom";
-  const marginSel = document.createElement("select");
-  marginSel.className = "docxedit-margins-sel";
-  marginSel.title = t("margins");
-  marginSel.setAttribute("aria-label", t("margins"));
-  marginSel.add(new Option(t("marginsCustom"), "custom"));
-  for (const [key, label] of [["normal", "marginsNormal"], ["narrow", "marginsNarrow"], ["moderate", "marginsModerate"], ["wide", "marginsWide"]] as const) {
-    marginSel.add(new Option(t(label), key));
-  }
-  marginSel.value = matchPreset(geometry.margin);
-  marginSel.addEventListener("change", () => {
-    const p = MARGIN_PRESETS[marginSel.value];
-    if (!p) return;
-    geometry.margin = { ...p };
-    geometryDirty = true;
-    applyGeometry();
-    reflow();
-    mark();
-  });
 
   // The editable regions (body + header/footer). Toolbar actions target whichever last
   // had focus, so formatting works inside the header and footer too.
@@ -1332,7 +1389,6 @@ export function createRichEditor(container: HTMLElement, adapter: Adapter, optio
     caps.images ? iconBtn(imgIcon, t("insertImage"), insertImage) : null,
     caps.comments ? iconBtn(cmtIcon, t("addComment"), addComment) : null,
     caps.pageBreak ? iconBtn(pbIcon, t("insertPageBreak"), insertPageBreak) : null,
-    marginSel,
     linkBtn,
     caps.trackChanges ? sep() : null,
     caps.trackChanges ? suggestBtn : null,

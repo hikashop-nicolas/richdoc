@@ -45,6 +45,23 @@
 .docxedit-zoom-slider { width: 96px; flex: 0 0 auto; height: 28px; padding: 0; min-width: 0; background: none; border: none; cursor: pointer; accent-color: #6e7bff; }
 .docxedit-zoom-slider:hover { border: none; }
 
+/* Margin rulers (Google-Docs style). The wrapper reserves a strip above and left of the
+   page for the rulers; both align with, and are sized to, the scaled page footprint. */
+.docxedit-pagewrap { position: relative; flex: 0 0 auto; padding: 22px 0 0 22px; }
+.docxedit-ruler { position: absolute; background: #d7dde4; box-shadow: inset 0 0 0 1px #c2cad3; }
+.docxedit-ruler-h { top: 0; left: 22px; height: 16px; }
+.docxedit-ruler-v { left: 0; top: 22px; width: 16px; }
+.docxedit-ruler-fill { position: absolute; background: #fff; }
+.docxedit-ruler-h .docxedit-ruler-fill { top: 2px; bottom: 2px; }
+.docxedit-ruler-v .docxedit-ruler-fill { left: 2px; right: 2px; }
+.docxedit-ruler-handle { position: absolute; width: 0; height: 0; z-index: 2; }
+.docxedit-ruler-handle::before { content: ""; position: absolute; } /* enlarged hit area */
+.docxedit-rh-h { top: 4px; margin-left: -5px; border-left: 5px solid transparent; border-right: 5px solid transparent; border-top: 9px solid #5b6b7b; cursor: ew-resize; }
+.docxedit-rh-h::before { left: -6px; right: -6px; top: -4px; bottom: -13px; }
+.docxedit-rh-v { left: 4px; margin-top: -5px; border-top: 5px solid transparent; border-bottom: 5px solid transparent; border-left: 9px solid #5b6b7b; cursor: ns-resize; }
+.docxedit-rh-v::before { top: -6px; bottom: -6px; left: -4px; right: -13px; }
+.docxedit-ruler-handle:hover { border-top-color: #2f3c4a; border-left-color: #2f3c4a; }
+
 /* Paginated view: the page becomes a positioning context; per-page cards are drawn in a
    layer behind the single continuous body, which carries inert spacer gaps at breaks. */
 .docxedit-page.is-paginated { position: relative; background: transparent; box-shadow: none; }
