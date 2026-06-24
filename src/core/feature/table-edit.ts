@@ -14,7 +14,7 @@ export interface TableEditDeps {
 
 const GRIP =
   '<svg width="10" height="14" viewBox="0 0 10 14" fill="currentColor" aria-hidden="true">' +
-  "<circle cx=3 cy=3 r=1.2/><circle cx=7 cy=3 r=1.2/><circle cx=3 cy=7 r=1.2/><circle cx=7 cy=7 r=1.2/><circle cx=3 cy=11 r=1.2/><circle cx=7 cy=11 r=1.2/></svg>";
+  '<circle cx="3" cy="3" r="1.2"/><circle cx="7" cy="3" r="1.2"/><circle cx="3" cy="7" r="1.2"/><circle cx="7" cy="7" r="1.2"/><circle cx="3" cy="11" r="1.2"/><circle cx="7" cy="11" r="1.2"/></svg>';
 const PLUS =
   '<svg width="12" height="12" viewBox="0 0 16 16" fill="none" stroke="currentColor" stroke-width="1.6" stroke-linecap="round" aria-hidden="true"><path d="M8 3v10M3 8h10"/></svg>';
 const CARET =
