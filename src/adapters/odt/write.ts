@@ -348,11 +348,15 @@ function rowStyleFor(ctx: OdfCtx, px: number): string {
 /** A table-cell automatic style carrying the borders set by the cell-border picker.
     Cached per side-combination. Border-only: other preserved cell properties (background,
     padding) are not merged in when a cell's borders are edited. */
+function cellSideColor(td: HTMLTableCellElement, side: string): string {
+  const m = td.style.getPropertyValue(`--rdoc-b${side}`).trim().match(/(#[0-9a-fA-F]{3,8})\s*$/);
+  return m ? m[1]! : "#000000";
+}
 function cellBorderStyleFor(ctx: OdfCtx, td: HTMLTableCellElement): string | null {
   if (!td.classList.contains("rdoc-bordered")) return null;
-  const on = (c: string): boolean => td.classList.contains(c);
-  const sides = [["rdoc-bt", "fo:border-top"], ["rdoc-br", "fo:border-right"], ["rdoc-bb", "fo:border-bottom"], ["rdoc-bl", "fo:border-left"]] as const;
-  const key = "cellb:" + sides.map(([c]) => (on(c) ? "1" : "0")).join("");
+  const sides = [["t", "fo:border-top"], ["r", "fo:border-right"], ["b", "fo:border-bottom"], ["l", "fo:border-left"]] as const;
+  const spec = sides.map(([s]) => (td.classList.contains(`rdoc-b${s}`) ? cellSideColor(td, s) : "none"));
+  const key = "cellb:" + spec.join("|");
   const cached = ctx.created.get(key);
   if (cached) return cached;
   const name = `OTc${++odtCellBorderSeq}`;
@@ -360,7 +364,7 @@ function cellBorderStyleFor(ctx: OdfCtx, td: HTMLTableCellElement): string | nul
   st.setAttributeNS(NS.style, "style:name", name);
   st.setAttributeNS(NS.style, "style:family", "table-cell");
   const props = ctx.doc.createElementNS(NS.style, "style:table-cell-properties");
-  for (const [c, attr] of sides) props.setAttributeNS(NS.fo, attr, on(c) ? "0.018cm solid #000000" : "none");
+  sides.forEach(([, attr], i) => props.setAttributeNS(NS.fo, attr, spec[i] === "none" ? "none" : `0.018cm solid ${spec[i]}`));
   st.appendChild(props);
   ctx.auto.appendChild(st);
   ctx.created.set(key, name);

@@ -363,22 +363,36 @@ export function setupTableEdit(deps: TableEditDeps) {
   // Cell borders: side-classes (rdoc-bt/br/bb/bl) on the <td>, the source of truth for both
   // display (CSS) and save. Untouched cells keep their original borders (preserved tcPr /
   // cell style); a cell only switches to class-driven borders once edited here.
+  // Per-side border state. A side is either off (the cell keeps its light editing-guide
+  // border) or on with a chosen colour, drawn as an inset box-shadow so it survives the
+  // border-collapse conflict; the side class suppresses the guide on that one edge.
   const SIDE = { t: "rdoc-bt", r: "rdoc-br", b: "rdoc-bb", l: "rdoc-bl" } as const;
+  const SIDES = ["t", "r", "b", "l"] as const;
+  const OFFSET = { t: "inset 0 1px 0 0", r: "inset -1px 0 0 0", b: "inset 0 -1px 0 0", l: "inset 1px 0 0 0" } as const;
+  let lastBorderColor = "#000000";
   const borderIcon = (on: ReadonlySet<string>): string => {
     const line = (x1: number, y1: number, x2: number, y2: number, k: string): string =>
       `<line x1="${x1}" y1="${y1}" x2="${x2}" y2="${y2}" stroke="${on.has(k) ? "#fff" : "#777"}" stroke-width="${on.has(k) ? 2 : 1}"${on.has(k) ? "" : ' stroke-dasharray="1.5 1.5"'}/>`;
     return `<svg width="16" height="16" viewBox="0 0 16 16" aria-hidden="true">${line(3, 3, 13, 3, "t")}${line(13, 3, 13, 13, "r")}${line(3, 13, 13, 13, "b")}${line(3, 3, 3, 13, "l")}</svg>`;
   };
-  const applyBorder = (preset: "all" | "none" | "t" | "r" | "b" | "l"): void => {
+  const setSide = (cell: HTMLTableCellElement, s: "t" | "r" | "b" | "l", color: string | null): void => {
+    if (color) {
+      cell.classList.add(SIDE[s]);
+      cell.style.setProperty(`--rdoc-b${s}`, `${OFFSET[s]} ${color}`);
+    } else {
+      cell.classList.remove(SIDE[s]);
+      cell.style.removeProperty(`--rdoc-b${s}`);
+    }
+    cell.classList.toggle("rdoc-bordered", SIDES.some((k) => cell.classList.contains(SIDE[k])));
+  };
+  const applyBorder = (preset: "all" | "none" | "t" | "r" | "b" | "l", color: string): void => {
     const cells = targets();
     if (!cells.length || !curTable) return;
-    for (const cell of cells) cell.classList.add("rdoc-bordered");
-    if (preset === "all") for (const cell of cells) for (const s of ["t", "r", "b", "l"] as const) cell.classList.add(SIDE[s]);
-    else if (preset === "none") for (const cell of cells) for (const s of ["t", "r", "b", "l"] as const) cell.classList.remove(SIDE[s]);
+    if (preset === "all") for (const c of cells) for (const s of SIDES) setSide(c, s, color);
+    else if (preset === "none") for (const c of cells) for (const s of SIDES) setSide(c, s, null);
     else {
-      const cls = SIDE[preset];
-      const allOn = cells.every((c) => c.classList.contains(cls)); // group toggle
-      for (const cell of cells) cell.classList.toggle(cls, !allOn);
+      const allOn = cells.every((c) => c.classList.contains(SIDE[preset])); // group toggle
+      for (const c of cells) setSide(c, preset, allOn ? null : color);
     }
     dirty(curTable);
   };
@@ -413,6 +427,15 @@ export function setupTableEdit(deps: TableEditDeps) {
       });
       menu.appendChild(b);
     }
+    const colorRow = document.createElement("label");
+    colorRow.className = "docxedit-border-color";
+    colorRow.textContent = t("borderColor");
+    const colorInput = document.createElement("input");
+    colorInput.type = "color";
+    colorInput.value = lastBorderColor;
+    colorInput.addEventListener("input", () => (lastBorderColor = colorInput.value));
+    colorRow.appendChild(colorInput);
+    menu.appendChild(colorRow);
     const grid = document.createElement("div");
     grid.className = "docxedit-border-grid";
     for (const bp of BORDER_PRESETS) {
@@ -425,7 +448,7 @@ export function setupTableEdit(deps: TableEditDeps) {
       b.addEventListener("mousedown", (e) => e.preventDefault());
       b.addEventListener("click", (e) => {
         e.stopPropagation();
-        applyBorder(bp.p);
+        applyBorder(bp.p, lastBorderColor);
       });
       grid.appendChild(b);
     }
@@ -462,12 +485,12 @@ export function setupTableEdit(deps: TableEditDeps) {
     const td = cellDiv.closest("td") as HTMLTableCellElement | null;
     const { pos } = computeGrid(table);
     const p = td ? pos.get(td) : undefined;
-    const cols = gridColCount(table);
     const cr = cellDiv.getBoundingClientRect();
     const tr = table.getBoundingClientRect();
     const wr = wrap.getBoundingClientRect();
     const NEAR = 4;
-    if (p && p.col + p.colspan < cols && e.clientX >= cr.right - NEAR) {
+    // The outer right/bottom edges resize the table itself (no neighbour to give back to).
+    if (p && e.clientX >= cr.right - NEAR) {
       colResize.hidden = false;
       colResize.style.left = `${cr.right - wr.left - 2}px`;
       colResize.style.top = `${tr.top - wr.top}px`;
@@ -475,7 +498,7 @@ export function setupTableEdit(deps: TableEditDeps) {
       colResize.style.height = `${tr.height}px`;
       colInfo = { table, gridCol: p.col + p.colspan - 1 };
     } else colResize.hidden = true;
-    if (p && p.row + p.rowspan < table.rows.length && e.clientY >= cr.bottom - NEAR) {
+    if (p && e.clientY >= cr.bottom - NEAR) {
       rowResize.hidden = false;
       rowResize.style.left = `${tr.left - wr.left}px`;
       rowResize.style.top = `${cr.bottom - wr.top - 2}px`;
@@ -625,9 +648,11 @@ export function setupTableEdit(deps: TableEditDeps) {
     const tgt = e.target as HTMLElement;
     if (menuOpen && !menu.contains(tgt)) closeMenu();
     // Clicking outside any table cell and outside the chrome retracts the handles and selection.
-    const inCell = tgt.closest?.(".docx-cell");
+    // Keep handles/selection while the click is anywhere inside a table (a drag-select ends
+    // with a synthetic click on the table element, not on a cell) or on the chrome.
+    const inTable = tgt.closest?.(".docx-table");
     const inChrome = tgt.closest?.(".docxedit-th, .docxedit-th-cell, .docxedit-menu, .docxedit-resize");
-    if (!inCell && !inChrome) {
+    if (!inTable && !inChrome) {
       hideHandles();
       clearSelection();
     }

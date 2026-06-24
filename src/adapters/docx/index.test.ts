@@ -134,11 +134,12 @@ describe("docx <-> html", () => {
       .replace(/ data-docx-xml="[^"]*"/, "")
       .replace(/(<table class="docx-table"[^>]*>)/, '$1<colgroup><col style="width: 120px"><col style="width: 90px"></colgroup>')
       .replace(/<tr>/, '<tr style="height: 40px">')
-      .replace(/<td>(<div class="docx-cell")/, '<td class="rdoc-bordered rdoc-bt rdoc-bl">$1');
+      .replace(/<td>(<div class="docx-cell")/, '<td class="rdoc-bordered rdoc-bt rdoc-bl" style="--rdoc-bt: inset 0 1px 0 0 #ff0000">$1');
     const out = htmlToDocx(edited, makeDocx(doc));
     const xml = strFromU8(unzipSync(out)["word/document.xml"]);
     expect(xml).toContain("<w:tcBorders");
     expect(xml).toContain('<w:top w:val="single"');
+    expect(xml).toContain('w:color="ff0000"'); // chosen border colour
     expect(xml).toContain('<w:bottom w:val="nil"');
     expect(xml).toContain('w:w="1800"'); // 120px -> twips
     expect(xml).toContain('w:w="1350"'); // 90px -> twips

@@ -404,21 +404,27 @@ function rebuildTable(ctx: DocxCtx, tableEl: HTMLElement, stash: string): Elemen
 
 const colSpanOf = (td: HTMLTableCellElement): number => td.colSpan || 1;
 
-/** Write per-cell borders (w:tcBorders) from the side-classes set by the cell-border picker.
-    Only cells that were border-edited (rdoc-bordered) get explicit borders; a side without its
-    class becomes w:nil so it overrides the table grid. */
+/** The colour of an edited cell side, read from the inline --rdoc-b<side> custom property the
+    picker sets (falls back to black for an on side with no explicit colour). */
+function sideColor(td: HTMLTableCellElement, side: string): string {
+  const m = td.style.getPropertyValue(`--rdoc-b${side}`).trim().match(/(#[0-9a-fA-F]{3,8})\s*$/);
+  return m ? m[1]! : "#000000";
+}
+
+/** Write per-cell borders (w:tcBorders) from the picker state. On sides become a single
+    border in their chosen colour; off sides become w:nil so they override the table grid. */
 function applyCellBorders(ctx: DocxCtx, tcPr: Element, td: HTMLTableCellElement): void {
   if (!td.classList.contains("rdoc-bordered")) return;
   const old = tcPr.getElementsByTagName("w:tcBorders")[0];
   if (old) old.parentNode?.removeChild(old);
   const tb = ctx.doc.createElementNS(W, "w:tcBorders");
-  for (const [cls, tag] of [["rdoc-bt", "w:top"], ["rdoc-bl", "w:left"], ["rdoc-bb", "w:bottom"], ["rdoc-br", "w:right"]] as const) {
+  for (const [side, tag] of [["t", "w:top"], ["l", "w:left"], ["b", "w:bottom"], ["r", "w:right"]] as const) {
     const b = ctx.doc.createElementNS(W, tag);
-    if (td.classList.contains(cls)) {
+    if (td.classList.contains(`rdoc-b${side}`)) {
       b.setAttributeNS(W, "w:val", "single");
       b.setAttributeNS(W, "w:sz", "4");
       b.setAttributeNS(W, "w:space", "0");
-      b.setAttributeNS(W, "w:color", "auto");
+      b.setAttributeNS(W, "w:color", sideColor(td, side).replace("#", ""));
     } else {
       b.setAttributeNS(W, "w:val", "nil");
     }

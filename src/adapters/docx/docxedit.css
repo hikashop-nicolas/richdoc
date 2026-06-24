@@ -30,22 +30,21 @@
 .docx-table { border-collapse: collapse; margin: 0 0 .6em; }
 .docx-table td { border: 1px solid #999; padding: 0; vertical-align: top; }
 .docx-cell { padding: 3px 6px; min-height: 1.2em; outline: none; }
-/* Cells whose borders were edited via the cell menu. border-collapse would give a shared
-   edge to the neighbour (leftmost/topmost wins), so an interior cell's left/top border could
-   vanish. Instead suppress the collapsed edges (border-style:hidden) and draw the chosen
-   sides with inset box-shadows, which are per-cell and immune to the collapse conflict. */
+/* A cell side is either off (it keeps the light editing-guide border above) or on with a
+   chosen colour. On sides are drawn as inset box-shadows (per-cell, immune to the
+   border-collapse conflict that would hand a shared edge to the neighbour); the side class
+   suppresses the guide on just that edge, so the other sides keep their guide. */
 .docx-table td.rdoc-bordered {
-  border-style: hidden;
   box-shadow:
     var(--rdoc-bt, 0 0 transparent),
     var(--rdoc-br, 0 0 transparent),
     var(--rdoc-bb, 0 0 transparent),
     var(--rdoc-bl, 0 0 transparent);
 }
-.docx-table td.rdoc-bordered.rdoc-bt { --rdoc-bt: inset 0 1px 0 0 #000; }
-.docx-table td.rdoc-bordered.rdoc-br { --rdoc-br: inset -1px 0 0 0 #000; }
-.docx-table td.rdoc-bordered.rdoc-bb { --rdoc-bb: inset 0 -1px 0 0 #000; }
-.docx-table td.rdoc-bordered.rdoc-bl { --rdoc-bl: inset 1px 0 0 0 #000; }
+.docx-table td.rdoc-bt { border-top-style: hidden; }
+.docx-table td.rdoc-br { border-right-style: hidden; }
+.docx-table td.rdoc-bb { border-bottom-style: hidden; }
+.docx-table td.rdoc-bl { border-left-style: hidden; }
 /* Cells selected together (drag or shift-click): the cell menu acts on all of them. */
 .docx-table td.rdoc-sel { background: rgba(110,123,255,.18); }
 

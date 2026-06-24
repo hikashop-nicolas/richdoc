@@ -95,6 +95,7 @@ const en: Dict = {
   borderBottom: "Bottom border",
   borderLeft: "Left border",
   borderRight: "Right border",
+  borderColor: "Border colour",
 };
 
 const fr: Dict = {
@@ -187,6 +188,7 @@ const fr: Dict = {
   borderBottom: "Bordure du bas",
   borderLeft: "Bordure de gauche",
   borderRight: "Bordure de droite",
+  borderColor: "Couleur de bordure",
 };
 
 const LOCALES: Record<string, Dict> = { en, fr };
