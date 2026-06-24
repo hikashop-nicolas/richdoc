@@ -4,6 +4,7 @@
 // track-changes setup (which needs the button factories), and lays the single row out with
 // an overflow "more" popover. The feature behaviours it drives come in as deps.
 import { t } from "../i18n";
+import { firstFontFamily, fontSizeToHalfPt } from "../util";
 import { setupTrackChanges } from "./track-changes";
 import type { Adapter, Capabilities, CommentThread, EditorOptions, RichDoc } from "../types";
 
@@ -38,6 +39,7 @@ export function setupToolbar(deps: ToolbarDeps) {
     getActiveEl().focus();
     document.execCommand(cmd, false, val);
     mark();
+    syncToolbarState();
   };
   // Wrap the current selection in a span carrying one CSS property (for font size, which
   // has no execCommand equivalent in CSS mode). No-op on a collapsed selection.
@@ -60,6 +62,7 @@ export function setupToolbar(deps: ToolbarDeps) {
     r2.selectNodeContents(span);
     sel.addRange(r2);
     mark();
+    syncToolbarState();
   };
   const btn = (label: string, title: string, fn: () => void, cls = "") => {
     const b = document.createElement("button");
@@ -263,10 +266,58 @@ export function setupToolbar(deps: ToolbarDeps) {
     if (url === "") exec("unlink");
     else exec("createLink", url);
   });
+  // Named so their pressed state can be reflected from the caret (see syncToolbarState).
+  const boldBtn = btn("B", t("bold"), () => { beginFormatChange(); exec("bold"); }, "docxedit-tb-bold");
+  const italicBtn = btn("I", t("italic"), () => { beginFormatChange(); exec("italic"); }, "docxedit-tb-italic");
+  const underlineBtn = btn("U", t("underline"), () => { beginFormatChange(); exec("underline"); }, "docxedit-tb-underline");
+  const alignLeftBtn = caps.alignment ? iconBtn(alignIcon([[2, 12], [2, 8], [2, 11]]), t("alignLeft"), () => exec("justifyLeft")) : null;
+  const alignCenterBtn = caps.alignment ? iconBtn(alignIcon([[2, 12], [4, 8], [3, 10]]), t("alignCenter"), () => exec("justifyCenter")) : null;
+  const alignRightBtn = caps.alignment ? iconBtn(alignIcon([[2, 12], [6, 8], [3, 11]]), t("alignRight"), () => exec("justifyRight")) : null;
+  const alignJustifyBtn = caps.alignment ? iconBtn(alignIcon([[2, 12], [2, 12], [2, 12]]), t("alignJustify"), () => exec("justifyFull")) : null;
+
+  // Reflect the caret's formatting in the controls: the font / size / paragraph-style
+  // pickers track the text under the caret, and bold/italic/underline/alignment show their
+  // pressed state. Runs (rAF-coalesced) on every selection change and after a command.
+  const queryState = (cmd: string): boolean => {
+    try { return document.queryCommandState(cmd); } catch { return false; }
+  };
+  const syncToolbarState = () => {
+    const sel = window.getSelection();
+    const node = sel && sel.rangeCount ? sel.anchorNode : null;
+    const el = node ? (node.nodeType === 3 ? node.parentElement : (node as Element)) : null;
+    if (!el || !regions.some((r) => r.contains(el))) return; // only while editing a region
+    const cs = getComputedStyle(el);
+    if (caps.fontControls) {
+      const fam = firstFontFamily(cs.fontFamily);
+      fontSel.value = fam && FONTS.includes(fam) ? fam : "";
+      const hp = fontSizeToHalfPt(cs.fontSize);
+      const pt = hp ? String(Math.round(hp / 2)) : "";
+      sizeSel.value = SIZES.includes(pt) ? pt : "";
+    }
+    const tag = el.closest("h1,h2,h3,p")?.tagName ?? "";
+    block.value = tag === "H1" || tag === "H2" || tag === "H3" ? tag : "P";
+    const setOn = (b: HTMLElement | null, on: boolean) => b?.classList.toggle("is-on", on);
+    setOn(boldBtn, queryState("bold"));
+    setOn(italicBtn, queryState("italic"));
+    setOn(underlineBtn, queryState("underline"));
+    setOn(alignLeftBtn, queryState("justifyLeft"));
+    setOn(alignCenterBtn, queryState("justifyCenter"));
+    setOn(alignRightBtn, queryState("justifyRight"));
+    setOn(alignJustifyBtn, queryState("justifyFull"));
+  };
+  // Coalesce bursts of selectionchange (e.g. during a drag-select) with a short timer.
+  // setTimeout (not rAF) so it still fires when the tab is in the background.
+  let syncTimer = 0;
+  const scheduleSync = () => {
+    window.clearTimeout(syncTimer);
+    syncTimer = window.setTimeout(syncToolbarState, 16);
+  };
+  document.addEventListener("selectionchange", scheduleSync);
+
   const items: (Node | null)[] = [
-    btn("B", t("bold"), () => { beginFormatChange(); exec("bold"); }, "docxedit-tb-bold"),
-    btn("I", t("italic"), () => { beginFormatChange(); exec("italic"); }, "docxedit-tb-italic"),
-    btn("U", t("underline"), () => { beginFormatChange(); exec("underline"); }, "docxedit-tb-underline"),
+    boldBtn,
+    italicBtn,
+    underlineBtn,
     caps.textColor ? colorInput : null,
     caps.textColor ? bgWrap : null,
     sep(),
@@ -277,10 +328,10 @@ export function setupToolbar(deps: ToolbarDeps) {
     iconBtn(bulletIcon, t("bulleted"), () => exec("insertUnorderedList")),
     iconBtn(numberIcon, t("numbered"), () => exec("insertOrderedList")),
     caps.alignment ? sep() : null,
-    caps.alignment ? iconBtn(alignIcon([[2, 12], [2, 8], [2, 11]]), t("alignLeft"), () => exec("justifyLeft")) : null,
-    caps.alignment ? iconBtn(alignIcon([[2, 12], [4, 8], [3, 10]]), t("alignCenter"), () => exec("justifyCenter")) : null,
-    caps.alignment ? iconBtn(alignIcon([[2, 12], [6, 8], [3, 11]]), t("alignRight"), () => exec("justifyRight")) : null,
-    caps.alignment ? iconBtn(alignIcon([[2, 12], [2, 12], [2, 12]]), t("alignJustify"), () => exec("justifyFull")) : null,
+    alignLeftBtn,
+    alignCenterBtn,
+    alignRightBtn,
+    alignJustifyBtn,
     sep(),
     caps.images ? iconBtn(imgIcon, t("insertImage"), insertImage) : null,
     caps.comments ? iconBtn(cmtIcon, t("addComment"), addComment) : null,
@@ -339,9 +390,13 @@ export function setupToolbar(deps: ToolbarDeps) {
   const toolbarObserver = new ResizeObserver(() => layoutToolbar());
   toolbarObserver.observe(toolbar);
 
+  scheduleSync(); // reflect the initial caret position once mounted
+
   const teardown = () => {
     toolbarObserver.disconnect();
     document.removeEventListener("click", closeOverflow);
+    document.removeEventListener("selectionchange", scheduleSync);
+    window.clearTimeout(syncTimer);
   };
   return { updateChangeButtons, teardown };
 }
