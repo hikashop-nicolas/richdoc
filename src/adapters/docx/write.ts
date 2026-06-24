@@ -135,7 +135,7 @@ function buildImageDrawing(ctx: DocxCtx, src: string, widthPx: number, heightPx:
   return r;
 }
 
-const fmtHasProps = (f: Fmt): boolean => !!(f.b || f.i || f.u || f.strike || f.color || f.highlight || f.shading || f.sizeHalfPt || f.font);
+const fmtHasProps = (f: Fmt): boolean => !!(f.b || f.i || f.u || f.strike || f.vertAlign || f.color || f.highlight || f.shading || f.sizeHalfPt || f.font);
 
 /** Append the property elements for a Fmt to a w:rPr, in OOXML schema order. */
 function fillRPr(ctx: DocxCtx, rPr: Element, f: Fmt): void {
@@ -168,6 +168,7 @@ function fillRPr(ctx: DocxCtx, rPr: Element, f: Fmt): void {
     rPr.appendChild(shd);
   }
   if (f.u) valEl("w:u", "single");
+  if (f.vertAlign) valEl("w:vertAlign", f.vertAlign === "super" ? "superscript" : "subscript");
 }
 
 interface RprChange {
@@ -308,6 +309,7 @@ function appendInline(ctx: DocxCtx, node: Node, parent: Element, f: Fmt, del = f
       i: f.i || tag === "em" || tag === "i" || el.style.fontStyle === "italic",
       u: f.u || tag === "u" || /underline/.test(deco),
       strike: f.strike || tag === "s" || tag === "strike" || tag === "del" || /line-through/.test(deco),
+      vertAlign: f.vertAlign ?? (tag === "sup" || /vertical-align:\s*super/.test(el.style.cssText) ? "super" : tag === "sub" || /vertical-align:\s*sub/.test(el.style.cssText) ? "sub" : undefined),
       color: toHex6(el.style.color) ?? f.color,
       highlight,
       shading,

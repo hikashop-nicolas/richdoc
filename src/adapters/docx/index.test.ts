@@ -526,3 +526,17 @@ describe("create a header/footer from scratch", () => {
     expect(strFromU8(files["word/document.xml"]!)).toContain("w:footerReference");
   });
 });
+
+describe("run formatting: strike, superscript, subscript", () => {
+  it("writes w:strike / w:vertAlign and reads them back", () => {
+    const out = htmlToDocx("<p><s>a</s><sup>b</sup><sub>c</sub></p>", makeDocx());
+    const xml = strFromU8(unzipSync(out)["word/document.xml"]!);
+    expect(xml).toContain("<w:strike");
+    expect(xml).toMatch(/w:vertAlign[^>]*w:val="superscript"/);
+    expect(xml).toMatch(/w:vertAlign[^>]*w:val="subscript"/);
+    const html = docxToHtml(out);
+    expect(html).toContain("<s>a</s>");
+    expect(html).toContain("<sup>b</sup>");
+    expect(html).toContain("<sub>c</sub>");
+  });
+});

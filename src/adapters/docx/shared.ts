@@ -33,6 +33,7 @@ export interface Fmt {
   i: boolean;
   u: boolean;
   strike: boolean;
+  vertAlign?: "super" | "sub"; // w:vertAlign (superscript / subscript)
   color?: string; // 6-hex, no leading '#'
   highlight?: string; // OOXML named highlight (e.g. "yellow")
   shading?: string; // 6-hex arbitrary background (w:shd fill)

@@ -117,6 +117,14 @@ function collectTextStyles(doc: Document): Map<string, Fmt> {
       b: tp?.getAttribute("fo:font-weight") === "bold",
       i: tp?.getAttribute("fo:font-style") === "italic",
       u: !!tp && tp.getAttribute("style:text-underline-style") != null && tp.getAttribute("style:text-underline-style") !== "none",
+      strike: !!tp && tp.getAttribute("style:text-line-through-style") != null && tp.getAttribute("style:text-line-through-style") !== "none",
+      vertAlign: ((p) => {
+        const v = (p ?? "").trim().split(/\s+/)[0] ?? "";
+        if (v === "super") return "super";
+        if (v === "sub") return "sub";
+        const pct = parseFloat(v); // positive % = super, negative = sub
+        return Number.isFinite(pct) && pct !== 0 ? (pct > 0 ? "super" : "sub") : undefined;
+      })(tp?.getAttribute("style:text-position")),
       color: hex6(tp?.getAttribute("fo:color")),
       bg: hex6(tp?.getAttribute("fo:background-color")),
       font: tp?.getAttribute("fo:font-family")?.replace(/^['"]|['"]$/g, "") || tp?.getAttribute("style:font-name") || undefined,
@@ -148,6 +156,9 @@ const wrapFmt = (inner: string, f: Fmt): string => {
   if (f.font) css.push(`font-family:'${f.font.replace(/'/g, "")}'`);
   if (f.sizePt) css.push(`font-size:${f.sizePt}pt`);
   if (css.length) s = `<span style="${css.join(";")}">${s}</span>`;
+  if (f.vertAlign === "super") s = `<sup>${s}</sup>`;
+  else if (f.vertAlign === "sub") s = `<sub>${s}</sub>`;
+  if (f.strike) s = `<s>${s}</s>`;
   if (f.u) s = `<u>${s}</u>`;
   if (f.i) s = `<em>${s}</em>`;
   if (f.b) s = `<strong>${s}</strong>`;

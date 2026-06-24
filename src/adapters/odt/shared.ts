@@ -18,6 +18,8 @@ export interface Fmt {
   b: boolean;
   i: boolean;
   u: boolean;
+  strike?: boolean; // style:text-line-through-style
+  vertAlign?: "super" | "sub"; // style:text-position
   color?: string; // 6-hex, no leading #
   bg?: string; // highlight, 6-hex
   font?: string; // family name
@@ -25,7 +27,7 @@ export interface Fmt {
 }
 export const FMT0: Fmt = { b: false, i: false, u: false };
 export const fmtKey = (f: Fmt): string =>
-  [f.b ? "b" : "", f.i ? "i" : "", f.u ? "u" : "", f.color ? "c" + f.color : "", f.bg ? "g" + f.bg : "", f.font ? "f" + f.font : "", f.sizePt ? "s" + f.sizePt : ""].join("");
+  [f.b ? "b" : "", f.i ? "i" : "", f.u ? "u" : "", f.strike ? "k" : "", f.vertAlign ? "v" + f.vertAlign : "", f.color ? "c" + f.color : "", f.bg ? "g" + f.bg : "", f.font ? "f" + f.font : "", f.sizePt ? "s" + f.sizePt : ""].join("");
 
 /** Paragraph-level formatting (text alignment), kept separate from run formatting. */
 export interface PFmt {

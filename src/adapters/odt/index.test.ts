@@ -379,3 +379,17 @@ describe("odt page margins (page-layout)", () => {
     expect(styles).toContain('fo:margin-top="2.54cm"');
   });
 });
+
+describe("odt run formatting: strike, superscript, subscript", () => {
+  it("writes the ODF text properties and reads them back", () => {
+    const out = htmlToOdt("<p><s>a</s><sup>b</sup><sub>c</sub></p>", makeOdt());
+    const content = strFromU8(unzipSync(out)["content.xml"]);
+    expect(content).toContain("style:text-line-through-style");
+    expect(content).toContain('style:text-position="super 58%"');
+    expect(content).toContain('style:text-position="sub 58%"');
+    const html = odtToHtml(out);
+    expect(html).toContain("<s>a</s>");
+    expect(html).toContain("<sup>b</sup>");
+    expect(html).toContain("<sub>c</sub>");
+  });
+});

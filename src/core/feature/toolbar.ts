@@ -266,10 +266,19 @@ export function setupToolbar(deps: ToolbarDeps) {
     if (url === "") exec("unlink");
     else exec("createLink", url);
   });
+  const supIcon =
+    '<svg width="14" height="14" viewBox="0 0 16 16" fill="currentColor" aria-hidden="true">' +
+    '<text x="0" y="14" font-size="11" font-family="serif">x</text><text x="8" y="7" font-size="7" font-family="serif">2</text></svg>';
+  const subIcon =
+    '<svg width="14" height="14" viewBox="0 0 16 16" fill="currentColor" aria-hidden="true">' +
+    '<text x="0" y="11" font-size="11" font-family="serif">x</text><text x="8" y="16" font-size="7" font-family="serif">2</text></svg>';
   // Named so their pressed state can be reflected from the caret (see syncToolbarState).
   const boldBtn = btn("B", t("bold"), () => { beginFormatChange(); exec("bold"); }, "docxedit-tb-bold");
   const italicBtn = btn("I", t("italic"), () => { beginFormatChange(); exec("italic"); }, "docxedit-tb-italic");
   const underlineBtn = btn("U", t("underline"), () => { beginFormatChange(); exec("underline"); }, "docxedit-tb-underline");
+  const strikeBtn = btn("S", t("strikethrough"), () => { beginFormatChange(); exec("strikeThrough"); }, "docxedit-tb-strike");
+  const supBtn = iconBtn(supIcon, t("superscript"), () => { beginFormatChange(); exec("superscript"); });
+  const subBtn = iconBtn(subIcon, t("subscript"), () => { beginFormatChange(); exec("subscript"); });
   const alignLeftBtn = caps.alignment ? iconBtn(alignIcon([[2, 12], [2, 8], [2, 11]]), t("alignLeft"), () => exec("justifyLeft")) : null;
   const alignCenterBtn = caps.alignment ? iconBtn(alignIcon([[2, 12], [4, 8], [3, 10]]), t("alignCenter"), () => exec("justifyCenter")) : null;
   const alignRightBtn = caps.alignment ? iconBtn(alignIcon([[2, 12], [6, 8], [3, 11]]), t("alignRight"), () => exec("justifyRight")) : null;
@@ -300,6 +309,9 @@ export function setupToolbar(deps: ToolbarDeps) {
     setOn(boldBtn, queryState("bold"));
     setOn(italicBtn, queryState("italic"));
     setOn(underlineBtn, queryState("underline"));
+    setOn(strikeBtn, queryState("strikeThrough"));
+    setOn(supBtn, queryState("superscript"));
+    setOn(subBtn, queryState("subscript"));
     setOn(alignLeftBtn, queryState("justifyLeft"));
     setOn(alignCenterBtn, queryState("justifyCenter"));
     setOn(alignRightBtn, queryState("justifyRight"));
@@ -318,6 +330,9 @@ export function setupToolbar(deps: ToolbarDeps) {
     boldBtn,
     italicBtn,
     underlineBtn,
+    strikeBtn,
+    supBtn,
+    subBtn,
     caps.textColor ? colorInput : null,
     caps.textColor ? bgWrap : null,
     sep(),

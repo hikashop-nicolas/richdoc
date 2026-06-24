@@ -323,6 +323,8 @@ function runStyle(f: Fmt): string {
 
 const wrapFmt = (inner: string, f: Fmt): string => {
   let s = inner;
+  if (f.vertAlign === "super") s = `<sup>${s}</sup>`;
+  else if (f.vertAlign === "sub") s = `<sub>${s}</sub>`;
   if (f.u) s = `<u>${s}</u>`;
   if (f.strike) s = `<s>${s}</s>`;
   if (f.i) s = `<em>${s}</em>`;
@@ -351,6 +353,7 @@ function readFmt(rPr: Element | undefined): Fmt {
     i: onFlag(rPr, "w:i"),
     u: onFlag(rPr, "w:u"),
     strike: onFlag(rPr, "w:strike"),
+    vertAlign: ((va) => (va === "superscript" ? "super" : va === "subscript" ? "sub" : undefined))(attrVal(rPr, "w:vertAlign")),
     color: color && color !== "auto" && /^[0-9a-fA-F]{6}$/.test(color) ? color.toUpperCase() : undefined,
     highlight: highlight && highlight !== "none" ? highlight : undefined,
     shading: shd && shd !== "auto" && /^[0-9a-fA-F]{6}$/.test(shd) ? shd.toUpperCase() : undefined,

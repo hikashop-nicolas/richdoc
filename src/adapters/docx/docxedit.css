@@ -24,6 +24,7 @@
 .docxedit-toolbar .docxedit-tb-bold { font-weight: bold; }
 .docxedit-toolbar .docxedit-tb-italic { font-style: italic; }
 .docxedit-toolbar .docxedit-tb-underline { text-decoration: underline; }
+.docxedit-toolbar .docxedit-tb-strike { text-decoration: line-through; }
 .docxedit-color { width: 30px; padding: 1px; }
 .docxedit-bg { display: inline-flex; align-items: center; gap: 2px; }
 .docxedit-bg-clear { min-width: 26px; }

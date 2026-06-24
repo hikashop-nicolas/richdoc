@@ -38,6 +38,11 @@ function styleFor(doc: Document, auto: Element, created: Map<string, string>, f:
     tp.setAttributeNS(NS.style, "style:text-underline-width", "auto");
     tp.setAttributeNS(NS.style, "style:text-underline-color", "font-color");
   }
+  if (f.strike) {
+    tp.setAttributeNS(NS.style, "style:text-line-through-style", "solid");
+    tp.setAttributeNS(NS.style, "style:text-line-through-type", "single");
+  }
+  if (f.vertAlign) tp.setAttributeNS(NS.style, "style:text-position", f.vertAlign === "super" ? "super 58%" : "sub 58%");
   if (f.color) tp.setAttributeNS(NS.fo, "fo:color", `#${f.color}`);
   if (f.bg) tp.setAttributeNS(NS.fo, "fo:background-color", `#${f.bg}`);
   if (f.font) {
@@ -247,6 +252,8 @@ function htmlInlineToOdf(node: Node, parent: Element, f: Fmt, ctx: OdfCtx): void
       b: f.b || tag === "strong" || tag === "b" || /(^|;)\s*font-weight\s*:\s*(bold|[6-9]00)/.test(el.style.cssText),
       i: f.i || tag === "em" || tag === "i" || el.style.fontStyle === "italic",
       u: f.u || tag === "u" || /underline/.test(el.style.textDecoration || el.style.textDecorationLine || ""),
+      strike: f.strike || tag === "s" || tag === "strike" || tag === "del" || /line-through/.test(el.style.textDecoration || el.style.textDecorationLine || ""),
+      vertAlign: f.vertAlign ?? (tag === "sup" || /vertical-align:\s*super/.test(el.style.cssText) ? "super" : tag === "sub" || /vertical-align:\s*sub/.test(el.style.cssText) ? "sub" : undefined),
       color: toHex6(el.style.color) ?? f.color,
       bg: toHex6(el.style.backgroundColor) ?? f.bg,
       font: firstFontFamily(el.style.fontFamily) ?? f.font,
