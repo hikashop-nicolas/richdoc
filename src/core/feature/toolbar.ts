@@ -336,10 +336,42 @@ export function setupToolbar(deps: ToolbarDeps) {
   };
   const indentBtn = iconBtn(indentIcon(1), t("indent"), () => adjustIndent(1));
   const outdentBtn = iconBtn(indentIcon(-1), t("outdent"), () => adjustIndent(-1));
-  const lineSpacingSel = pickerSelect(t("lineSpacing"), [["1", "1.0"], ["1.15", "1.15"], ["1.5", "1.5"], ["2", "2.0"]], (v) => {
+
+  // Line spacing: an icon button (like the others) opening a small menu of presets.
+  const lineSpacingIcon =
+    '<svg width="14" height="14" viewBox="0 0 16 16" fill="none" stroke="currentColor" stroke-width="1.3" stroke-linecap="round" stroke-linejoin="round" aria-hidden="true">' +
+    '<path d="M6 4h8M6 8h8M6 12h8"/><path d="M2.6 3.6v8.8M1.4 4.8 2.6 3.6 3.8 4.8M1.4 11.2 2.6 12.4 3.8 11.2"/></svg>';
+  const lineSpacingMenu = document.createElement("div");
+  lineSpacingMenu.className = "docxedit-menu";
+  lineSpacingMenu.hidden = true;
+  const setLineHeight = (v: string): void => {
     getActiveEl().focus();
     for (const b of selectedBlocks()) b.style.lineHeight = v;
     mark();
+    lineSpacingMenu.hidden = true;
+  };
+  const lsButtons = ([["1", "1.0"], ["1.15", "1.15"], ["1.5", "1.5"], ["2", "2.0"]] as const).map(([v, label]) => {
+    const b = document.createElement("button");
+    b.type = "button";
+    b.className = "docxedit-menu-item";
+    b.textContent = label;
+    b.dataset.v = v;
+    b.addEventListener("mousedown", (e) => e.preventDefault());
+    b.addEventListener("click", (e) => {
+      e.stopPropagation();
+      setLineHeight(v);
+    });
+    return b;
+  });
+  lineSpacingMenu.append(...lsButtons);
+  const lineSpacingBtn = iconBtn(lineSpacingIcon, t("lineSpacing"), () => {});
+  lineSpacingBtn.addEventListener("click", (e) => {
+    e.stopPropagation();
+    const r = lineSpacingBtn.getBoundingClientRect();
+    const wr = wrap.getBoundingClientRect();
+    lineSpacingMenu.style.left = `${r.left - wr.left}px`;
+    lineSpacingMenu.style.top = `${r.bottom - wr.top + 2}px`;
+    lineSpacingMenu.hidden = !lineSpacingMenu.hidden;
   });
 
   // --- Insert table: a button opening a grid picker (drag/hover to size, click to insert) ---
@@ -456,7 +488,7 @@ export function setupToolbar(deps: ToolbarDeps) {
     const tag = el.closest("h1,h2,h3,p")?.tagName ?? "";
     block.value = tag === "H1" || tag === "H2" || tag === "H3" ? tag : "P";
     const lh = (el.closest(BLOCK_SEL) as HTMLElement | null)?.style.lineHeight ?? "";
-    lineSpacingSel.value = ["1", "1.15", "1.5", "2"].includes(lh) ? lh : "";
+    for (const b of lsButtons) b.classList.toggle("is-on", b.dataset.v === lh);
     const setOn = (b: HTMLElement | null, on: boolean) => b?.classList.toggle("is-on", on);
     setOn(boldBtn, queryState("bold"));
     setOn(italicBtn, queryState("italic"));
@@ -501,7 +533,7 @@ export function setupToolbar(deps: ToolbarDeps) {
     alignJustifyBtn,
     outdentBtn,
     indentBtn,
-    lineSpacingSel,
+    lineSpacingBtn,
     sep(),
     caps.images ? iconBtn(imgIcon, t("insertImage"), insertImage) : null,
     caps.tables ? tableBtn : null,
@@ -540,11 +572,13 @@ export function setupToolbar(deps: ToolbarDeps) {
   const closeOverflow = (e: MouseEvent) => {
     if (!overflow.hidden && !overflow.contains(e.target as Node) && e.target !== moreBtn) overflow.hidden = true;
     if (!tablePicker.hidden && !tablePicker.contains(e.target as Node) && !tableBtn.contains(e.target as Node)) tablePicker.hidden = true;
+    if (!lineSpacingMenu.hidden && !lineSpacingMenu.contains(e.target as Node) && !lineSpacingBtn.contains(e.target as Node)) lineSpacingMenu.hidden = true;
   };
   document.addEventListener("click", closeOverflow);
   toolbar.append(...toolbarItems, moreBtn);
   wrap.appendChild(overflow);
   wrap.appendChild(tablePicker);
+  wrap.appendChild(lineSpacingMenu);
 
   const layoutToolbar = () => {
     overflow.hidden = true;

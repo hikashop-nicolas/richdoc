@@ -140,10 +140,10 @@ export function setupTableEdit(deps: TableEditDeps) {
     dirty(table);
   };
 
-  const btn = (label: string, title: string, fn: () => void): HTMLButtonElement => {
+  const btn = (svg: string, title: string, fn: () => void): HTMLButtonElement => {
     const b = document.createElement("button");
     b.type = "button";
-    b.textContent = label;
+    b.innerHTML = svg;
     b.title = title;
     b.setAttribute("aria-label", title);
     b.addEventListener("mousedown", (e) => e.preventDefault()); // keep the cell's caret
@@ -153,16 +153,27 @@ export function setupTableEdit(deps: TableEditDeps) {
     });
     return b;
   };
+  // Clear SVG icons: a table-body box with a +/− or arrow showing which edge/axis is affected.
+  const I = (body: string): string => `<svg width="15" height="15" viewBox="0 0 16 16" fill="none" stroke="currentColor" stroke-width="1.4" stroke-linecap="round" stroke-linejoin="round" aria-hidden="true">${body}</svg>`;
+  const icRowAbove = I('<rect x="2.5" y="8" width="11" height="5.5" rx="1"/><path d="M8 2v4M6.1 3.9h3.8"/>');
+  const icRowBelow = I('<rect x="2.5" y="2.5" width="11" height="5.5" rx="1"/><path d="M8 10v4M6.1 12.1h3.8"/>');
+  const icColLeft = I('<rect x="8" y="2.5" width="5.5" height="11" rx="1"/><path d="M2 8h4M3.9 6.1v3.8"/>');
+  const icColRight = I('<rect x="2.5" y="2.5" width="5.5" height="11" rx="1"/><path d="M10 8h4M12.1 6.1v3.8"/>');
+  const icMergeDown = I('<rect x="3" y="2.5" width="10" height="4" rx="1"/><rect x="3" y="9.5" width="10" height="4" rx="1"/><path d="M8 6.5v3M6.6 8.2 8 9.6l1.4-1.4"/>');
+  const icMergeRight = I('<rect x="2.5" y="3" width="4" height="10" rx="1"/><rect x="9.5" y="3" width="4" height="10" rx="1"/><path d="M6.5 8h3M8.2 6.6 9.6 8 8.2 9.4"/>');
+  const icSplit = I('<rect x="2.5" y="2.5" width="11" height="11" rx="1"/><path d="M8 2.5v11M2.5 8h11" stroke-dasharray="1.6 1.6"/>');
+  const icDelRow = I('<rect x="2.5" y="6" width="11" height="4" rx="1"/><path d="M5.5 8h5"/>');
+  const icDelCol = I('<rect x="6" y="2.5" width="4" height="7.5" rx="1"/><path d="M8 11v3M6.4 12.4 8 14l1.6-1.6"/>');
   bar.append(
-    btn("↥", t("tableRowAbove"), () => insertRow(false)),
-    btn("↧", t("tableRowBelow"), () => insertRow(true)),
-    btn("⇤", t("tableColLeft"), () => insertCol(false)),
-    btn("⇥", t("tableColRight"), () => insertCol(true)),
-    btn("⤵", t("tableMergeDown"), mergeDown),
-    btn("⤴", t("tableMergeRight"), mergeRight),
-    btn("⊟", t("tableSplit"), splitCell),
-    btn("⌦", t("tableDelRow"), deleteRow),
-    btn("⌫", t("tableDelCol"), deleteCol),
+    btn(icRowAbove, t("tableRowAbove"), () => insertRow(false)),
+    btn(icRowBelow, t("tableRowBelow"), () => insertRow(true)),
+    btn(icColLeft, t("tableColLeft"), () => insertCol(false)),
+    btn(icColRight, t("tableColRight"), () => insertCol(true)),
+    btn(icMergeDown, t("tableMergeDown"), mergeDown),
+    btn(icMergeRight, t("tableMergeRight"), mergeRight),
+    btn(icSplit, t("tableSplit"), splitCell),
+    btn(icDelRow, t("tableDelRow"), deleteRow),
+    btn(icDelCol, t("tableDelCol"), deleteCol),
   );
   wrap.appendChild(bar);
 
