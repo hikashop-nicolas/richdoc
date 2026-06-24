@@ -94,6 +94,7 @@ export function createDocxAdapter(bytes: Uint8Array): Adapter {
       commentReactions: true,
       trackChanges: true,
       images: true,
+      tables: true,
       headerFooter: true,
       pageBreak: true,
       textColor: true,

@@ -68,6 +68,7 @@ export function createOdtAdapter(bytes: Uint8Array): Adapter {
       commentReactions: false,
       trackChanges: true,
       images: true,
+      tables: true,
       headerFooter: true,
       pageBreak: false,
       textColor: true,

@@ -402,6 +402,58 @@ function rebuildTable(ctx: DocxCtx, tableEl: HTMLElement, stash: string): Elemen
   return tbl;
 }
 
+/** Build a fresh w:tbl from a table inserted in the editor (no skeleton): default single
+    borders, an even tblGrid, one cell per <td> with its edited content. No spans. */
+function buildNewTable(ctx: DocxCtx, tableEl: HTMLElement): Element {
+  const rows = Array.from((tableEl as HTMLTableElement).rows);
+  const colCount = rows[0]?.cells.length || 1;
+  const colW = Math.round(9000 / colCount);
+  const tbl = ctx.doc.createElementNS(W, "w:tbl");
+  const tblPr = ctx.doc.createElementNS(W, "w:tblPr");
+  const tblW = ctx.doc.createElementNS(W, "w:tblW");
+  tblW.setAttributeNS(W, "w:w", "0");
+  tblW.setAttributeNS(W, "w:type", "auto");
+  tblPr.appendChild(tblW);
+  const borders = ctx.doc.createElementNS(W, "w:tblBorders");
+  for (const side of ["top", "left", "bottom", "right", "insideH", "insideV"]) {
+    const b = ctx.doc.createElementNS(W, `w:${side}`);
+    b.setAttributeNS(W, "w:val", "single");
+    b.setAttributeNS(W, "w:sz", "4");
+    b.setAttributeNS(W, "w:space", "0");
+    b.setAttributeNS(W, "w:color", "auto");
+    borders.appendChild(b);
+  }
+  tblPr.appendChild(borders);
+  tbl.appendChild(tblPr);
+  const grid = ctx.doc.createElementNS(W, "w:tblGrid");
+  for (let i = 0; i < colCount; i++) {
+    const gc = ctx.doc.createElementNS(W, "w:gridCol");
+    gc.setAttributeNS(W, "w:w", String(colW));
+    grid.appendChild(gc);
+  }
+  tbl.appendChild(grid);
+  for (const tr of rows) {
+    const wtr = ctx.doc.createElementNS(W, "w:tr");
+    for (const td of Array.from(tr.cells)) {
+      const tc = ctx.doc.createElementNS(W, "w:tc");
+      const tcPr = ctx.doc.createElementNS(W, "w:tcPr");
+      const tcW = ctx.doc.createElementNS(W, "w:tcW");
+      tcW.setAttributeNS(W, "w:w", String(colW));
+      tcW.setAttributeNS(W, "w:type", "dxa");
+      tcPr.appendChild(tcW);
+      tc.appendChild(tcPr);
+      const cell = (td.querySelector(".docx-cell") as HTMLElement) ?? td;
+      for (const node of Array.from(cell.childNodes)) appendBlock(ctx, tc, node);
+      if (!Array.from(tc.children).some((ch) => ch.tagName === "w:p" || ch.tagName === "w:tbl")) {
+        tc.appendChild(ctx.doc.createElementNS(W, "w:p"));
+      }
+      wtr.appendChild(tc);
+    }
+    tbl.appendChild(wtr);
+  }
+  return tbl;
+}
+
 function appendBlock(ctx: DocxCtx, body: Element, node: Node): void {
   if (node.nodeType === 3) {
     if (!(node.textContent ?? "").trim()) return;
@@ -413,15 +465,17 @@ function appendBlock(ctx: DocxCtx, body: Element, node: Node): void {
   if (node.nodeType !== 1) return;
   const el = node as HTMLElement;
   const tag = el.tagName.toLowerCase();
+  if (el.classList.contains("docx-table")) {
+    // Editable table: rebuild from the preserved skeleton if it came from the file, or
+    // build a fresh w:tbl from the DOM if it was inserted in the editor.
+    const stash = el.getAttribute("data-docx-xml");
+    const t = stash ? rebuildTable(ctx, el, stash) : buildNewTable(ctx, el);
+    if (t) body.appendChild(t);
+    return;
+  }
   const stash = el.getAttribute("data-docx-xml");
   if (stash) {
-    // An editable table: rebuild from the preserved w:tbl skeleton with the edited cell
-    // content. Any other passthrough block re-emits the original OOXML verbatim.
-    if (el.classList.contains("docx-table")) {
-      const t = rebuildTable(ctx, el, stash);
-      if (t) body.appendChild(t);
-      return;
-    }
+    // A passthrough block (a preserved element we do not model): re-emit it verbatim.
     const node2 = importPassthrough(ctx, stash);
     if (node2) body.appendChild(node2);
     return;

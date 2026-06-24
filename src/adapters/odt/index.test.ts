@@ -430,6 +430,17 @@ describe("odt editable tables (cell content round-trip)", () => {
     expect(html).toContain("B2");
   });
 
+  it("builds a fresh table:table from a table inserted in the editor (no skeleton)", () => {
+    const html = '<p>x</p><table class="docx-table"><tr><td><div class="docx-cell">X</div></td><td><div class="docx-cell">Y</div></td></tr></table>';
+    const out = htmlToOdt(html, makeOdt());
+    const xml = strFromU8(unzipSync(out)["content.xml"]);
+    expect(xml).toContain("<table:table ");
+    expect(xml).toContain("table:number-columns-repeated=\"2\"");
+    expect((xml.match(/<table:table-cell\b/g) || []).length).toBe(2);
+    expect(xml).toContain("X");
+    expect(xml).toContain("Y");
+  });
+
   it("writes back edited cell content, keeping rows/cells", () => {
     const html = odtToHtml(TABLE).replace(">A1<", ">EDITED<");
     const out = htmlToOdt(html, TABLE);

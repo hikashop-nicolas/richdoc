@@ -25,6 +25,13 @@
 .docxedit-toolbar .docxedit-tb-italic { font-style: italic; }
 .docxedit-toolbar .docxedit-tb-underline { text-decoration: underline; }
 .docxedit-toolbar .docxedit-tb-strike { text-decoration: line-through; }
+
+/* Insert-table grid picker (drag/hover to choose size). */
+.docxedit-table-picker { position: absolute; z-index: 30; background: #2b2f36; border: 1px solid #4a4f57; border-radius: 8px; padding: 8px; box-shadow: 0 6px 20px rgba(0,0,0,.5); }
+.docxedit-table-grid { display: grid; grid-template-columns: repeat(10, 16px); grid-auto-rows: 16px; gap: 2px; }
+.docxedit-table-sq { border: 1px solid #5a616b; border-radius: 2px; background: #3a3f47; cursor: pointer; }
+.docxedit-table-sq.on { background: #6e7bff; border-color: #6e7bff; }
+.docxedit-table-label { margin-top: 6px; text-align: center; color: #cbd1d8; font-size: 12px; }
 .docxedit-color { width: 30px; padding: 1px; }
 .docxedit-bg { display: inline-flex; align-items: center; gap: 2px; }
 .docxedit-bg-clear { min-width: 26px; }

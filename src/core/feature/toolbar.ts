@@ -342,6 +342,98 @@ export function setupToolbar(deps: ToolbarDeps) {
     mark();
   });
 
+  // --- Insert table: a button opening a grid picker (drag/hover to size, click to insert) ---
+  const tableIcon =
+    '<svg width="14" height="14" viewBox="0 0 16 16" fill="none" stroke="currentColor" stroke-width="1.2" aria-hidden="true">' +
+    '<rect x="1.5" y="2.5" width="13" height="11" rx="1"/><line x1="1.5" y1="6.2" x2="14.5" y2="6.2"/>' +
+    '<line x1="1.5" y1="9.9" x2="14.5" y2="9.9"/><line x1="6" y1="2.5" x2="6" y2="13.5"/><line x1="10.3" y1="2.5" x2="10.3" y2="13.5"/></svg>';
+  const insertTable = (rows: number, cols: number) => {
+    getActiveEl().focus();
+    const table = document.createElement("table");
+    table.className = "docx-table";
+    table.contentEditable = "false";
+    table.setAttribute("style", "border-collapse:collapse;margin:0 0 .6em");
+    for (let r = 0; r < rows; r++) {
+      const tr = table.insertRow();
+      for (let c = 0; c < cols; c++) {
+        const td = tr.insertCell();
+        td.setAttribute("style", "border:1px solid #999;padding:0;vertical-align:top");
+        const div = document.createElement("div");
+        div.className = "docx-cell";
+        div.contentEditable = "true";
+        div.setAttribute("style", "padding:3px 6px;min-height:1.2em;outline:none");
+        div.innerHTML = "<br>";
+        td.appendChild(div);
+      }
+    }
+    // Insert as a top-level block after the block holding the caret, then a paragraph after.
+    const sel = window.getSelection();
+    const trailing = document.createElement("p");
+    trailing.innerHTML = "<br>";
+    let anchor: HTMLElement | null = null;
+    if (sel && sel.rangeCount) {
+      let el: Element | null = ((n) => (n.nodeType === 3 ? n.parentElement : (n as Element)))(sel.getRangeAt(0).startContainer);
+      while (el && el.parentElement !== doc) el = el.parentElement;
+      anchor = el as HTMLElement | null;
+    }
+    if (anchor && anchor.parentElement === doc) {
+      doc.insertBefore(table, anchor.nextSibling);
+      doc.insertBefore(trailing, table.nextSibling);
+    } else {
+      doc.append(table, trailing);
+    }
+    mark();
+    const firstCell = table.querySelector(".docx-cell") as HTMLElement | null;
+    if (firstCell) {
+      const r = document.createRange();
+      r.selectNodeContents(firstCell);
+      r.collapse(true);
+      sel?.removeAllRanges();
+      sel?.addRange(r);
+      firstCell.focus();
+    }
+  };
+  const GRID_ROWS = 8;
+  const GRID_COLS = 10;
+  const tablePicker = document.createElement("div");
+  tablePicker.className = "docxedit-table-picker";
+  tablePicker.hidden = true;
+  const tableGrid = document.createElement("div");
+  tableGrid.className = "docxedit-table-grid";
+  const tableLabel = document.createElement("div");
+  tableLabel.className = "docxedit-table-label";
+  tableLabel.textContent = t("insertTable");
+  const squares: HTMLElement[] = [];
+  const highlight = (rr: number, cc: number) => {
+    for (let r = 0; r < GRID_ROWS; r++) for (let c = 0; c < GRID_COLS; c++) squares[r * GRID_COLS + c].classList.toggle("on", r <= rr && c <= cc);
+    tableLabel.textContent = `${cc + 1} × ${rr + 1}`;
+  };
+  for (let r = 0; r < GRID_ROWS; r++) {
+    for (let c = 0; c < GRID_COLS; c++) {
+      const sq = document.createElement("div");
+      sq.className = "docxedit-table-sq";
+      sq.addEventListener("mouseenter", () => highlight(r, c));
+      sq.addEventListener("mousedown", (e) => {
+        e.preventDefault();
+        insertTable(r + 1, c + 1);
+        tablePicker.hidden = true;
+      });
+      tableGrid.appendChild(sq);
+      squares.push(sq);
+    }
+  }
+  tablePicker.append(tableGrid, tableLabel);
+  const tableBtn = iconBtn(tableIcon, t("insertTable"), () => {});
+  tableBtn.addEventListener("click", (e) => {
+    e.stopPropagation();
+    const r = tableBtn.getBoundingClientRect();
+    const wr = wrap.getBoundingClientRect();
+    tablePicker.style.left = `${r.left - wr.left}px`;
+    tablePicker.style.top = `${r.bottom - wr.top + 2}px`;
+    tablePicker.hidden = !tablePicker.hidden;
+    if (!tablePicker.hidden) highlight(-1, -1);
+  });
+
   // Reflect the caret's formatting in the controls: the font / size / paragraph-style
   // pickers track the text under the caret, and bold/italic/underline/alignment show their
   // pressed state. Runs (rAF-coalesced) on every selection change and after a command.
@@ -412,6 +504,7 @@ export function setupToolbar(deps: ToolbarDeps) {
     lineSpacingSel,
     sep(),
     caps.images ? iconBtn(imgIcon, t("insertImage"), insertImage) : null,
+    caps.tables ? tableBtn : null,
     caps.comments ? iconBtn(cmtIcon, t("addComment"), addComment) : null,
     caps.pageBreak ? iconBtn(pbIcon, t("insertPageBreak"), insertPageBreak) : null,
     linkBtn,
@@ -446,10 +539,12 @@ export function setupToolbar(deps: ToolbarDeps) {
   });
   const closeOverflow = (e: MouseEvent) => {
     if (!overflow.hidden && !overflow.contains(e.target as Node) && e.target !== moreBtn) overflow.hidden = true;
+    if (!tablePicker.hidden && !tablePicker.contains(e.target as Node) && !tableBtn.contains(e.target as Node)) tablePicker.hidden = true;
   };
   document.addEventListener("click", closeOverflow);
   toolbar.append(...toolbarItems, moreBtn);
   wrap.appendChild(overflow);
+  wrap.appendChild(tablePicker);
 
   const layoutToolbar = () => {
     overflow.hidden = true;

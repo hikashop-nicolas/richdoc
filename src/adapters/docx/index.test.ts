@@ -546,6 +546,19 @@ describe("editable tables (cell content round-trip)", () => {
     expect(html).toContain("B2");
   });
 
+  it("builds a fresh w:tbl from a table inserted in the editor (no skeleton)", () => {
+    const html = '<p>x</p><table class="docx-table"><tr><td><div class="docx-cell">X</div></td><td><div class="docx-cell">Y</div></td></tr><tr><td><div class="docx-cell">Z</div></td><td><div class="docx-cell">W</div></td></tr></table>';
+    const out = htmlToDocx(html, makeDocx());
+    const xml = strFromU8(unzipSync(out)["word/document.xml"]!);
+    expect(xml).toContain("<w:tbl");
+    expect(xml).toContain("<w:tblGrid");
+    expect((xml.match(/<w:gridCol\b/g) || []).length).toBe(2);
+    expect((xml.match(/<w:tr\b/g) || []).length).toBe(2);
+    expect((xml.match(/<w:tc\b/g) || []).length).toBe(4);
+    expect(xml).toContain("X");
+    expect(xml).toContain("W");
+  });
+
   it("writes back edited cell content while keeping structure (tblGrid, rows, spans)", () => {
     const docx = makeDocx(TABLE_DOC);
     const html = docxToHtml(docx).replace(">A1<", ">EDITED<");

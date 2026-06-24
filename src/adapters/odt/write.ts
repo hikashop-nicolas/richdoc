@@ -307,6 +307,34 @@ function rebuildOdtTable(tableEl: HTMLElement, stash: string, ctx: OdfCtx): Elem
   return tbl;
 }
 
+let odtTableSeq = 0;
+/** Build a fresh table:table from a table inserted in the editor (no skeleton): one column
+    declaration per column, one cell per <td> with its edited content. No spans. */
+function buildNewOdtTable(tableEl: HTMLElement, ctx: OdfCtx): Element {
+  const rows = Array.from((tableEl as HTMLTableElement).rows);
+  const colCount = rows[0]?.cells.length || 1;
+  const tbl = ctx.doc.createElementNS(NS.table, "table:table");
+  tbl.setAttributeNS(NS.table, "table:name", `Table${++odtTableSeq}`);
+  const col = ctx.doc.createElementNS(NS.table, "table:table-column");
+  col.setAttributeNS(NS.table, "table:number-columns-repeated", String(colCount));
+  tbl.appendChild(col);
+  for (const tr of rows) {
+    const wtr = ctx.doc.createElementNS(NS.table, "table:table-row");
+    for (const td of Array.from(tr.cells)) {
+      const tc = ctx.doc.createElementNS(NS.table, "table:table-cell");
+      const cell = (td.querySelector(".docx-cell") as HTMLElement) ?? td;
+      for (const node of Array.from(cell.childNodes)) {
+        const b = htmlBlockToOdf(node, ctx);
+        if (b) tc.appendChild(b);
+      }
+      if (!tc.firstChild) tc.appendChild(ctx.doc.createElementNS(NS.text, "text:p"));
+      wtr.appendChild(tc);
+    }
+    tbl.appendChild(wtr);
+  }
+  return tbl;
+}
+
 function htmlBlockToOdf(node: Node, ctx: OdfCtx): Element | null {
   if (node.nodeType === 3) {
     if (!(node.textContent ?? "").trim()) return null;
@@ -317,8 +345,12 @@ function htmlBlockToOdf(node: Node, ctx: OdfCtx): Element | null {
   if (node.nodeType !== 1) return null;
   const el = node as HTMLElement;
   const tag = el.tagName.toLowerCase();
+  if (el.classList.contains("docx-table")) {
+    const skel = el.getAttribute("data-odt-xml");
+    return skel ? rebuildOdtTable(el, skel, ctx) : buildNewOdtTable(el, ctx);
+  }
   const stash = el.getAttribute("data-odt-xml");
-  if (stash) return el.classList.contains("docx-table") ? rebuildOdtTable(el, stash, ctx) : importPassthrough(ctx.doc, stash);
+  if (stash) return importPassthrough(ctx.doc, stash);
   if (tag === "ul" || tag === "ol") return htmlListToOdf(el, ctx);
   const applyAlign = (block: Element): void => {
     const name = paraStyleFor(ctx.doc, ctx.auto, ctx.created, {

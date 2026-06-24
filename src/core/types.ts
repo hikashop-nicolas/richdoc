@@ -80,6 +80,8 @@ export interface Capabilities {
   commentReactions: boolean;
   trackChanges: boolean;
   images: boolean;
+  /** Inserting new tables (existing tables are always editable when present). */
+  tables: boolean;
   headerFooter: boolean;
   pageBreak: boolean;
   /** Text + background colour controls (needs inline run colour/shading on save). */
