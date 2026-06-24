@@ -380,6 +380,37 @@ describe("odt page margins (page-layout)", () => {
   });
 });
 
+describe("odt page geometry (page-layout)", () => {
+  const stylesWith = (props: string) =>
+    '<?xml version="1.0"?><office:document-styles xmlns:office="urn:oasis:names:tc:opendocument:xmlns:office:1.0" ' +
+    'xmlns:style="urn:oasis:names:tc:opendocument:xmlns:style:1.0" xmlns:fo="urn:oasis:names:tc:opendocument:xmlns:xsl-fo-compatible:1.0">' +
+    `<office:automatic-styles><style:page-layout style:name="pm1"><style:page-layout-properties ${props}/></style:page-layout></office:automatic-styles>` +
+    '<office:master-styles><style:master-page style:name="Standard" style:page-layout-name="pm1"/></office:master-styles></office:document-styles>';
+  const odtWith = (props: string) =>
+    zipSync({
+      mimetype: [strToU8("application/vnd.oasis.opendocument.text"), { level: 0 }],
+      "content.xml": strToU8(CONTENT),
+      "styles.xml": strToU8(stylesWith(props)),
+      "META-INF/manifest.xml": strToU8("<m/>"),
+    });
+
+  it("reads page size + margins (cm -> px)", () => {
+    const page = odtToParts(odtWith('fo:page-width="18.2cm" fo:page-height="25.7cm" fo:margin-top="2cm" fo:margin-left="2cm"')).page;
+    expect(page?.widthPx).toBe(688); // 18.2cm
+    expect(page?.heightPx).toBe(971); // 25.7cm (JIS B5)
+    expect(page?.margin.top).toBe(76); // 2cm
+  });
+
+  it("reads landscape (swapped page-width/height) as a wide page", () => {
+    const page = odtToParts(odtWith('fo:page-width="42cm" fo:page-height="29.7cm" style:print-orientation="landscape"')).page;
+    expect(page!.widthPx).toBeGreaterThan(page!.heightPx); // A3 landscape
+  });
+
+  it("returns no geometry when the page-layout has no size", () => {
+    expect(odtToParts(odtWith('fo:margin-top="2cm"')).page).toBeUndefined();
+  });
+});
+
 describe("odt run formatting: strike, superscript, subscript", () => {
   it("writes the ODF text properties and reads them back", () => {
     const out = htmlToOdt("<p><s>a</s><sup>b</sup><sub>c</sub></p>", makeOdt());

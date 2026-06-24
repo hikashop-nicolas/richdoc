@@ -4,7 +4,7 @@
 // (./read) converts it to HTML, the shared engine edits it, and the write half (./write)
 // rebuilds the archive on save, preserving every other part byte-for-byte.
 import { createRichEditor } from "../../core/editor";
-import type { Adapter, CommentEdits, CommentMarkers, CommentThread, EditorOptions, NewCommentMeta, PageGeometry, RichDoc, RichEditor } from "../../core/types";
+import type { Adapter, CommentEdits, CommentMarkers, EditorOptions, NewCommentMeta, PageGeometry, RichDoc, RichEditor } from "../../core/types";
 import { odtToParts } from "./read";
 import { htmlToOdt } from "./write";
 
@@ -22,10 +22,10 @@ export function createOdtAdapter(bytes: Uint8Array): Adapter {
   return {
     original,
     read(): RichDoc {
-      let parts = { body: "<p><br></p>", comments: [] as CommentThread[], header: "", footer: "" };
+      let parts: ReturnType<typeof odtToParts> = { body: "<p><br></p>", comments: [], header: "", footer: "" };
       try {
         const p = odtToParts(bytes);
-        parts = { body: p.body || "<p><br></p>", comments: p.comments, header: p.header, footer: p.footer };
+        parts = { ...p, body: p.body || "<p><br></p>" };
       } catch (e) {
         console.warn("odtedit: failed to parse document", e);
       }
@@ -36,6 +36,7 @@ export function createOdtAdapter(bytes: Uint8Array): Adapter {
         headerPath: parts.header ? "header" : undefined,
         footerPath: parts.footer ? "footer" : undefined,
         comments: parts.comments,
+        page: parts.page,
       };
     },
     write(bodyHtml: string, parts: { path: string; html: string }[], edits: CommentEdits, page?: PageGeometry): Uint8Array {

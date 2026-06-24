@@ -2,7 +2,7 @@
 // XML -> HTML; the write half lives in ./write.
 import { strFromU8, unzipSync } from "fflate";
 import { bytesToBase64 } from "../../core/util";
-import type { CommentThread } from "../../core/types";
+import type { CommentThread, PageGeometry } from "../../core/types";
 import { ODF_ALIGN, escapeHtml, escapeAttr, inlinePass, blockPass, FMT0, IMG_MIME } from "./shared";
 import type { Fmt, PFmt } from "./shared";
 
@@ -303,14 +303,30 @@ function readHeaderFooter(files: Record<string, Uint8Array>): { header: string; 
 }
 
 /** Parse an .odt into the editable body HTML, the comment threads, and header/footer. */
-export function odtToParts(bytes: Uint8Array): { body: string; comments: CommentThread[]; header: string; footer: string } {
+/** Page size + margins from the first page-layout in styles.xml, in px. Landscape is
+    already reflected because fo:page-width/height are written swapped. */
+function parsePageGeometry(files: Record<string, Uint8Array>): PageGeometry | undefined {
+  const raw = files["styles.xml"];
+  if (!raw) return undefined;
+  const doc = new DOMParser().parseFromString(strFromU8(raw), "application/xml");
+  const props = doc.getElementsByTagName("style:page-layout-properties")[0];
+  if (!props) return undefined;
+  const w = lenToPx(props.getAttribute("fo:page-width"));
+  const h = lenToPx(props.getAttribute("fo:page-height"));
+  if (!w || !h) return undefined; // no usable size; the engine applies its default
+  const m = (a: string) => Math.round(Math.max(0, lenToPx(props.getAttribute(`fo:margin-${a}`)) ?? 96));
+  return { widthPx: Math.round(w), heightPx: Math.round(h), margin: { top: m("top"), right: m("right"), bottom: m("bottom"), left: m("left") } };
+}
+
+export function odtToParts(bytes: Uint8Array): { body: string; comments: CommentThread[]; header: string; footer: string; page?: PageGeometry } {
   const files = unzipSync(bytes);
   const { header, footer } = readHeaderFooter(files);
+  const page = parsePageGeometry(files);
   const content = files["content.xml"];
-  if (!content) return { body: "", comments: [], header, footer };
+  if (!content) return { body: "", comments: [], header, footer, page };
   const doc = new DOMParser().parseFromString(strFromU8(content), "application/xml");
   const body = doc.getElementsByTagName("office:text")[0];
-  if (!body) return { body: "", comments: [], header, footer };
+  if (!body) return { body: "", comments: [], header, footer, page };
   const rangedNames = new Set(
     Array.from(doc.getElementsByTagName("office:annotation-end"))
       .map((e) => e.getAttribute("office:name"))
@@ -322,7 +338,7 @@ export function odtToParts(bytes: Uint8Array): { body: string; comments: Comment
     if (block.tagName === "text:tracked-changes") continue; // metadata, parsed into ctx.changes
     html += blockToHtml(block, ctx);
   }
-  return { body: html || "<p><br></p>", comments: ctx.threads, header, footer };
+  return { body: html || "<p><br></p>", comments: ctx.threads, header, footer, page };
 }
 
 /** Convert an .odt's body to HTML. Returns "" if there is no editable text body. */
