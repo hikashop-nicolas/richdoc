@@ -34,11 +34,14 @@
 .docxedit-margin { flex: 0 1 250px; min-width: 0; }
 
 .docxedit-page {
-  background: #fff; color: #111; width: min(var(--rdoc-page-width, 816px), 100%); min-height: 300px; flex: 0 0 auto;
+  background: #fff; color: #111; width: var(--rdoc-page-width, 816px); min-height: 300px; flex: 0 0 auto;
   box-shadow: 0 2px 12px rgba(0, 0, 0, .45); box-sizing: border-box;
   font: 16px/1.5 var(--docxedit-doc-font, "Liberation Serif"), Georgia, serif;
 }
 .docxedit-page:focus-within { box-shadow: 0 0 0 2px #6e7bff, 0 2px 12px rgba(0, 0, 0, .45); }
+/* The page is scaled inside this box, which carries the scaled footprint for layout. */
+.docxedit-pagebox { flex: 0 0 auto; overflow: hidden; }
+.docxedit-zoom-label { min-width: 48px; cursor: pointer; }
 
 /* Paginated view: the page becomes a positioning context; per-page cards are drawn in a
    layer behind the single continuous body, which carries inert spacer gaps at breaks. */

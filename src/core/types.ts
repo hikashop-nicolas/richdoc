@@ -109,6 +109,8 @@ export interface EditorOptions {
   defaultPageSize?: PageSizeName;
   /** Paginated view (page cards + reflow) vs a single continuous page. Default true. */
   paginated?: boolean;
+  /** Initial zoom factor (1 = 100%); omit for fit-to-width. */
+  zoom?: number;
 }
 
 export interface RichEditor {

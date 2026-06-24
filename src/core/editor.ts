@@ -110,10 +110,45 @@ export function createRichEditor(container: HTMLElement, adapter: Adapter, optio
   const cmtPanel = document.createElement("div");
   cmtPanel.className = "docxedit-comments";
   rightArea.appendChild(cmtPanel);
-  canvas.append(leftSpacer, page, rightArea);
+  // The page is scaled inside a box sized to the scaled footprint, so zoom is a visual
+  // transform that leaves the body's layout (which pagination measures) unscaled.
+  const pagebox = document.createElement("div");
+  pagebox.className = "docxedit-pagebox";
+  pagebox.appendChild(page);
+  canvas.append(leftSpacer, pagebox, rightArea);
   scroll.appendChild(canvas);
   wrap.append(toolbar, scroll);
   container.appendChild(wrap);
+
+  // --- Zoom -----------------------------------------------------------------
+  // Scale the page visually; userZoom null means fit-to-width. The body's layout (and so
+  // pagination) stays unscaled because the transform does not affect offsetTop/Height.
+  let userZoom: number | null = options.zoom ?? null;
+  const fitZoom = (): number => {
+    const avail = scroll.clientWidth - 56; // canvas padding + comment gutter
+    return Math.max(0.2, Math.min(1, avail / Math.max(1, geometry.widthPx)));
+  };
+  const effectiveZoom = (): number => userZoom ?? fitZoom();
+  const zoomLabel = document.createElement("button");
+  zoomLabel.type = "button";
+  zoomLabel.className = "docxedit-zoom-label";
+  zoomLabel.title = t("zoomReset");
+  zoomLabel.textContent = "100%";
+  zoomLabel.addEventListener("mousedown", (e) => e.preventDefault());
+  zoomLabel.addEventListener("click", () => setZoom(null));
+  const applyZoom = () => {
+    const z = effectiveZoom();
+    page.style.transformOrigin = "top left";
+    page.style.transform = `scale(${z})`;
+    pagebox.style.width = `${Math.round(geometry.widthPx * z)}px`;
+    pagebox.style.height = `${Math.round(page.offsetHeight * z)}px`;
+    zoomLabel.textContent = `${Math.round(z * 100)}%`;
+  };
+  const setZoom = (z: number | null) => {
+    userZoom = z == null ? null : Math.max(0.2, Math.min(3, Math.round(z * 100) / 100));
+    applyZoom();
+    positionCards();
+  };
 
   // The editable regions (body + header/footer). Toolbar actions target whichever last
   // had focus, so formatting works inside the header and footer too.
@@ -385,7 +420,7 @@ export function createRichEditor(container: HTMLElement, adapter: Adapter, optio
       card.style.top = `${top}px`;
       prevBottom = top + card.offsetHeight + 10;
     }
-    cmtPanel.style.height = `${Math.max(prevBottom, page.offsetHeight)}px`;
+    cmtPanel.style.height = `${Math.max(prevBottom, pagebox.offsetHeight)}px`;
   };
 
   // --- Pagination -----------------------------------------------------------
@@ -516,6 +551,7 @@ export function createRichEditor(container: HTMLElement, adapter: Adapter, optio
   const reflow = () => {
     if (editingBand) return; // don't yank the band currently being edited
     repaginate();
+    applyZoom();
     positionCards();
   };
   let reflowTimer = 0;
@@ -1215,6 +1251,10 @@ export function createRichEditor(container: HTMLElement, adapter: Adapter, optio
     caps.trackChanges ? suggestBtn : null,
     caps.trackChanges ? btn("✓", t("acceptAll"), () => resolveAll(true)) : null,
     caps.trackChanges ? btn("✕", t("rejectAll"), () => resolveAll(false)) : null,
+    sep(),
+    btn("−", t("zoomOut"), () => setZoom(effectiveZoom() - 0.1)),
+    zoomLabel,
+    btn("+", t("zoomIn"), () => setZoom(effectiveZoom() + 0.1)),
   ];
   // Overflow menu: the toolbar is a single row; items that do not fit move into a "…"
   // popover so nothing is lost on narrow widths. The popover lives inside the toolbar so
