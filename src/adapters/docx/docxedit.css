@@ -38,10 +38,16 @@
 .docxedit-table-sq.on { background: #6e7bff; border-color: #6e7bff; }
 .docxedit-table-label { margin-top: 6px; text-align: center; color: #cbd1d8; font-size: 12px; }
 
-/* Floating table-edit toolbar (shown while the caret is in a cell). */
-.docxedit-table-bar { position: absolute; z-index: 25; display: flex; gap: 2px; background: #2b2f36; border: 1px solid #4a4f57; border-radius: 7px; padding: 3px; box-shadow: 0 4px 14px rgba(0,0,0,.45); }
-.docxedit-table-bar button { display: inline-flex; align-items: center; justify-content: center; min-width: 26px; height: 24px; padding: 0 4px; border: 1px solid transparent; border-radius: 5px; background: transparent; color: #e6e8ec; cursor: pointer; }
-.docxedit-table-bar button:hover { background: #3a3f47; border-color: #6e7bff; }
+/* Hover handles around a table (Google-Docs style): row handle on the left, column handle
+   on top (a drag grip + a "+" menu), and a per-cell options button. */
+.docxedit-th { position: absolute; z-index: 26; display: flex; align-items: center; gap: 1px; background: #2b2f36; border: 1px solid #4a4f57; border-radius: 6px; padding: 1px; box-shadow: 0 2px 8px rgba(0,0,0,.4); }
+.docxedit-th-col { flex-direction: row; }
+.docxedit-th-grip { display: inline-flex; align-items: center; justify-content: center; width: 14px; height: 20px; color: #aab1bb; cursor: grab; }
+.docxedit-th-grip:active { cursor: grabbing; }
+.docxedit-th-add { display: inline-flex; align-items: center; justify-content: center; width: 20px; height: 20px; border: 0; border-radius: 4px; background: transparent; color: #e6e8ec; cursor: pointer; }
+.docxedit-th-add:hover { background: #3a3f47; }
+.docxedit-th-cell { position: absolute; z-index: 26; display: inline-flex; align-items: center; justify-content: center; width: 16px; height: 16px; padding: 0; border: 1px solid #4a4f57; border-radius: 4px; background: #2b2f36; color: #e6e8ec; cursor: pointer; box-shadow: 0 1px 4px rgba(0,0,0,.4); }
+.docxedit-th-cell:hover { border-color: #6e7bff; }
 
 /* Small dropdown menu (line spacing, etc.). */
 .docxedit-menu { position: absolute; z-index: 30; min-width: 64px; background: #2b2f36; border: 1px solid #4a4f57; border-radius: 7px; padding: 4px; box-shadow: 0 6px 20px rgba(0,0,0,.5); display: flex; flex-direction: column; gap: 1px; }

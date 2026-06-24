@@ -1,7 +1,8 @@
-// Table editing: a small floating toolbar shown while the caret is in a table cell, with
-// insert/delete row and column. Each operation edits the DOM table and drops its
-// data-*-xml skeleton, so on save the adapter rebuilds the table from the DOM (reusing the
-// per-element tblPr/tblGrid/tcPr the read preserved, so styling survives the edit).
+// Table editing, Google-Docs style: hovering a table shows a row handle on its left and a
+// column handle on top (a drag grip + a "+" menu to insert/delete), and a per-cell menu
+// button for merge/split. Dragging a grip reorders the row/column. Every structural change
+// edits the DOM and drops the per-format skeleton (data-*-xml) so the adapter rebuilds the
+// table from the DOM on save (reusing the preserved tblPr/tblGrid/tcPr / cell styles).
 import { t } from "../i18n";
 
 export interface TableEditDeps {
@@ -11,15 +12,20 @@ export interface TableEditDeps {
   scheduleReflow: () => void;
 }
 
+const GRIP =
+  '<svg width="10" height="14" viewBox="0 0 10 14" fill="currentColor" aria-hidden="true">' +
+  "<circle cx=3 cy=3 r=1.2/><circle cx=7 cy=3 r=1.2/><circle cx=3 cy=7 r=1.2/><circle cx=7 cy=7 r=1.2/><circle cx=3 cy=11 r=1.2/><circle cx=7 cy=11 r=1.2/></svg>";
+const PLUS =
+  '<svg width="12" height="12" viewBox="0 0 16 16" fill="none" stroke="currentColor" stroke-width="1.6" stroke-linecap="round" aria-hidden="true"><path d="M8 3v10M3 8h10"/></svg>';
+const CARET =
+  '<svg width="10" height="10" viewBox="0 0 16 16" fill="currentColor" aria-hidden="true"><path d="M4 6l4 4 4-4z"/></svg>';
+
 export function setupTableEdit(deps: TableEditDeps) {
   const { wrap, scroll, mark, scheduleReflow } = deps;
 
-  const bar = document.createElement("div");
-  bar.className = "docxedit-table-bar";
-  bar.hidden = true;
-
   let curTable: HTMLTableElement | null = null;
   let curCell: HTMLTableCellElement | null = null;
+  let menuOpen = false;
 
   const newCell = (): HTMLTableCellElement => {
     const td = document.createElement("td");
@@ -31,32 +37,13 @@ export function setupTableEdit(deps: TableEditDeps) {
     return td;
   };
   const dirty = (table: HTMLTableElement): void => {
-    // Structurally changed: drop the per-format skeleton so the adapter rebuilds from the DOM.
     table.removeAttribute("data-docx-xml");
     table.removeAttribute("data-odt-xml");
     mark();
     scheduleReflow();
   };
 
-  const insertRow = (below: boolean): void => {
-    if (!curTable || !curCell) return;
-    const tr = curCell.parentElement as HTMLTableRowElement;
-    const nr = document.createElement("tr");
-    for (let i = 0; i < tr.cells.length; i++) nr.appendChild(newCell());
-    tr.parentElement?.insertBefore(nr, below ? tr.nextSibling : tr);
-    dirty(curTable);
-  };
-  const insertCol = (right: boolean): void => {
-    if (!curTable || !curCell) return;
-    const idx = curCell.cellIndex;
-    for (const tr of Array.from(curTable.rows)) {
-      const ref = tr.cells[idx] ?? null;
-      tr.insertBefore(newCell(), right ? (ref ? ref.nextSibling : null) : ref);
-    }
-    dirty(curTable);
-  };
-  // Grid layout of a DOM table: each td placed in every grid cell it spans, so neighbours
-  // (right / below) can be found correctly even with existing spans.
+  // --- Grid layout (each cell placed in every grid cell it spans) ----------------------
   type Pos = { row: number; col: number; rowspan: number; colspan: number };
   const computeGrid = (table: HTMLTableElement): { pos: Map<HTMLTableCellElement, Pos>; at: (HTMLTableCellElement | undefined)[][] } => {
     const pos = new Map<HTMLTableCellElement, Pos>();
@@ -78,6 +65,40 @@ export function setupTableEdit(deps: TableEditDeps) {
     const sd = src.querySelector(".docx-cell");
     const dd = dst.querySelector(".docx-cell");
     if (sd && dd && (sd.textContent ?? "").trim()) for (const n of Array.from(sd.childNodes)) dd.appendChild(n);
+  };
+
+  // --- Structural operations (act on curCell / curTable) -------------------------------
+  const insertRow = (below: boolean): void => {
+    if (!curTable || !curCell) return;
+    const tr = curCell.parentElement as HTMLTableRowElement;
+    const nr = document.createElement("tr");
+    for (let i = 0; i < tr.cells.length; i++) nr.appendChild(newCell());
+    tr.parentElement?.insertBefore(nr, below ? tr.nextSibling : tr);
+    dirty(curTable);
+  };
+  const insertCol = (right: boolean): void => {
+    if (!curTable || !curCell) return;
+    const idx = curCell.cellIndex;
+    for (const tr of Array.from(curTable.rows)) {
+      const ref = tr.cells[idx] ?? null;
+      tr.insertBefore(newCell(), right ? (ref ? ref.nextSibling : null) : ref);
+    }
+    dirty(curTable);
+  };
+  const deleteRow = (): void => {
+    if (!curTable || !curCell || curTable.rows.length <= 1) return;
+    const table = curTable;
+    (curCell.parentElement as HTMLTableRowElement).remove();
+    hideHandles();
+    dirty(table);
+  };
+  const deleteCol = (): void => {
+    if (!curTable || !curCell || curTable.rows[0].cells.length <= 1) return;
+    const table = curTable;
+    const idx = curCell.cellIndex;
+    for (const tr of Array.from(table.rows)) tr.cells[idx]?.remove();
+    hideHandles();
+    dirty(table);
   };
   const mergeRight = (): void => {
     if (!curTable || !curCell) return;
@@ -121,99 +142,199 @@ export function setupTableEdit(deps: TableEditDeps) {
     }
     dirty(curTable);
   };
-
-  const deleteRow = (): void => {
-    if (!curTable || !curCell || curTable.rows.length <= 1) return;
-    const table = curTable;
-    (curCell.parentElement as HTMLTableRowElement).remove();
-    hide();
+  const moveRow = (table: HTMLTableElement, from: number, to: number): void => {
+    const rows = Array.from(table.rows);
+    const src = rows[from];
+    const tgt = rows[to];
+    if (!src || !tgt || src === tgt) return;
+    if (to > from) tgt.after(src);
+    else tgt.before(src);
     dirty(table);
   };
-  const deleteCol = (): void => {
-    if (!curTable || !curCell || curTable.rows[0].cells.length <= 1) return;
-    const table = curTable;
-    const idx = curCell.cellIndex;
-    for (const tr of Array.from(table.rows)) tr.cells[idx]?.remove();
-    hide();
+  const moveCol = (table: HTMLTableElement, from: number, to: number): void => {
+    if (from === to) return;
+    for (const tr of Array.from(table.rows)) {
+      const cells = Array.from(tr.cells);
+      const src = cells[from];
+      const tgt = cells[to];
+      if (!src || !tgt) continue;
+      if (to > from) tgt.after(src);
+      else tgt.before(src);
+    }
     dirty(table);
   };
 
-  const btn = (svg: string, title: string, fn: () => void): HTMLButtonElement => {
-    const b = document.createElement("button");
-    b.type = "button";
-    b.innerHTML = svg;
-    b.title = title;
-    b.setAttribute("aria-label", title);
-    b.addEventListener("mousedown", (e) => e.preventDefault()); // keep the cell's caret
-    b.addEventListener("click", (e) => {
+  // --- Floating controls ----------------------------------------------------------------
+  const mkHandle = (cls: string, title: string, onPlus: () => void, onDrag: (e: PointerEvent) => void): HTMLElement => {
+    const h = document.createElement("div");
+    h.className = `docxedit-th ${cls}`;
+    h.hidden = true;
+    const grip = document.createElement("span");
+    grip.className = "docxedit-th-grip";
+    grip.innerHTML = GRIP;
+    grip.title = title;
+    grip.addEventListener("pointerdown", onDrag);
+    const add = document.createElement("button");
+    add.type = "button";
+    add.className = "docxedit-th-add";
+    add.innerHTML = PLUS;
+    add.title = title;
+    add.addEventListener("mousedown", (e) => e.preventDefault());
+    add.addEventListener("click", (e) => {
       e.stopPropagation();
-      fn();
+      onPlus();
     });
-    return b;
+    h.append(grip, add);
+    return h;
   };
-  // Clear SVG icons: a table-body box with a +/− or arrow showing which edge/axis is affected.
-  const I = (body: string): string => `<svg width="15" height="15" viewBox="0 0 16 16" fill="none" stroke="currentColor" stroke-width="1.4" stroke-linecap="round" stroke-linejoin="round" aria-hidden="true">${body}</svg>`;
-  const icRowAbove = I('<rect x="2.5" y="8" width="11" height="5.5" rx="1"/><path d="M8 2v4M6.1 3.9h3.8"/>');
-  const icRowBelow = I('<rect x="2.5" y="2.5" width="11" height="5.5" rx="1"/><path d="M8 10v4M6.1 12.1h3.8"/>');
-  const icColLeft = I('<rect x="8" y="2.5" width="5.5" height="11" rx="1"/><path d="M2 8h4M3.9 6.1v3.8"/>');
-  const icColRight = I('<rect x="2.5" y="2.5" width="5.5" height="11" rx="1"/><path d="M10 8h4M12.1 6.1v3.8"/>');
-  const icMergeDown = I('<rect x="3" y="2.5" width="10" height="4" rx="1"/><rect x="3" y="9.5" width="10" height="4" rx="1"/><path d="M8 6.5v3M6.6 8.2 8 9.6l1.4-1.4"/>');
-  const icMergeRight = I('<rect x="2.5" y="3" width="4" height="10" rx="1"/><rect x="9.5" y="3" width="4" height="10" rx="1"/><path d="M6.5 8h3M8.2 6.6 9.6 8 8.2 9.4"/>');
-  const icSplit = I('<rect x="2.5" y="2.5" width="11" height="11" rx="1"/><path d="M8 2.5v11M2.5 8h11" stroke-dasharray="1.6 1.6"/>');
-  const icDelRow = I('<rect x="2.5" y="6" width="11" height="4" rx="1"/><path d="M5.5 8h5"/>');
-  const icDelCol = I('<rect x="6" y="2.5" width="4" height="7.5" rx="1"/><path d="M8 11v3M6.4 12.4 8 14l1.6-1.6"/>');
-  bar.append(
-    btn(icRowAbove, t("tableRowAbove"), () => insertRow(false)),
-    btn(icRowBelow, t("tableRowBelow"), () => insertRow(true)),
-    btn(icColLeft, t("tableColLeft"), () => insertCol(false)),
-    btn(icColRight, t("tableColRight"), () => insertCol(true)),
-    btn(icMergeDown, t("tableMergeDown"), mergeDown),
-    btn(icMergeRight, t("tableMergeRight"), mergeRight),
-    btn(icSplit, t("tableSplit"), splitCell),
-    btn(icDelRow, t("tableDelRow"), deleteRow),
-    btn(icDelCol, t("tableDelCol"), deleteCol),
-  );
-  wrap.appendChild(bar);
 
-  const place = (): void => {
+  const menu = document.createElement("div");
+  menu.className = "docxedit-menu";
+  menu.hidden = true;
+  const showMenu = (anchor: HTMLElement, items: { label: string; fn: () => void }[]): void => {
+    menu.innerHTML = "";
+    for (const it of items) {
+      const b = document.createElement("button");
+      b.type = "button";
+      b.className = "docxedit-menu-item";
+      b.textContent = it.label;
+      b.addEventListener("mousedown", (e) => e.preventDefault());
+      b.addEventListener("click", (e) => {
+        e.stopPropagation();
+        it.fn();
+        closeMenu();
+        hideHandles();
+      });
+      menu.appendChild(b);
+    }
+    const ar = anchor.getBoundingClientRect();
+    const wr = wrap.getBoundingClientRect();
+    menu.hidden = false;
+    menu.style.left = `${ar.left - wr.left}px`;
+    menu.style.top = `${ar.bottom - wr.top + 2}px`;
+    menuOpen = true;
+  };
+  function closeMenu(): void {
+    menu.hidden = true;
+    menuOpen = false;
+  }
+
+  let drag: { axis: "row" | "col"; from: number; table: HTMLTableElement } | null = null;
+  const onDragMove = (): void => {}; // drop target resolved on release
+  const onDragUp = (e: PointerEvent): void => {
+    document.removeEventListener("pointermove", onDragMove);
+    document.removeEventListener("pointerup", onDragUp);
+    const d = drag;
+    drag = null;
+    if (!d) return;
+    const el = document.elementFromPoint(e.clientX, e.clientY) as HTMLElement | null;
+    const td = el?.closest?.(".docx-cell")?.closest("td") as HTMLTableCellElement | null;
+    if (!td || td.closest("table") !== d.table) return;
+    const tp = computeGrid(d.table).pos.get(td);
+    if (!tp) return;
+    if (d.axis === "row") moveRow(d.table, d.from, tp.row);
+    else moveCol(d.table, d.from, tp.col);
+  };
+  const startDrag = (axis: "row" | "col") => (e: PointerEvent): void => {
+    if (!curTable || !curCell) return;
+    e.preventDefault();
+    const p = computeGrid(curTable).pos.get(curCell);
+    if (!p) return;
+    drag = { axis, from: axis === "row" ? p.row : p.col, table: curTable };
+    document.addEventListener("pointermove", onDragMove);
+    document.addEventListener("pointerup", onDragUp);
+  };
+
+  const rowHandle = mkHandle(
+    "docxedit-th-row",
+    t("tableRow"),
+    () => showMenu(rowHandle, [
+      { label: t("tableRowAbove"), fn: () => insertRow(false) },
+      { label: t("tableRowBelow"), fn: () => insertRow(true) },
+      { label: t("tableDelRow"), fn: deleteRow },
+    ]),
+    startDrag("row"),
+  );
+  const colHandle = mkHandle(
+    "docxedit-th-col",
+    t("tableColumn"),
+    () => showMenu(colHandle, [
+      { label: t("tableColLeft"), fn: () => insertCol(false) },
+      { label: t("tableColRight"), fn: () => insertCol(true) },
+      { label: t("tableDelCol"), fn: deleteCol },
+    ]),
+    startDrag("col"),
+  );
+  const cellBtn = document.createElement("button");
+  cellBtn.type = "button";
+  cellBtn.className = "docxedit-th-cell";
+  cellBtn.hidden = true;
+  cellBtn.innerHTML = CARET;
+  cellBtn.title = t("tableCellMenu");
+  cellBtn.addEventListener("mousedown", (e) => e.preventDefault());
+  cellBtn.addEventListener("click", (e) => {
+    e.stopPropagation();
+    showMenu(cellBtn, [
+      { label: t("tableMergeDown"), fn: mergeDown },
+      { label: t("tableMergeRight"), fn: mergeRight },
+      { label: t("tableSplit"), fn: splitCell },
+    ]);
+  });
+  wrap.append(rowHandle, colHandle, cellBtn, menu);
+
+  // --- Hover positioning ----------------------------------------------------------------
+  function hideHandles(): void {
+    rowHandle.hidden = true;
+    colHandle.hidden = true;
+    cellBtn.hidden = true;
+    curCell = null;
+    curTable = null;
+  }
+  const position = (cellDiv: HTMLElement): void => {
     if (!curTable) return;
+    const cr = cellDiv.getBoundingClientRect();
     const tr = curTable.getBoundingClientRect();
     const wr = wrap.getBoundingClientRect();
-    bar.hidden = false;
-    bar.style.left = `${tr.left - wr.left}px`;
-    bar.style.top = `${tr.top - wr.top - bar.offsetHeight - 4}px`;
+    rowHandle.hidden = false;
+    colHandle.hidden = false;
+    cellBtn.hidden = false;
+    // row handle: left of the table, centred on the hovered row
+    rowHandle.style.left = `${tr.left - wr.left - rowHandle.offsetWidth - 4}px`;
+    rowHandle.style.top = `${cr.top - wr.top + cr.height / 2 - rowHandle.offsetHeight / 2}px`;
+    // column handle: above the table, centred on the hovered column
+    colHandle.style.left = `${cr.left - wr.left + cr.width / 2 - colHandle.offsetWidth / 2}px`;
+    colHandle.style.top = `${tr.top - wr.top - colHandle.offsetHeight - 4}px`;
+    // cell menu button: top-right of the hovered cell
+    cellBtn.style.left = `${cr.right - wr.left - cellBtn.offsetWidth - 2}px`;
+    cellBtn.style.top = `${cr.top - wr.top + 2}px`;
   };
-  function hide(): void {
-    bar.hidden = true;
-    curTable = null;
-    curCell = null;
-  }
-  const refresh = (): void => {
-    const sel = window.getSelection();
-    const node = sel && sel.rangeCount ? sel.anchorNode : null;
-    const el = node ? (node.nodeType === 3 ? node.parentElement : (node as Element)) : null;
-    const cell = el?.closest?.(".docx-cell") as HTMLElement | null;
-    if (cell && wrap.contains(cell)) {
-      curCell = cell.closest("td") as HTMLTableCellElement | null;
-      curTable = cell.closest("table.docx-table") as HTMLTableElement | null;
-      if (curTable) place();
-      else hide();
-    } else {
-      hide();
+  const onMove = (e: MouseEvent): void => {
+    if (menuOpen || drag) return;
+    const tgt = e.target as HTMLElement;
+    if (tgt.closest?.(".docxedit-th, .docxedit-th-cell, .docxedit-menu")) return; // over a control: keep
+    const cellDiv = tgt.closest?.(".docx-cell") as HTMLElement | null;
+    const table = cellDiv?.closest("table.docx-table") as HTMLTableElement | null;
+    if (!cellDiv || !table || !wrap.contains(cellDiv)) {
+      hideHandles();
+      return;
     }
+    const td = cellDiv.closest("td") as HTMLTableCellElement | null;
+    if (td === curCell) return;
+    curCell = td;
+    curTable = table;
+    position(cellDiv);
   };
-  let timer = 0;
-  const sched = (): void => {
-    window.clearTimeout(timer);
-    timer = window.setTimeout(refresh, 30);
+  scroll.addEventListener("mousemove", onMove);
+  const onDocClick = (e: MouseEvent): void => {
+    if (menuOpen && !menu.contains(e.target as Node)) closeMenu();
   };
-  document.addEventListener("selectionchange", sched);
-  scroll.addEventListener("scroll", place); // keep it pinned to the table while scrolling
+  document.addEventListener("click", onDocClick);
 
   const teardown = (): void => {
-    document.removeEventListener("selectionchange", sched);
-    scroll.removeEventListener("scroll", place);
-    window.clearTimeout(timer);
+    scroll.removeEventListener("mousemove", onMove);
+    document.removeEventListener("click", onDocClick);
+    document.removeEventListener("pointermove", onDragMove);
+    document.removeEventListener("pointerup", onDragUp);
   };
   return { teardown };
 }
