@@ -542,11 +542,10 @@ export function setupTableEdit(deps: TableEditDeps) {
   let colInfo: { table: HTMLTableElement; gridCol: number } | null = null;
   let rowInfo: { table: HTMLTableElement; row: number } | null = null;
   let rdrag: { axis: "col" | "row"; table: HTMLTableElement; start: number; a: HTMLElement; aSize: number; b: HTMLElement | null; bSize: number } | null = null;
-  const updateResizers = (e: MouseEvent, cellDiv: HTMLElement, table: HTMLTableElement): void => {
-    const td = cellDiv.closest("td") as HTMLTableCellElement | null;
+  const updateResizers = (e: MouseEvent, td: HTMLTableCellElement, table: HTMLTableElement): void => {
     const { pos } = computeGrid(table);
-    const p = td ? pos.get(td) : undefined;
-    const cr = cellDiv.getBoundingClientRect();
+    const p = pos.get(td);
+    const cr = td.getBoundingClientRect(); // the full cell box, so the whole edge is grabbable
     const tr = table.getBoundingClientRect();
     const wr = wrap.getBoundingClientRect();
     const NEAR = 4;
@@ -590,6 +589,7 @@ export function setupTableEdit(deps: TableEditDeps) {
     document.removeEventListener("pointerup", onResizeUp);
     colResize.classList.remove("dragging");
     rowResize.classList.remove("dragging");
+    wrap.classList.remove("docxedit-resizing-col", "docxedit-resizing-row");
     const d = rdrag;
     rdrag = null;
     if (d) dirty(d.table);
@@ -602,6 +602,7 @@ export function setupTableEdit(deps: TableEditDeps) {
     const b = (cg.children[colInfo.gridCol + 1] as HTMLElement) ?? null;
     rdrag = { axis: "col", table: colInfo.table, start: e.clientX, a, aSize: parseFloat(a.style.width) || 64, b, bSize: b ? parseFloat(b.style.width) || 64 : 0 };
     colResize.classList.add("dragging");
+    wrap.classList.add("docxedit-resizing-col"); // global col-resize cursor during the drag
     document.addEventListener("pointermove", onResizeMove);
     document.addEventListener("pointerup", onResizeUp);
   });
@@ -611,6 +612,7 @@ export function setupTableEdit(deps: TableEditDeps) {
     const trEl = rowInfo.table.rows[rowInfo.row] as HTMLElement;
     rdrag = { axis: "row", table: rowInfo.table, start: e.clientY, a: trEl, aSize: trEl.getBoundingClientRect().height, b: null, bSize: 0 };
     rowResize.classList.add("dragging");
+    wrap.classList.add("docxedit-resizing-row");
     document.addEventListener("pointermove", onResizeMove);
     document.addEventListener("pointerup", onResizeUp);
   });
@@ -626,9 +628,9 @@ export function setupTableEdit(deps: TableEditDeps) {
     curCell = null;
     curTable = null;
   }
-  const position = (cellDiv: HTMLElement): void => {
+  const position = (cell: HTMLTableCellElement): void => {
     if (!curTable || !curCell) return;
-    const cr = cellDiv.getBoundingClientRect();
+    const cr = cell.getBoundingClientRect(); // position against the full cell box (the <td>)
     const tr = curTable.getBoundingClientRect();
     const wr = wrap.getBoundingClientRect();
     const p = computeGrid(curTable).pos.get(curCell);
@@ -653,25 +655,27 @@ export function setupTableEdit(deps: TableEditDeps) {
     if (menuOpen || drag || selDragging || rdrag) return;
     const tgt = e.target as HTMLElement;
     if (tgt.closest?.(".docxedit-th, .docxedit-th-cell, .docxedit-menu, .docxedit-resize")) return; // over a control: keep
-    const cellDiv = tgt.closest?.(".docx-cell") as HTMLElement | null;
-    const table = cellDiv?.closest("table.docx-table") as HTMLTableElement | null;
-    if (!cellDiv || !table || !wrap.contains(cellDiv)) {
+    // Use the <td> (the cell box) so the whole cell area works, even where the content is short.
+    const td = tgt.closest?.("td") as HTMLTableCellElement | null;
+    const table = td?.closest("table.docx-table") as HTMLTableElement | null;
+    if (!td || !table || !wrap.contains(td)) {
       hideHandles();
       return;
     }
-    const td = cellDiv.closest("td") as HTMLTableCellElement | null;
     if (td !== curCell) {
       curCell = td;
       curTable = table;
-      position(cellDiv);
+      position(td);
     }
-    updateResizers(e, cellDiv, table); // proximity to a boundary changes within one cell too
+    updateResizers(e, td, table); // proximity to a boundary changes within one cell too
   };
   scroll.addEventListener("mousemove", onMove);
 
   // --- Multi-cell drag-select -----------------------------------------------------------
-  const cellUnder = (e: MouseEvent): HTMLTableCellElement | null =>
-    ((e.target as HTMLElement).closest?.(".docx-cell")?.closest("td") as HTMLTableCellElement | null) ?? null;
+  const cellUnder = (e: MouseEvent): HTMLTableCellElement | null => {
+    const td = (e.target as HTMLElement).closest?.("td") as HTMLTableCellElement | null;
+    return td && td.closest("table.docx-table") ? td : null;
+  };
   const onSelDown = (e: MouseEvent): void => {
     if (e.button !== 0) return;
     if ((e.target as HTMLElement).closest?.(".docxedit-th, .docxedit-th-cell, .docxedit-menu, .docxedit-resize")) return;
@@ -695,7 +699,7 @@ export function setupTableEdit(deps: TableEditDeps) {
     }
     curTable = table;
     curCell = selAnchor;
-    if (selected.size) position((selAnchor.querySelector(".docx-cell") as HTMLElement) ?? selAnchor);
+    if (selected.size) position(selAnchor);
   };
   const onSelUp = (): void => {
     selAnchor = null;

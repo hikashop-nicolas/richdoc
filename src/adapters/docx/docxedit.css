@@ -29,7 +29,9 @@
 /* Editable tables: structural chrome lives here, not inline on each cell. */
 .docx-table { border-collapse: collapse; margin: 0 0 .6em; }
 .docx-table td { border: 1px solid #999; padding: 0; vertical-align: top; }
-.docx-cell { padding: 3px 6px; min-height: 1.2em; outline: none; }
+/* Fill the whole cell so a resized/taller cell is hoverable, editable and its boundaries
+   are draggable across the full area (not just the original content box). */
+.docx-cell { padding: 3px 6px; min-height: 1.2em; height: 100%; box-sizing: border-box; outline: none; }
 /* A cell side is either off (it keeps the light editing-guide border above) or on with a
    chosen colour, width and style. On sides are drawn as CSS gradient lines in background
    layers (set inline by the editor): gradients render colour/width/solid-dashed-dotted-double
@@ -82,7 +84,11 @@
 .docxedit-resize { position: absolute; z-index: 25; background: transparent; }
 .docxedit-resize.col { cursor: col-resize; }
 .docxedit-resize.row { cursor: row-resize; }
-.docxedit-resize.dragging, .docxedit-resize:hover { background: rgba(110,123,255,.5); }
+.docxedit-resize:hover { background: rgba(110,123,255,.35); }
+/* While dragging: a clear solid guide line, above everything, plus a global resize cursor. */
+.docxedit-resize.dragging { background: #6e7bff; z-index: 40; box-shadow: 0 0 0 1px rgba(110,123,255,.45); }
+.docxedit-resizing-col, .docxedit-resizing-col * { cursor: col-resize !important; }
+.docxedit-resizing-row, .docxedit-resizing-row * { cursor: row-resize !important; }
 .docxedit-color { width: 30px; padding: 1px; }
 .docxedit-bg { display: inline-flex; align-items: center; gap: 2px; }
 .docxedit-bg-clear { min-width: 26px; }
