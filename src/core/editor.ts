@@ -1216,7 +1216,50 @@ export function createRichEditor(container: HTMLElement, adapter: Adapter, optio
     caps.trackChanges ? btn("✓", t("acceptAll"), () => resolveAll(true)) : null,
     caps.trackChanges ? btn("✕", t("rejectAll"), () => resolveAll(false)) : null,
   ];
-  toolbar.append(...items.filter((n): n is Node => n != null));
+  // Overflow menu: the toolbar is a single row; items that do not fit move into a "…"
+  // popover so nothing is lost on narrow widths. The popover lives inside the toolbar so
+  // the toolbar's button/sep styling (descendant selectors) still applies to pocketed items.
+  const toolbarItems = items.filter((n): n is HTMLElement => n != null);
+  const moreBtn = document.createElement("button");
+  moreBtn.type = "button";
+  moreBtn.className = "docxedit-tb-more";
+  moreBtn.textContent = "⋯";
+  moreBtn.title = t("moreTools");
+  moreBtn.setAttribute("aria-label", t("moreTools"));
+  // The popover carries the toolbar class so pocketed items keep their styling, and lives
+  // in wrap (not the toolbar) so the toolbar's overflow:hidden does not clip it.
+  const overflow = document.createElement("div");
+  overflow.className = "docxedit-toolbar docxedit-tb-overflow";
+  overflow.hidden = true;
+  moreBtn.addEventListener("mousedown", (e) => e.preventDefault());
+  moreBtn.addEventListener("click", (e) => {
+    e.stopPropagation();
+    overflow.style.top = `${toolbar.offsetHeight}px`;
+    overflow.hidden = !overflow.hidden;
+  });
+  const closeOverflow = (e: MouseEvent) => {
+    if (!overflow.hidden && !overflow.contains(e.target as Node) && e.target !== moreBtn) overflow.hidden = true;
+  };
+  document.addEventListener("click", closeOverflow);
+  toolbar.append(...toolbarItems, moreBtn);
+  wrap.appendChild(overflow);
+
+  const layoutToolbar = () => {
+    overflow.hidden = true;
+    for (const it of toolbarItems) toolbar.insertBefore(it, moreBtn); // pull everything back in
+    moreBtn.style.display = "none";
+    if (toolbar.scrollWidth <= toolbar.clientWidth + 1) return; // it all fits
+    moreBtn.style.display = "";
+    for (let i = toolbarItems.length - 1; i >= 0; i--) {
+      if (toolbar.scrollWidth <= toolbar.clientWidth + 1) break;
+      overflow.insertBefore(toolbarItems[i], overflow.firstChild); // pocket trailing items, in order
+    }
+  };
+  layoutToolbar();
+  requestAnimationFrame(layoutToolbar);
+  setTimeout(layoutToolbar, 150);
+  const toolbarObserver = new ResizeObserver(() => layoutToolbar());
+  toolbarObserver.observe(toolbar);
 
   return {
     isDirty() {
@@ -1238,6 +1281,8 @@ export function createRichEditor(container: HTMLElement, adapter: Adapter, optio
       for (const u of fontUrls) URL.revokeObjectURL(u);
       window.clearTimeout(reflowTimer);
       repositionObserver.disconnect();
+      toolbarObserver.disconnect();
+      document.removeEventListener("click", closeOverflow);
       wrap.remove();
     },
   };

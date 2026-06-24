@@ -3,9 +3,16 @@
 .docxedit-wrap { display: flex; flex-direction: column; height: 100%; background: #525659; position: relative; }
 
 .docxedit-toolbar {
-  display: flex; flex-wrap: wrap; align-items: center; gap: 6px; padding: 6px 10px;
+  display: flex; flex-wrap: nowrap; overflow: hidden; position: relative;
+  align-items: center; gap: 6px; padding: 6px 10px;
   background: #2b2f36; border-bottom: 1px solid #1c1f24; color: #e6e6e6; font: 13px system-ui, sans-serif;
 }
+.docxedit-tb-more { flex: 0 0 auto; font-weight: 700; }
+.docxedit-tb-overflow {
+  position: absolute; right: 6px; z-index: 30; flex-wrap: wrap; overflow: visible;
+  max-width: min(340px, 90vw); border: 1px solid #1c1f24; border-radius: 8px; box-shadow: 0 8px 20px rgba(0, 0, 0, .5);
+}
+.docxedit-tb-overflow[hidden] { display: none; }
 .docxedit-toolbar button, .docxedit-toolbar select, .docxedit-toolbar input[type="color"] {
   font: inherit; background: #3a3f47; color: #e6e6e6; border: 1px solid #4a4f57; border-radius: 5px;
   padding: 3px 8px; cursor: pointer; height: 28px; box-sizing: border-box; min-width: 30px;
