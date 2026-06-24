@@ -717,12 +717,41 @@ function htmlBlockToOdf(node: Node, ctx: OdfCtx): Element | null {
   return p;
 }
 
+/** Return the document's master page, creating a minimal "Standard" one (with a page
+    layout to reference) if the file has none, so a header/footer can be added from
+    scratch. Most ODF files already have one; this covers the rare file that does not. */
+function ensureMasterPage(doc: Document): Element | null {
+  const existing = doc.getElementsByTagName("style:master-page")[0];
+  if (existing) return existing;
+  const root = doc.documentElement;
+  if (!root) return null;
+  let pl = doc.getElementsByTagName("style:page-layout")[0];
+  let plName = pl?.getAttribute("style:name") ?? null;
+  if (!plName) {
+    pl = doc.createElementNS(NS.style, "style:page-layout");
+    plName = "pm-rdoc";
+    pl.setAttributeNS(NS.style, "style:name", plName);
+    pl.appendChild(doc.createElementNS(NS.style, "style:page-layout-properties"));
+    ensureAutoStyles(doc, "office:master-styles").appendChild(pl);
+  }
+  let ms = doc.getElementsByTagName("office:master-styles")[0];
+  if (!ms) {
+    ms = doc.createElementNS(NS.office, "office:master-styles");
+    root.appendChild(ms);
+  }
+  const master = doc.createElementNS(NS.style, "style:master-page");
+  master.setAttributeNS(NS.style, "style:name", "Standard");
+  master.setAttributeNS(NS.style, "style:page-layout-name", plName);
+  ms.appendChild(master);
+  return master;
+}
+
 /** Write edited header/footer HTML back into the master page in styles.xml. */
 function applyHeaderFooter(files: Record<string, Uint8Array>, parts: { path: string; html: string }[]): void {
   const hf = parts.filter((p) => p.path === "header" || p.path === "footer");
   if (!hf.length || !files["styles.xml"]) return;
   const doc = new DOMParser().parseFromString(strFromU8(files["styles.xml"]), "application/xml");
-  const master = doc.getElementsByTagName("style:master-page")[0];
+  const master = ensureMasterPage(doc);
   if (!master) return;
   const ctx: OdfCtx = {
     doc,

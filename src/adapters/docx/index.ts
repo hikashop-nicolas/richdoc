@@ -1239,6 +1239,79 @@ function rebuildPart(files: Record<string, Uint8Array>, partPath: string, html: 
   }
 }
 
+const CT_HEADER = "application/vnd.openxmlformats-officedocument.wordprocessingml.header+xml";
+const CT_FOOTER = "application/vnd.openxmlformats-officedocument.wordprocessingml.footer+xml";
+const REL_HEADER = "http://schemas.openxmlformats.org/officeDocument/2006/relationships/header";
+const REL_FOOTER = "http://schemas.openxmlformats.org/officeDocument/2006/relationships/footer";
+
+/** Add an Override for one part to [Content_Types].xml (idempotent). */
+function ensureOverride(files: Record<string, Uint8Array>, partName: string, mime: string): void {
+  const key = "[Content_Types].xml";
+  const xml = files[key];
+  if (!xml) return;
+  const doc = new DOMParser().parseFromString(strFromU8(xml), "application/xml");
+  const has = Array.from(doc.getElementsByTagName("Override")).some((o) => o.getAttribute("PartName") === partName);
+  if (has) return;
+  const ov = doc.createElementNS(doc.documentElement!.namespaceURI, "Override");
+  ov.setAttribute("PartName", partName);
+  ov.setAttribute("ContentType", mime);
+  doc.documentElement!.appendChild(ov);
+  files[key] = strToU8(new XMLSerializer().serializeToString(doc));
+}
+
+/** Create a new header/footer part from edited HTML and wire it into the body section:
+    a new word/<kind>N.xml, a relationship in document.xml.rels, a w:headerReference /
+    w:footerReference in the section properties, and a content-type override. */
+function createHeaderFooterPart(files: Record<string, Uint8Array>, kind: "header" | "footer", html: string): void {
+  if (!files["word/document.xml"]) return;
+  const isHeader = kind === "header";
+  let n = 1;
+  while (files[`word/${kind}${n}.xml`]) n++;
+  const partPath = `word/${kind}${n}.xml`;
+
+  // Build the part from the edited HTML, reusing the body block conversion.
+  const decls = Object.entries(NS_DECLS).map(([k, v]) => `${k}="${v}"`).join(" ");
+  const partDoc = new DOMParser().parseFromString(`<${isHeader ? "w:hdr" : "w:ftr"} ${decls}></${isHeader ? "w:hdr" : "w:ftr"}>`, "application/xml");
+  const container = partDoc.documentElement!;
+  const relsDoc = new DOMParser().parseFromString(`<Relationships xmlns="${PKG}"></Relationships>`, "application/xml");
+  const ctx: DocxCtx = { doc: partDoc, rels: relsDoc, relsAdded: false, nextRid: 1, nextRevId: 1, listNumId: firstNumId(files["word/numbering.xml"]), files };
+  const htmlDoc = new DOMParser().parseFromString(html || "<p><br></p>", "text/html");
+  for (const node of Array.from(htmlDoc.body.childNodes)) appendBlock(ctx, container, node);
+  if (!container.firstChild) container.appendChild(partDoc.createElementNS(W, "w:p"));
+  files[partPath] = strToU8(new XMLSerializer().serializeToString(partDoc));
+  if (ctx.relsAdded) files[`word/_rels/${kind}${n}.xml.rels`] = strToU8(new XMLSerializer().serializeToString(relsDoc));
+  ensureOverride(files, `/${partPath}`, isHeader ? CT_HEADER : CT_FOOTER);
+
+  // Relationship from the document to the new part.
+  const relsPath = "word/_rels/document.xml.rels";
+  const dRels = files[relsPath]
+    ? new DOMParser().parseFromString(strFromU8(files[relsPath]!), "application/xml")
+    : new DOMParser().parseFromString(`<Relationships xmlns="${PKG}"></Relationships>`, "application/xml");
+  let maxR = 0;
+  for (const r of Array.from(dRels.getElementsByTagName("Relationship"))) {
+    const m = /^rId(\d+)$/.exec(r.getAttribute("Id") ?? "");
+    if (m) maxR = Math.max(maxR, Number(m[1]));
+  }
+  const rid = `rId${maxR + 1}`;
+  const rel = dRels.createElementNS(PKG, "Relationship");
+  rel.setAttribute("Id", rid);
+  rel.setAttribute("Type", isHeader ? REL_HEADER : REL_FOOTER);
+  rel.setAttribute("Target", `${kind}${n}.xml`);
+  dRels.documentElement!.appendChild(rel);
+  files[relsPath] = strToU8(new XMLSerializer().serializeToString(dRels));
+
+  // Reference it from the section properties (header/footer refs lead the sectPr sequence).
+  const bodyDoc = new DOMParser().parseFromString(strFromU8(files["word/document.xml"]!), "application/xml");
+  const sectPr = Array.from(bodyDoc.getElementsByTagName("w:sectPr")).pop();
+  if (sectPr) {
+    const ref = bodyDoc.createElementNS(W, isHeader ? "w:headerReference" : "w:footerReference");
+    ref.setAttributeNS(W, "w:type", "default");
+    ref.setAttributeNS(R, "r:id", rid);
+    sectPr.insertBefore(ref, sectPr.firstChild);
+    files["word/document.xml"] = strToU8(new XMLSerializer().serializeToString(bodyDoc));
+  }
+}
+
 const REL_COMMENTS = "http://schemas.openxmlformats.org/officeDocument/2006/relationships/comments";
 const CT_COMMENTS = "application/vnd.openxmlformats-officedocument.wordprocessingml.comments+xml";
 
@@ -1503,7 +1576,11 @@ export function htmlToDocx(
 ): Uint8Array {
   const files = unzipSync(original);
   rebuildPart(files, "word/document.xml", html);
-  for (const p of parts ?? []) rebuildPart(files, p.path, p.html);
+  for (const p of parts ?? []) {
+    // "header" / "footer" are sentinels for a band created in-editor (no existing part).
+    if (p.path === "header" || p.path === "footer") createHeaderFooterPart(files, p.path, p.html);
+    else rebuildPart(files, p.path, p.html);
+  }
   applyNewComments(files, html);
   applyReactions(files, opts?.reactions ?? []);
   applyReplies(files, opts?.replies ?? []);

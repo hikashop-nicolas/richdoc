@@ -75,8 +75,11 @@ export function createRichEditor(container: HTMLElement, adapter: Adapter, optio
     el.innerHTML = html;
     return el;
   };
-  const header = band("docxedit-header", t("header"), parts.header);
-  const footer = band("docxedit-footer", t("footer"), parts.footer);
+  let header = band("docxedit-header", t("header"), parts.header);
+  let footer = band("docxedit-footer", t("footer"), parts.footer);
+  // A band counts as empty when it has no text and no image, so an abandoned new one
+  // (created by a double-click but never typed in) is dropped instead of being saved.
+  const isBandEmpty = (el: HTMLElement): boolean => !el.textContent?.trim() && !el.querySelector("img");
 
   // Paginated view: one continuous editable body (doc) on top of a layer of page-card
   // decorations, with inert spacer gaps inserted at page boundaries. Pageless view keeps
@@ -628,6 +631,23 @@ export function createRichEditor(container: HTMLElement, adapter: Adapter, optio
       c.addEventListener("blur", () => {
         c.classList.remove("is-editing");
         editingBand = null;
+        // A band created by double-click but left empty is dropped, not saved. Defer the
+        // check so moving between page-clones of the same band does not count as leaving.
+        if (src.dataset.pending === "1") {
+          setTimeout(() => {
+            if ((document.activeElement as HTMLElement | null)?.classList.contains("docxedit-hf-clone")) return;
+            if (isBandEmpty(src)) {
+              if (src === header) header = null;
+              else if (src === footer) footer = null;
+              src.remove();
+              activeEl = doc;
+            } else {
+              delete src.dataset.pending; // it has content now: keep it
+            }
+            reflow();
+          }, 0);
+          return;
+        }
         reflow();
       });
       return c;
@@ -670,6 +690,39 @@ export function createRichEditor(container: HTMLElement, adapter: Adapter, optio
     window.clearTimeout(reflowTimer);
     reflowTimer = window.setTimeout(reflow, 150);
   };
+
+  // --- Create header/footer on demand --------------------------------------
+  // Double-clicking a page's top (or bottom) margin, where none exists yet, starts an
+  // empty header (or footer) and drops the caret in it. It is only persisted if typed in
+  // (see the clone's blur handler), so an abandoned one never gets added to the file.
+  const createBand = (kind: "header" | "footer") => {
+    const el = document.createElement("div");
+    el.className = kind === "header" ? "docxedit-header" : "docxedit-footer";
+    el.contentEditable = "true";
+    el.spellcheck = false;
+    el.setAttribute("role", "textbox");
+    el.setAttribute("aria-multiline", "true");
+    el.setAttribute("aria-label", kind === "header" ? t("header") : t("footer"));
+    el.innerHTML = "<p><br></p>";
+    el.dataset.pending = "1"; // unsaved until typed in
+    measure.appendChild(el);
+    if (kind === "header") header = el;
+    else footer = el;
+    reflow(); // clones the new band into the page layer
+    const sel = `.docxedit-hf-clone.docxedit-${kind}`;
+    (hflayer.querySelector(sel) as HTMLElement | null)?.focus();
+  };
+  if (paginated && caps.headerFooter) {
+    page.addEventListener("dblclick", (e) => {
+      if ((e.target as HTMLElement).closest(".docxedit-hf-clone")) return; // editing an existing band
+      if (header && footer) return;
+      const z = effectiveZoom();
+      const within = ((e.clientY - page.getBoundingClientRect().top) / z) % (geometry.heightPx + PAGE_GAP);
+      if (within > geometry.heightPx) return; // in the gap between two pages
+      if (!header && within < geometry.margin.top) createBand("header");
+      else if (!footer && within > geometry.heightPx - geometry.margin.bottom) createBand("footer");
+    });
+  }
 
   for (const thread of parts.comments) addThreadCard(thread);
   // Clicking commented (highlighted) text opens its thread; the inline icon is gone.
@@ -1450,8 +1503,10 @@ export function createRichEditor(container: HTMLElement, adapter: Adapter, optio
     async getBytes() {
       if (!dirty) return original.slice();
       const editedParts: { path: string; html: string }[] = [];
-      if (header && parts.headerPath) editedParts.push({ path: parts.headerPath, html: header.innerHTML });
-      if (footer && parts.footerPath) editedParts.push({ path: parts.footerPath, html: footer.innerHTML });
+      // Use the band's own part path when it came from the file; a band created in-editor
+      // has none, so fall back to the "header"/"footer" sentinel the adapters create from.
+      if (header && !isBandEmpty(header)) editedParts.push({ path: parts.headerPath ?? "header", html: header.innerHTML });
+      if (footer && !isBandEmpty(footer)) editedParts.push({ path: parts.footerPath ?? "footer", html: footer.innerHTML });
       return adapter.write(
         cleanBody(),
         editedParts,

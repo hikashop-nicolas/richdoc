@@ -502,3 +502,27 @@ describe("page margin write-back (w:pgMar)", () => {
     expect(xml).toMatch(/w:pgMar[^>]*w:left="720"/);
   });
 });
+
+describe("create a header/footer from scratch", () => {
+  it("adds a new header part, its relationship, a section reference, and a content type", () => {
+    // The "header" path is the sentinel the engine sends for a band created in-editor.
+    const out = htmlToDocx("<p>x</p>", makeDocx(), [{ path: "header", html: "<p>My header</p>" }]);
+    const files = unzipSync(out);
+    const part = strFromU8(files["word/header1.xml"]!);
+    expect(part).toContain("<w:hdr");
+    expect(part).toContain("My header");
+    const rels = strFromU8(files["word/_rels/document.xml.rels"]!);
+    expect(rels).toContain("header1.xml");
+    expect(rels).toContain("relationships/header");
+    expect(strFromU8(files["word/document.xml"]!)).toContain("w:headerReference");
+    expect(strFromU8(files["[Content_Types].xml"]!)).toContain("/word/header1.xml");
+  });
+
+  it("creates a footer part with w:ftr when the footer sentinel is sent", () => {
+    const out = htmlToDocx("<p>x</p>", makeDocx(), [{ path: "footer", html: "<p>My footer</p>" }]);
+    const files = unzipSync(out);
+    expect(strFromU8(files["word/footer1.xml"]!)).toContain("<w:ftr");
+    expect(strFromU8(files["word/footer1.xml"]!)).toContain("My footer");
+    expect(strFromU8(files["word/document.xml"]!)).toContain("w:footerReference");
+  });
+});
