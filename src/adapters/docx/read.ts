@@ -238,8 +238,13 @@ function paragraphBorderStyle(pPr: Element | undefined): string {
 }
 
 /** Render a w:tbl to a read-only HTML table; the real table is preserved as passthrough. */
+// Preserve a property element (w:tblPr / w:tblGrid / w:tcPr) as a data-attribute, so a
+// structurally-edited table can be rebuilt from the DOM without losing its styling.
+const propAttr = (name: string, el: Element | undefined): string => (el ? ` data-docx-${name}="${escapeAttr(serializePassthrough(el))}"` : "");
+
 function tableHtml(tbl: Element, ctx: RenderCtx): string {
   const tblPr = tbl.getElementsByTagName("w:tblPr")[0];
+  const tblGrid = tbl.getElementsByTagName("w:tblGrid")[0];
   const tblBorders = tblPr?.getElementsByTagName("w:tblBorders")[0];
   const cellBorder = borderCss(tblBorders?.getElementsByTagName("w:top")[0]) || "1px solid #999";
   const showBorder = cellBorder !== "none";
@@ -264,11 +269,11 @@ function tableHtml(tbl: Element, ctx: RenderCtx): string {
       const bdr = showBorder ? `border:${cellBorder};` : "";
       // The table structure is locked (contenteditable=false on the table), but each cell's
       // content is its own editable region; on save only the edited content is written back.
-      cells += `<td${cs} style="${bdr}${bg}padding:0;vertical-align:top"><div class="docx-cell" contenteditable="true" style="padding:3px 6px;min-height:1.2em;outline:none">${inner || "<br>"}</div></td>`;
+      cells += `<td${cs}${propAttr("tcpr", tcPr)} style="${bdr}${bg}padding:0;vertical-align:top"><div class="docx-cell" contenteditable="true" style="padding:3px 6px;min-height:1.2em;outline:none">${inner || "<br>"}</div></td>`;
     }
     rows += `<tr>${cells}</tr>`;
   }
-  return `<table class="docx-table" contenteditable="false"${passthroughAttr(tbl)} style="border-collapse:collapse;margin:0 0 .6em">${rows}</table>`;
+  return `<table class="docx-table" contenteditable="false"${passthroughAttr(tbl)}${propAttr("tblpr", tblPr)}${propAttr("tblgrid", tblGrid)} style="border-collapse:collapse;margin:0 0 .6em">${rows}</table>`;
 }
 
 // ---------------------------------------------------------------------------

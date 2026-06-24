@@ -402,45 +402,73 @@ function rebuildTable(ctx: DocxCtx, tableEl: HTMLElement, stash: string): Elemen
   return tbl;
 }
 
-/** Build a fresh w:tbl from a table inserted in the editor (no skeleton): default single
-    borders, an even tblGrid, one cell per <td> with its edited content. No spans. */
+const colSpanOf = (td: HTMLTableCellElement): number => td.colSpan || 1;
+
+/** Build a w:tbl from a table in the DOM (a newly inserted or a structurally-edited one).
+    Preserved tblPr/tblGrid/tcPr (data-attributes from the read) are reused so styling
+    survives a structural edit; missing ones get sensible defaults. colspan -> w:gridSpan. */
 function buildNewTable(ctx: DocxCtx, tableEl: HTMLElement): Element {
   const rows = Array.from((tableEl as HTMLTableElement).rows);
-  const colCount = rows[0]?.cells.length || 1;
-  const colW = Math.round(9000 / colCount);
+  const gridCols = Math.max(1, ...rows.map((tr) => Array.from(tr.cells).reduce((s, td) => s + colSpanOf(td), 0)));
+  const colW = Math.round(9000 / gridCols);
+  const importEl = (xml: string | null, tag: string): Element | null => {
+    if (!xml) return null;
+    const el = importPassthrough(ctx, xml);
+    return el && el.tagName === tag ? el : null;
+  };
   const tbl = ctx.doc.createElementNS(W, "w:tbl");
-  const tblPr = ctx.doc.createElementNS(W, "w:tblPr");
-  const tblW = ctx.doc.createElementNS(W, "w:tblW");
-  tblW.setAttributeNS(W, "w:w", "0");
-  tblW.setAttributeNS(W, "w:type", "auto");
-  tblPr.appendChild(tblW);
-  const borders = ctx.doc.createElementNS(W, "w:tblBorders");
-  for (const side of ["top", "left", "bottom", "right", "insideH", "insideV"]) {
-    const b = ctx.doc.createElementNS(W, `w:${side}`);
-    b.setAttributeNS(W, "w:val", "single");
-    b.setAttributeNS(W, "w:sz", "4");
-    b.setAttributeNS(W, "w:space", "0");
-    b.setAttributeNS(W, "w:color", "auto");
-    borders.appendChild(b);
+
+  let tblPr = importEl(tableEl.getAttribute("data-docx-tblpr"), "w:tblPr");
+  if (!tblPr) {
+    tblPr = ctx.doc.createElementNS(W, "w:tblPr");
+    const tblW = ctx.doc.createElementNS(W, "w:tblW");
+    tblW.setAttributeNS(W, "w:w", "0");
+    tblW.setAttributeNS(W, "w:type", "auto");
+    tblPr.appendChild(tblW);
+    const borders = ctx.doc.createElementNS(W, "w:tblBorders");
+    for (const side of ["top", "left", "bottom", "right", "insideH", "insideV"]) {
+      const b = ctx.doc.createElementNS(W, `w:${side}`);
+      b.setAttributeNS(W, "w:val", "single");
+      b.setAttributeNS(W, "w:sz", "4");
+      b.setAttributeNS(W, "w:space", "0");
+      b.setAttributeNS(W, "w:color", "auto");
+      borders.appendChild(b);
+    }
+    tblPr.appendChild(borders);
   }
-  tblPr.appendChild(borders);
   tbl.appendChild(tblPr);
-  const grid = ctx.doc.createElementNS(W, "w:tblGrid");
-  for (let i = 0; i < colCount; i++) {
-    const gc = ctx.doc.createElementNS(W, "w:gridCol");
-    gc.setAttributeNS(W, "w:w", String(colW));
-    grid.appendChild(gc);
+
+  let grid = importEl(tableEl.getAttribute("data-docx-tblgrid"), "w:tblGrid");
+  if (!grid || grid.getElementsByTagName("w:gridCol").length !== gridCols) {
+    grid = ctx.doc.createElementNS(W, "w:tblGrid");
+    for (let i = 0; i < gridCols; i++) {
+      const gc = ctx.doc.createElementNS(W, "w:gridCol");
+      gc.setAttributeNS(W, "w:w", String(colW));
+      grid.appendChild(gc);
+    }
   }
   tbl.appendChild(grid);
+
   for (const tr of rows) {
     const wtr = ctx.doc.createElementNS(W, "w:tr");
     for (const td of Array.from(tr.cells)) {
       const tc = ctx.doc.createElementNS(W, "w:tc");
-      const tcPr = ctx.doc.createElementNS(W, "w:tcPr");
-      const tcW = ctx.doc.createElementNS(W, "w:tcW");
-      tcW.setAttributeNS(W, "w:w", String(colW));
-      tcW.setAttributeNS(W, "w:type", "dxa");
-      tcPr.appendChild(tcW);
+      let tcPr = importEl(td.getAttribute("data-docx-tcpr"), "w:tcPr");
+      if (!tcPr) {
+        tcPr = ctx.doc.createElementNS(W, "w:tcPr");
+        const tcW = ctx.doc.createElementNS(W, "w:tcW");
+        tcW.setAttributeNS(W, "w:w", String(colW * colSpanOf(td)));
+        tcW.setAttributeNS(W, "w:type", "dxa");
+        tcPr.appendChild(tcW);
+      }
+      // colspan -> w:gridSpan (replace any preserved one to match the current DOM)
+      const old = tcPr.getElementsByTagName("w:gridSpan")[0];
+      if (old) old.parentNode?.removeChild(old);
+      if (colSpanOf(td) > 1) {
+        const gs = ctx.doc.createElementNS(W, "w:gridSpan");
+        gs.setAttributeNS(W, "w:val", String(colSpanOf(td)));
+        tcPr.insertBefore(gs, tcPr.firstChild);
+      }
       tc.appendChild(tcPr);
       const cell = (td.querySelector(".docx-cell") as HTMLElement) ?? td;
       for (const node of Array.from(cell.childNodes)) appendBlock(ctx, tc, node);

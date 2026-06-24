@@ -32,6 +32,11 @@
 .docxedit-table-sq { border: 1px solid #5a616b; border-radius: 2px; background: #3a3f47; cursor: pointer; }
 .docxedit-table-sq.on { background: #6e7bff; border-color: #6e7bff; }
 .docxedit-table-label { margin-top: 6px; text-align: center; color: #cbd1d8; font-size: 12px; }
+
+/* Floating table-edit toolbar (shown while the caret is in a cell). */
+.docxedit-table-bar { position: absolute; z-index: 25; display: flex; gap: 2px; background: #2b2f36; border: 1px solid #4a4f57; border-radius: 7px; padding: 3px; box-shadow: 0 4px 14px rgba(0,0,0,.45); }
+.docxedit-table-bar button { font: 15px/1 system-ui, sans-serif; min-width: 26px; height: 24px; padding: 0 5px; border: 1px solid transparent; border-radius: 5px; background: transparent; color: #e6e8ec; cursor: pointer; }
+.docxedit-table-bar button:hover { background: #3a3f47; border-color: #6e7bff; }
 .docxedit-color { width: 30px; padding: 1px; }
 .docxedit-bg { display: inline-flex; align-items: center; gap: 2px; }
 .docxedit-bg-clear { min-width: 26px; }

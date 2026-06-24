@@ -10,6 +10,7 @@ import { setupComments } from "./feature/comments";
 import { setupImages } from "./feature/images";
 import { setupPageView } from "./feature/page-view";
 import { setupToolbar } from "./feature/toolbar";
+import { setupTableEdit } from "./feature/table-edit";
 import "../adapters/docx/docxedit.css";
 
 export function createRichEditor(container: HTMLElement, adapter: Adapter, options: EditorOptions = {}): RichEditor {
@@ -372,6 +373,9 @@ export function createRichEditor(container: HTMLElement, adapter: Adapter, optio
   afterReflow = updateChangeButtons;
   updateChangeButtons();
 
+  // Table editing toolbar (shown while the caret is in a table cell).
+  const tableEdit = caps.tables ? setupTableEdit({ wrap, scroll, mark, scheduleReflow }) : null;
+
   return {
     isDirty() {
       return dirty;
@@ -390,6 +394,7 @@ export function createRichEditor(container: HTMLElement, adapter: Adapter, optio
       window.clearTimeout(reflowTimer);
       repositionObserver.disconnect();
       teardownToolbar();
+      tableEdit?.teardown();
       wrap.remove();
     },
   };
