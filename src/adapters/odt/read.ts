@@ -278,11 +278,20 @@ function odtTableHtml(el: Element, ctx: RCtx): string {
       let inner = "";
       for (const child of Array.from(tc.children)) inner += blockToHtml(child, ctx);
       const cs = span > 1 ? ` colspan="${span}"` : "";
-      cells += `<td${cs} style="border:1px solid #999;padding:0;vertical-align:top"><div class="docx-cell" contenteditable="true" style="padding:3px 6px;min-height:1.2em;outline:none">${inner || "<br>"}</div></td>`;
+      const cstyle = tc.getAttribute("table:style-name"); // preserve cell style (borders/bg/padding)
+      const cellStyle = cstyle ? ` data-odt-cellstyle="${escapeAttr(cstyle)}"` : "";
+      cells += `<td${cs}${cellStyle} style="border:1px solid #999;padding:0;vertical-align:top"><div class="docx-cell" contenteditable="true" style="padding:3px 6px;min-height:1.2em;outline:none">${inner || "<br>"}</div></td>`;
     }
     rows += `<tr>${cells}</tr>`;
   }
-  return `<table class="docx-table" contenteditable="false"${passthroughAttr(el)} style="border-collapse:collapse;margin:0 0 .6em">${rows}</table>`;
+  // Preserve the table style-name and the column declarations so a structural edit keeps styling.
+  const tstyle = el.getAttribute("table:style-name");
+  const tableStyle = tstyle ? ` data-odt-tablestyle="${escapeAttr(tstyle)}"` : "";
+  const cols = Array.from(el.children)
+    .filter((c) => c.tagName === "table:table-column")
+    .map((c) => ({ s: c.getAttribute("table:style-name") ?? "", r: c.getAttribute("table:number-columns-repeated") ?? "1" }));
+  const colsAttr = cols.length ? ` data-odt-cols="${escapeAttr(JSON.stringify(cols))}"` : "";
+  return `<table class="docx-table" contenteditable="false"${passthroughAttr(el)}${tableStyle}${colsAttr} style="border-collapse:collapse;margin:0 0 .6em">${rows}</table>`;
 }
 
 function blockToHtml(el: Element, ctx: RCtx): string {

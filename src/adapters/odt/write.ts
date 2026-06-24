@@ -312,16 +312,38 @@ let odtTableSeq = 0;
     declaration per column, one cell per <td> with its edited content. No spans. */
 function buildNewOdtTable(tableEl: HTMLElement, ctx: OdfCtx): Element {
   const rows = Array.from((tableEl as HTMLTableElement).rows);
-  const colCount = rows[0]?.cells.length || 1;
+  const gridCols = Math.max(1, ...rows.map((tr) => Array.from(tr.cells).reduce((s, td) => s + ((td as HTMLTableCellElement).colSpan || 1), 0)));
   const tbl = ctx.doc.createElementNS(NS.table, "table:table");
   tbl.setAttributeNS(NS.table, "table:name", `Table${++odtTableSeq}`);
-  const col = ctx.doc.createElementNS(NS.table, "table:table-column");
-  col.setAttributeNS(NS.table, "table:number-columns-repeated", String(colCount));
-  tbl.appendChild(col);
+  const tstyle = tableEl.getAttribute("data-odt-tablestyle");
+  if (tstyle) tbl.setAttributeNS(NS.table, "table:style-name", tstyle);
+  // Column declarations: reuse the preserved ones when the count still matches, else default.
+  let cols: { s: string; r: string }[] = [];
+  try {
+    cols = JSON.parse(tableEl.getAttribute("data-odt-cols") ?? "[]");
+  } catch {
+    cols = [];
+  }
+  const colTotal = cols.reduce((s, c) => s + (Number(c.r) || 1), 0);
+  if (cols.length && colTotal === gridCols) {
+    for (const c of cols) {
+      const col = ctx.doc.createElementNS(NS.table, "table:table-column");
+      if (c.s) col.setAttributeNS(NS.table, "table:style-name", c.s);
+      if (Number(c.r) > 1) col.setAttributeNS(NS.table, "table:number-columns-repeated", String(c.r));
+      tbl.appendChild(col);
+    }
+  } else {
+    const col = ctx.doc.createElementNS(NS.table, "table:table-column");
+    col.setAttributeNS(NS.table, "table:number-columns-repeated", String(gridCols));
+    tbl.appendChild(col);
+  }
   for (const tr of rows) {
     const wtr = ctx.doc.createElementNS(NS.table, "table:table-row");
     for (const td of Array.from(tr.cells)) {
       const tc = ctx.doc.createElementNS(NS.table, "table:table-cell");
+      const cstyle = td.getAttribute("data-odt-cellstyle");
+      if (cstyle) tc.setAttributeNS(NS.table, "table:style-name", cstyle);
+      if ((td as HTMLTableCellElement).colSpan > 1) tc.setAttributeNS(NS.table, "table:number-columns-spanned", String((td as HTMLTableCellElement).colSpan));
       const cell = (td.querySelector(".docx-cell") as HTMLElement) ?? td;
       for (const node of Array.from(cell.childNodes)) {
         const b = htmlBlockToOdf(node, ctx);
@@ -329,6 +351,9 @@ function buildNewOdtTable(tableEl: HTMLElement, ctx: OdfCtx): Element {
       }
       if (!tc.firstChild) tc.appendChild(ctx.doc.createElementNS(NS.text, "text:p"));
       wtr.appendChild(tc);
+      for (let k = 1; k < ((td as HTMLTableCellElement).colSpan || 1); k++) {
+        wtr.appendChild(ctx.doc.createElementNS(NS.table, "table:covered-table-cell"));
+      }
     }
     tbl.appendChild(wtr);
   }
