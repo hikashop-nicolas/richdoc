@@ -143,7 +143,11 @@ function collectParaStyles(doc: Document): Map<string, PFmt> {
     if (!name) continue;
     const pp = st.getElementsByTagName("style:paragraph-properties")[0];
     const align = ODF_ALIGN[pp?.getAttribute("fo:text-align") ?? ""];
-    if (align) map.set(name, { align });
+    const indentRaw = lenToPx(pp?.getAttribute("fo:margin-left"));
+    const indentPx = indentRaw && indentRaw > 0 ? Math.round(indentRaw) : undefined;
+    const lh = pp?.getAttribute("fo:line-height");
+    const lineHeight = lh && lh.endsWith("%") ? Math.round((parseFloat(lh) / 100) * 100) / 100 : undefined;
+    if (align || indentPx || lineHeight) map.set(name, { align, indentPx, lineHeight });
   }
   return map;
 }
@@ -263,8 +267,13 @@ function listToHtml(el: Element, ctx: RCtx): string {
 
 function blockToHtml(el: Element, ctx: RCtx): string {
   const alignAttr = (): string => {
-    const a = ctx.paras.get(el.getAttribute("text:style-name") ?? "")?.align;
-    return a && a !== "left" ? ` style="text-align:${a}"` : "";
+    const pf = ctx.paras.get(el.getAttribute("text:style-name") ?? "");
+    if (!pf) return "";
+    const css: string[] = [];
+    if (pf.align && pf.align !== "left") css.push(`text-align:${pf.align}`);
+    if (pf.indentPx) css.push(`margin-left:${pf.indentPx}px`);
+    if (pf.lineHeight) css.push(`line-height:${pf.lineHeight}`);
+    return css.length ? ` style="${css.join(";")}"` : "";
   };
   switch (el.tagName) {
     case "text:h": {

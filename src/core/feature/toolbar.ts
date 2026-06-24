@@ -284,6 +284,51 @@ export function setupToolbar(deps: ToolbarDeps) {
   const alignRightBtn = caps.alignment ? iconBtn(alignIcon([[2, 12], [6, 8], [3, 11]]), t("alignRight"), () => exec("justifyRight")) : null;
   const alignJustifyBtn = caps.alignment ? iconBtn(alignIcon([[2, 12], [2, 12], [2, 12]]), t("alignJustify"), () => exec("justifyFull")) : null;
 
+  // Paragraph indent + line spacing operate on the block(s) intersecting the selection.
+  const BLOCK_SEL = "p,h1,h2,h3,h4,h5,h6,li,blockquote,div";
+  const selectedBlocks = (): HTMLElement[] => {
+    const sel = window.getSelection();
+    if (!sel || !sel.rangeCount) return [];
+    const region = getActiveEl();
+    const blockOf = (n: Node | null): HTMLElement | null => {
+      const el = n ? (n.nodeType === 3 ? n.parentElement : (n as Element)) : null;
+      const b = el?.closest?.(BLOCK_SEL) as HTMLElement | null;
+      return b && region.contains(b) && !b.classList.contains("docxedit-doc") ? b : null;
+    };
+    const range = sel.getRangeAt(0);
+    const start = blockOf(range.startContainer);
+    const end = blockOf(range.endContainer);
+    const out: HTMLElement[] = start ? [start] : [];
+    let n = start;
+    while (n && n !== end) {
+      n = n.nextElementSibling as HTMLElement | null;
+      if (n && n.matches(BLOCK_SEL)) out.push(n);
+    }
+    if (end && !out.includes(end)) out.push(end);
+    return out;
+  };
+  const indentIcon = (dir: number): string =>
+    '<svg width="14" height="14" viewBox="0 0 16 16" fill="currentColor" aria-hidden="true">' +
+    '<rect x="2" y="2.5" width="12" height="1.6" rx=".6"/><rect x="7" y="6" width="7" height="1.6" rx=".6"/>' +
+    '<rect x="7" y="9.4" width="7" height="1.6" rx=".6"/><rect x="2" y="12.9" width="12" height="1.6" rx=".6"/>' +
+    (dir > 0 ? '<path d="M2 6.2l2.6 1.9L2 10z"/>' : '<path d="M4.6 6.2L2 8.1l2.6 1.9z"/>') + "</svg>";
+  const adjustIndent = (dir: 1 | -1) => {
+    getActiveEl().focus();
+    const STEP = 48; // 0.5in
+    for (const b of selectedBlocks()) {
+      const next = Math.max(0, (parseFloat(b.style.marginLeft) || 0) + dir * STEP);
+      b.style.marginLeft = next ? `${next}px` : "";
+    }
+    mark();
+  };
+  const indentBtn = iconBtn(indentIcon(1), t("indent"), () => adjustIndent(1));
+  const outdentBtn = iconBtn(indentIcon(-1), t("outdent"), () => adjustIndent(-1));
+  const lineSpacingSel = pickerSelect(t("lineSpacing"), [["1", "1.0"], ["1.15", "1.15"], ["1.5", "1.5"], ["2", "2.0"]], (v) => {
+    getActiveEl().focus();
+    for (const b of selectedBlocks()) b.style.lineHeight = v;
+    mark();
+  });
+
   // Reflect the caret's formatting in the controls: the font / size / paragraph-style
   // pickers track the text under the caret, and bold/italic/underline/alignment show their
   // pressed state. Runs (rAF-coalesced) on every selection change and after a command.
@@ -305,6 +350,8 @@ export function setupToolbar(deps: ToolbarDeps) {
     }
     const tag = el.closest("h1,h2,h3,p")?.tagName ?? "";
     block.value = tag === "H1" || tag === "H2" || tag === "H3" ? tag : "P";
+    const lh = (el.closest(BLOCK_SEL) as HTMLElement | null)?.style.lineHeight ?? "";
+    lineSpacingSel.value = ["1", "1.15", "1.5", "2"].includes(lh) ? lh : "";
     const setOn = (b: HTMLElement | null, on: boolean) => b?.classList.toggle("is-on", on);
     setOn(boldBtn, queryState("bold"));
     setOn(italicBtn, queryState("italic"));
@@ -347,6 +394,9 @@ export function setupToolbar(deps: ToolbarDeps) {
     alignCenterBtn,
     alignRightBtn,
     alignJustifyBtn,
+    outdentBtn,
+    indentBtn,
+    lineSpacingSel,
     sep(),
     caps.images ? iconBtn(imgIcon, t("insertImage"), insertImage) : null,
     caps.comments ? iconBtn(cmtIcon, t("addComment"), addComment) : null,

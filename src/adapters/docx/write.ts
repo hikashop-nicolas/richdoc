@@ -323,8 +323,10 @@ function appendInline(ctx: DocxCtx, node: Node, parent: Element, f: Fmt, del = f
 function makeParagraph(ctx: DocxCtx, src: HTMLElement, opts: { heading?: number; list?: boolean }): Element {
   const p = ctx.doc.createElementNS(W, "w:p");
   const jc = JC_BY_ALIGN[src.style.textAlign || ""];
+  const indentPx = parseFloat(src.style.marginLeft) || 0;
+  const lineHeight = parseFloat(src.style.lineHeight) || 0; // unitless multiple
   const revPara = src.getAttribute("data-rev-para"); // "ins" | "del" paragraph-mark revision
-  if (opts.heading || (opts.list && ctx.listNumId) || jc || revPara) {
+  if (opts.heading || (opts.list && ctx.listNumId) || jc || revPara || indentPx > 0 || lineHeight > 0) {
     const pPr = ctx.doc.createElementNS(W, "w:pPr");
     if (opts.heading) {
       const st = ctx.doc.createElementNS(W, "w:pStyle");
@@ -339,6 +341,18 @@ function makeParagraph(ctx: DocxCtx, src: HTMLElement, opts: { heading?: number;
       numId.setAttributeNS(W, "w:val", ctx.listNumId);
       numPr.append(ilvl, numId);
       pPr.appendChild(numPr);
+    }
+    // schema order: w:spacing and w:ind come before w:jc
+    if (lineHeight > 0) {
+      const sp = ctx.doc.createElementNS(W, "w:spacing");
+      sp.setAttributeNS(W, "w:line", String(Math.round(lineHeight * 240)));
+      sp.setAttributeNS(W, "w:lineRule", "auto");
+      pPr.appendChild(sp);
+    }
+    if (indentPx > 0) {
+      const ind = ctx.doc.createElementNS(W, "w:ind");
+      ind.setAttributeNS(W, "w:left", String(Math.round(indentPx * 15)));
+      pPr.appendChild(ind);
     }
     if (jc) {
       const j = ctx.doc.createElementNS(W, "w:jc");

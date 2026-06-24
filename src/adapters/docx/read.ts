@@ -480,6 +480,8 @@ interface PInfo {
   isList: boolean;
   ordered: boolean;
   align?: string; // CSS text-align
+  indentPx?: number; // w:ind left indent, in px
+  lineHeight?: number; // w:spacing line (auto rule), as a multiple
   border?: string; // CSS border declaration block
   pageBreakBefore: boolean;
   revPara?: "ins" | "del"; // paragraph-mark revision (split/merge)
@@ -495,6 +497,12 @@ function paragraphInfo(p: Element, numbering: Map<string, boolean>): PInfo {
   const numPr = pPr?.getElementsByTagName("w:numPr")[0];
   const numId = numPr?.getElementsByTagName("w:numId")[0]?.getAttribute("w:val") ?? "";
   const jc = pPr?.getElementsByTagName("w:jc")[0]?.getAttribute("w:val") ?? "";
+  const ind = pPr?.getElementsByTagName("w:ind")[0];
+  const indentPx = twipToPx(ind?.getAttribute("w:left") ?? ind?.getAttribute("w:start"));
+  const sp = pPr?.getElementsByTagName("w:spacing")[0];
+  const line = sp?.getAttribute("w:line");
+  const rule = sp?.getAttribute("w:lineRule") ?? "auto";
+  const lineHeight = line && rule === "auto" ? Math.round((Number(line) / 240) * 100) / 100 : undefined;
   // Paragraph-mark revision lives in pPr > rPr > w:ins / w:del.
   const markRPr = pPr ? Array.from(pPr.children).find((c) => c.tagName === "w:rPr") : undefined;
   const mark = markRPr && (Array.from(markRPr.children).find((c) => c.tagName === "w:ins" || c.tagName === "w:del") as Element | undefined);
@@ -503,6 +511,8 @@ function paragraphInfo(p: Element, numbering: Map<string, boolean>): PInfo {
     isList: !!numPr,
     ordered: numbering.get(numId) ?? false,
     align: JC_TO_ALIGN[jc],
+    indentPx: indentPx && indentPx > 0 ? Math.round(indentPx) : undefined,
+    lineHeight,
     border: paragraphBorderStyle(pPr),
     pageBreakBefore: onFlag(pPr, "w:pageBreakBefore"),
     revPara: mark ? (mark.tagName === "w:del" ? "del" : "ins") : undefined,
@@ -513,6 +523,8 @@ function paragraphInfo(p: Element, numbering: Map<string, boolean>): PInfo {
 function blockStyleAttr(info: PInfo): string {
   const parts: string[] = [];
   if (info.align && info.align !== "left") parts.push(`text-align:${info.align}`);
+  if (info.indentPx) parts.push(`margin-left:${info.indentPx}px`);
+  if (info.lineHeight) parts.push(`line-height:${info.lineHeight}`);
   if (info.border) parts.push(info.border);
   const style = parts.length ? ` style="${parts.join(";")}"` : "";
   if (!info.revPara) return style;

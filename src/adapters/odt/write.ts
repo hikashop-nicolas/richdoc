@@ -57,18 +57,23 @@ function styleFor(doc: Document, auto: Element, created: Map<string, string>, f:
 }
 
 /** Create (once) a paragraph style for an alignment and return its name. */
-function paraStyleFor(doc: Document, auto: Element, created: Map<string, string>, align: string): string | null {
-  const a = ODF_ALIGN[align];
-  if (!a || a === "left") return null;
-  const key = `p_${a}`;
+function paraStyleFor(doc: Document, auto: Element, created: Map<string, string>, p: { align?: string; indentPx?: number; lineHeight?: number }): string | null {
+  const a = p.align ? ODF_ALIGN[p.align] : undefined;
+  const align = a && a !== "left" ? a : undefined;
+  const indentPx = p.indentPx && p.indentPx > 0 ? Math.round(p.indentPx) : undefined;
+  const lineHeight = p.lineHeight && p.lineHeight > 0 ? p.lineHeight : undefined;
+  if (!align && !indentPx && !lineHeight) return null;
+  const key = `p_${align ?? ""}_${indentPx ?? ""}_${lineHeight ?? ""}`;
   const existing = created.get(key);
   if (existing) return existing;
-  const name = `OT_${key}`;
+  const name = `OT_p${created.size}`;
   const st = doc.createElementNS(NS.style, "style:style");
   st.setAttributeNS(NS.style, "style:name", name);
   st.setAttributeNS(NS.style, "style:family", "paragraph");
   const pp = doc.createElementNS(NS.style, "style:paragraph-properties");
-  pp.setAttributeNS(NS.fo, "fo:text-align", a === "right" ? "end" : a === "center" ? "center" : a === "justify" ? "justify" : "start");
+  if (align) pp.setAttributeNS(NS.fo, "fo:text-align", align === "right" ? "end" : align === "center" ? "center" : "justify");
+  if (indentPx) pp.setAttributeNS(NS.fo, "fo:margin-left", `${Math.round((indentPx / (96 / 2.54)) * 1000) / 1000}cm`);
+  if (lineHeight) pp.setAttributeNS(NS.fo, "fo:line-height", `${Math.round(lineHeight * 100)}%`);
   st.appendChild(pp);
   auto.appendChild(st);
   created.set(key, name);
@@ -292,7 +297,11 @@ function htmlBlockToOdf(node: Node, ctx: OdfCtx): Element | null {
   if (stash) return importPassthrough(ctx.doc, stash);
   if (tag === "ul" || tag === "ol") return htmlListToOdf(el, ctx);
   const applyAlign = (block: Element): void => {
-    const name = el.style.textAlign ? paraStyleFor(ctx.doc, ctx.auto, ctx.created, el.style.textAlign) : null;
+    const name = paraStyleFor(ctx.doc, ctx.auto, ctx.created, {
+      align: el.style.textAlign || undefined,
+      indentPx: parseFloat(el.style.marginLeft) || undefined,
+      lineHeight: parseFloat(el.style.lineHeight) || undefined,
+    });
     if (name) block.setAttributeNS(NS.text, "text:style-name", name);
   };
   const m = /^h([1-6])$/.exec(tag);

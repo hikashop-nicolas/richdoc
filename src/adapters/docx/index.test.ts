@@ -527,6 +527,18 @@ describe("create a header/footer from scratch", () => {
   });
 });
 
+describe("paragraph indent + line spacing", () => {
+  it("writes w:ind / w:spacing and reads them back", () => {
+    const out = htmlToDocx('<p style="margin-left:48px;line-height:1.5">x</p>', makeDocx());
+    const xml = strFromU8(unzipSync(out)["word/document.xml"]!);
+    expect(xml).toMatch(/w:ind[^>]*w:left="720"/); // 48px * 15 = 720 twips
+    expect(xml).toMatch(/w:spacing[^>]*w:line="360"[^>]*w:lineRule="auto"|w:spacing[^>]*w:lineRule="auto"[^>]*w:line="360"/); // 1.5 * 240
+    const html = docxToHtml(out);
+    expect(html).toMatch(/margin-left:\s*48px/);
+    expect(html).toMatch(/line-height:\s*1\.5/);
+  });
+});
+
 describe("run formatting: strike, superscript, subscript", () => {
   it("writes w:strike / w:vertAlign and reads them back", () => {
     const out = htmlToDocx("<p><s>a</s><sup>b</sup><sub>c</sub></p>", makeDocx());

@@ -32,6 +32,8 @@ export const fmtKey = (f: Fmt): string =>
 /** Paragraph-level formatting (text alignment), kept separate from run formatting. */
 export interface PFmt {
   align?: string; // left | right | center | justify
+  indentPx?: number; // fo:margin-left, in px
+  lineHeight?: number; // fo:line-height (% form), as a multiple
 }
 export const ODF_ALIGN: Record<string, string> = { start: "left", left: "left", end: "right", right: "right", center: "center", justify: "justify" };
 

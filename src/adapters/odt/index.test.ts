@@ -411,6 +411,18 @@ describe("odt page geometry (page-layout)", () => {
   });
 });
 
+describe("odt paragraph indent + line spacing", () => {
+  it("writes fo:margin-left / fo:line-height and reads them back", () => {
+    const out = htmlToOdt('<p style="margin-left:48px;line-height:1.5">x</p>', makeOdt());
+    const content = strFromU8(unzipSync(out)["content.xml"]);
+    expect(content).toContain('fo:margin-left="1.27cm"'); // 48px ~= 1.27cm
+    expect(content).toContain('fo:line-height="150%"');
+    const html = odtToHtml(out);
+    expect(html).toMatch(/margin-left:\s*48px/);
+    expect(html).toMatch(/line-height:\s*1\.5/);
+  });
+});
+
 describe("odt run formatting: strike, superscript, subscript", () => {
   it("writes the ODF text properties and reads them back", () => {
     const out = htmlToOdt("<p><s>a</s><sup>b</sup><sub>c</sub></p>", makeOdt());
