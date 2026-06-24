@@ -42,6 +42,8 @@
 /* The page is scaled inside this box, which carries the scaled footprint for layout. */
 .docxedit-pagebox { flex: 0 0 auto; overflow: hidden; }
 .docxedit-zoom-label { min-width: 48px; cursor: pointer; }
+.docxedit-zoom-slider { width: 96px; flex: 0 0 auto; height: 28px; padding: 0; min-width: 0; background: none; border: none; cursor: pointer; accent-color: #6e7bff; }
+.docxedit-zoom-slider:hover { border: none; }
 
 /* Paginated view: the page becomes a positioning context; per-page cards are drawn in a
    layer behind the single continuous body, which carries inert spacer gaps at breaks. */
@@ -54,7 +56,6 @@
 .docxedit-pagetop { margin-top: 0 !important; }
 /* The page gap is the break, so hide the inline marker in the paginated view. */
 .docxedit-page.is-paginated .docx-pagebreak { display: none; }
-.docxedit-pagenum { position: absolute; left: 0; width: 100%; text-align: center; color: #9aa; font-size: 11px; }
 .docxedit-measure { position: absolute; left: -99999px; top: 0; visibility: hidden; }
 /* Header/footer layer sits above the body so the repeated clones are clickable; the layer
    itself lets clicks through, only the clones (in the margins) capture them. */

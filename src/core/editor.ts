@@ -6,7 +6,7 @@
 import { t } from "./i18n";
 import { defaultPageGeometry, paginate } from "./page";
 import { bytesToBase64, toHex6, fontSizeToHalfPt, firstFontFamily } from "./util";
-import type { Adapter, EditorOptions, RichEditor, RichDoc, CommentEntry, CommentThread } from "./types";
+import type { Adapter, EditorOptions, RichEditor, RichDoc, CommentEntry, CommentThread, PageGeometry } from "./types";
 import "../adapters/docx/docxedit.css";
 
 export function createRichEditor(container: HTMLElement, adapter: Adapter, options: EditorOptions = {}): RichEditor {
@@ -53,11 +53,15 @@ export function createRichEditor(container: HTMLElement, adapter: Adapter, optio
   // (A4 unless options override) when the file declares none. Height is unused until
   // pagination (Phase 1); width and margins apply now.
   const geometry = parts.page ?? defaultPageGeometry(options.defaultPageSize ?? "a4");
-  page.style.setProperty("--rdoc-page-width", `${geometry.widthPx}px`);
-  page.style.setProperty("--rdoc-margin-top", `${geometry.margin.top}px`);
-  page.style.setProperty("--rdoc-margin-right", `${geometry.margin.right}px`);
-  page.style.setProperty("--rdoc-margin-bottom", `${geometry.margin.bottom}px`);
-  page.style.setProperty("--rdoc-margin-left", `${geometry.margin.left}px`);
+  let geometryDirty = false;
+  const applyGeometry = () => {
+    page.style.setProperty("--rdoc-page-width", `${geometry.widthPx}px`);
+    page.style.setProperty("--rdoc-margin-top", `${geometry.margin.top}px`);
+    page.style.setProperty("--rdoc-margin-right", `${geometry.margin.right}px`);
+    page.style.setProperty("--rdoc-margin-bottom", `${geometry.margin.bottom}px`);
+    page.style.setProperty("--rdoc-margin-left", `${geometry.margin.left}px`);
+  };
+  applyGeometry();
 
   const band = (cls: string, label: string, html: string): HTMLElement | null => {
     if (!html) return null;
@@ -78,7 +82,7 @@ export function createRichEditor(container: HTMLElement, adapter: Adapter, optio
   // decorations, with inert spacer gaps inserted at page boundaries. Pageless view keeps
   // the body and header/footer stacked in one card (the previous behaviour).
   const paginated = options.paginated ?? true;
-  const pagelayer = document.createElement("div"); // cards + page numbers, behind the body
+  const pagelayer = document.createElement("div"); // page cards, behind the body
   pagelayer.className = "docxedit-pagelayer";
   pagelayer.setAttribute("aria-hidden", "true");
   const hflayer = document.createElement("div"); // header/footer clones, above the body (clickable)
@@ -129,6 +133,17 @@ export function createRichEditor(container: HTMLElement, adapter: Adapter, optio
     return Math.max(0.2, Math.min(1, avail / Math.max(1, geometry.widthPx)));
   };
   const effectiveZoom = (): number => userZoom ?? fitZoom();
+  // A slider (like pdfedit) plus a clickable percentage that resets to fit-to-width.
+  const zoomSlider = document.createElement("input");
+  zoomSlider.type = "range";
+  zoomSlider.min = "30";
+  zoomSlider.max = "250";
+  zoomSlider.step = "5";
+  zoomSlider.value = "100";
+  zoomSlider.className = "docxedit-zoom-slider";
+  zoomSlider.title = t("zoom");
+  zoomSlider.setAttribute("aria-label", t("zoom"));
+  zoomSlider.addEventListener("input", () => setZoom(Number(zoomSlider.value) / 100));
   const zoomLabel = document.createElement("button");
   zoomLabel.type = "button";
   zoomLabel.className = "docxedit-zoom-label";
@@ -143,12 +158,43 @@ export function createRichEditor(container: HTMLElement, adapter: Adapter, optio
     pagebox.style.width = `${Math.round(geometry.widthPx * z)}px`;
     pagebox.style.height = `${Math.round(page.offsetHeight * z)}px`;
     zoomLabel.textContent = `${Math.round(z * 100)}%`;
+    zoomSlider.value = String(Math.round(z * 100));
   };
   const setZoom = (z: number | null) => {
-    userZoom = z == null ? null : Math.max(0.2, Math.min(3, Math.round(z * 100) / 100));
+    userZoom = z == null ? null : Math.max(0.3, Math.min(2.5, Math.round(z * 100) / 100));
     applyZoom();
     positionCards();
   };
+
+  // --- Margins --------------------------------------------------------------
+  // Preset page margins (px at 96 dpi); changing them re-renders, re-paginates, and writes
+  // the new values back to the file (w:pgMar / ODF page-layout) via getBytes.
+  const MARGIN_PRESETS: Record<string, PageGeometry["margin"]> = {
+    normal: { top: 96, right: 96, bottom: 96, left: 96 },
+    narrow: { top: 48, right: 48, bottom: 48, left: 48 },
+    moderate: { top: 96, right: 72, bottom: 96, left: 72 },
+    wide: { top: 96, right: 192, bottom: 96, left: 192 },
+  };
+  const matchPreset = (m: PageGeometry["margin"]): string =>
+    Object.entries(MARGIN_PRESETS).find(([, p]) => p.top === m.top && p.right === m.right && p.bottom === m.bottom && p.left === m.left)?.[0] ?? "custom";
+  const marginSel = document.createElement("select");
+  marginSel.className = "docxedit-margins-sel";
+  marginSel.title = t("margins");
+  marginSel.setAttribute("aria-label", t("margins"));
+  marginSel.add(new Option(t("marginsCustom"), "custom"));
+  for (const [key, label] of [["normal", "marginsNormal"], ["narrow", "marginsNarrow"], ["moderate", "marginsModerate"], ["wide", "marginsWide"]] as const) {
+    marginSel.add(new Option(t(label), key));
+  }
+  marginSel.value = matchPreset(geometry.margin);
+  marginSel.addEventListener("change", () => {
+    const p = MARGIN_PRESETS[marginSel.value];
+    if (!p) return;
+    geometry.margin = { ...p };
+    geometryDirty = true;
+    applyGeometry();
+    reflow();
+    mark();
+  });
 
   // The editable regions (body + header/footer). Toolbar actions target whichever last
   // had focus, so formatting works inside the header and footer too.
@@ -265,8 +311,25 @@ export function createRichEditor(container: HTMLElement, adapter: Adapter, optio
     for (const c of Array.from(cmtPanel.children)) c.classList.toggle("active", (c as HTMLElement).dataset.commentId === threadId);
     const members = threadId ? threadMembers.get(threadId) ?? [threadId] : [];
     for (const r of Array.from(wrap.querySelectorAll(".docx-comment"))) {
-      const rid = (r as HTMLElement).getAttribute("data-comment-id") ?? "";
-      (r as HTMLElement).classList.toggle("active", members.includes(rid));
+      const el = r as HTMLElement;
+      el.classList.toggle("active", members.includes(el.getAttribute("data-comment-id") ?? ""));
+    }
+    // Select the commented text so the user sees exactly what the comment refers to. The
+    // range is bracketed by the comment's markers (highlight, range marks, or reference),
+    // in document order, so it works whether or not the format renders a highlight span.
+    if (threadId) {
+      const marks = Array.from(wrap.querySelectorAll(".docx-comment, .docx-cmark, .docx-comment-ref")).filter((el) =>
+        members.includes(el.getAttribute("data-comment-id") ?? ""),
+      ) as HTMLElement[];
+      if (marks.length) {
+        const range = document.createRange();
+        range.setStartBefore(marks[0]!);
+        range.setEndAfter(marks[marks.length - 1]!);
+        const sel = window.getSelection();
+        sel?.removeAllRanges();
+        sel?.addRange(range);
+        marks[0]!.scrollIntoView({ block: "center", behavior: "smooth" });
+      }
     }
   };
 
@@ -428,28 +491,10 @@ export function createRichEditor(container: HTMLElement, adapter: Adapter, optio
   // body and insert inert spacer gaps so the flow lands at each page's content box. The
   // body stays one contenteditable; spacers are stripped before saving (see cleanBody).
   const PAGE_GAP = 24;
+  // The header/footer clones are editable in place (so the browser places the caret at the
+  // click point natively). Edits sync into the canonical band (the save source) and, on
+  // blur, the pages re-clone its content. editingBand suspends reflow during an edit.
   let editingBand: HTMLElement | null = null;
-
-  // Click a repeated header/footer to edit it in place (Word-like): the canonical band is
-  // moved into the clicked position, made editable and focused; on blur it returns to the
-  // hidden source and the pages re-clone its new content.
-  const editBand = (src: HTMLElement, topPx: number) => {
-    if (editingBand) return;
-    editingBand = src;
-    src.classList.add("is-editing");
-    src.style.cssText = `position:absolute;top:${topPx}px;left:0;width:100%;z-index:3;background:#fff`;
-    hflayer.appendChild(src);
-    src.focus();
-    const finish = () => {
-      src.removeEventListener("blur", finish);
-      src.classList.remove("is-editing");
-      src.removeAttribute("style");
-      measure.appendChild(src);
-      editingBand = null;
-      reflow();
-    };
-    src.addEventListener("blur", finish);
-  };
 
   const repaginate = () => {
     if (!paginated || editingBand) return;
@@ -503,18 +548,30 @@ export function createRichEditor(container: HTMLElement, adapter: Adapter, optio
       kids[idx]!.classList.add("docxedit-pagetop");
     }
 
-    // read-only clone of the canonical band, click to edit (its own padding gives the margins)
+    // Editable clone of the canonical band: clicking it places the caret natively at the
+    // click point; edits sync into the canonical (save source); on blur the pages re-clone.
     const mkClone = (src: HTMLElement, topPx: number): HTMLElement => {
       const c = src.cloneNode(true) as HTMLElement;
-      c.removeAttribute("contenteditable");
       c.removeAttribute("role");
       c.removeAttribute("aria-label");
       c.classList.add("docxedit-hf-clone");
+      c.contentEditable = "true";
+      c.spellcheck = false;
       c.style.cssText = `top:${topPx}px;left:0;width:100%`;
       c.title = t("editHeaderFooter");
-      c.addEventListener("mousedown", (e) => {
-        e.preventDefault();
-        editBand(src, topPx);
+      c.addEventListener("focus", () => {
+        editingBand = src;
+        activeEl = c;
+        c.classList.add("is-editing");
+      });
+      c.addEventListener("input", () => {
+        src.innerHTML = c.innerHTML; // keep the canonical (save source) current
+        mark();
+      });
+      c.addEventListener("blur", () => {
+        c.classList.remove("is-editing");
+        editingBand = null;
+        reflow();
       });
       return c;
     };
@@ -526,11 +583,6 @@ export function createRichEditor(container: HTMLElement, adapter: Adapter, optio
       card.style.top = `${base}px`;
       card.style.height = `${geometry.heightPx}px`;
       pagelayer.appendChild(card);
-      const num = document.createElement("div");
-      num.className = "docxedit-pagenum";
-      num.textContent = `${p + 1} / ${cardCount}`;
-      num.style.top = `${base + geometry.heightPx - 22}px`;
-      pagelayer.appendChild(num);
       if (header) hflayer.appendChild(mkClone(header, base + geometry.margin.top));
       if (footer) hflayer.appendChild(mkClone(footer, base + geometry.heightPx - contentBottomInset));
     }
@@ -1246,15 +1298,15 @@ export function createRichEditor(container: HTMLElement, adapter: Adapter, optio
     caps.images ? iconBtn(imgIcon, t("insertImage"), insertImage) : null,
     caps.comments ? iconBtn(cmtIcon, t("addComment"), addComment) : null,
     caps.pageBreak ? iconBtn(pbIcon, t("insertPageBreak"), insertPageBreak) : null,
+    marginSel,
     linkBtn,
     caps.trackChanges ? sep() : null,
     caps.trackChanges ? suggestBtn : null,
     caps.trackChanges ? btn("✓", t("acceptAll"), () => resolveAll(true)) : null,
     caps.trackChanges ? btn("✕", t("rejectAll"), () => resolveAll(false)) : null,
     sep(),
-    btn("−", t("zoomOut"), () => setZoom(effectiveZoom() - 0.1)),
+    zoomSlider,
     zoomLabel,
-    btn("+", t("zoomIn"), () => setZoom(effectiveZoom() + 0.1)),
   ];
   // Overflow menu: the toolbar is a single row; items that do not fit move into a "…"
   // popover so nothing is lost on narrow widths. The popover lives inside the toolbar so
@@ -1310,12 +1362,17 @@ export function createRichEditor(container: HTMLElement, adapter: Adapter, optio
       const editedParts: { path: string; html: string }[] = [];
       if (header && parts.headerPath) editedParts.push({ path: parts.headerPath, html: header.innerHTML });
       if (footer && parts.footerPath) editedParts.push({ path: parts.footerPath, html: footer.innerHTML });
-      return adapter.write(cleanBody(), editedParts, {
-        reactions: pendingReactions.map((r) => ({ ...r, date: options.now || new Date().toISOString() })),
-        replies: pendingReplies,
-        done: pendingDone,
-        deletedComments,
-      });
+      return adapter.write(
+        cleanBody(),
+        editedParts,
+        {
+          reactions: pendingReactions.map((r) => ({ ...r, date: options.now || new Date().toISOString() })),
+          replies: pendingReplies,
+          done: pendingDone,
+          deletedComments,
+        },
+        geometryDirty ? geometry : undefined,
+      );
     },
     destroy() {
       for (const u of fontUrls) URL.revokeObjectURL(u);

@@ -355,3 +355,27 @@ describe("odt track changes (text:tracked-changes)", () => {
     expect(html2).toContain("dead</del>");
   });
 })
+
+describe("odt page margins (page-layout)", () => {
+  const STYLES =
+    '<?xml version="1.0"?><office:document-styles xmlns:office="urn:oasis:names:tc:opendocument:xmlns:office:1.0" ' +
+    'xmlns:style="urn:oasis:names:tc:opendocument:xmlns:style:1.0" xmlns:fo="urn:oasis:names:tc:opendocument:xmlns:xsl-fo-compatible:1.0">' +
+    '<office:automatic-styles><style:page-layout style:name="pm1"><style:page-layout-properties fo:margin-top="2cm"/></style:page-layout></office:automatic-styles>' +
+    '<office:master-styles><style:master-page style:name="Standard" style:page-layout-name="pm1"/></office:master-styles></office:document-styles>';
+  function makeMarginOdt(): Uint8Array {
+    return zipSync({
+      mimetype: [strToU8("application/vnd.oasis.opendocument.text"), { level: 0 }],
+      "content.xml": strToU8(CONTENT),
+      "styles.xml": strToU8(STYLES),
+      "META-INF/manifest.xml": strToU8("<m/>"),
+    });
+  }
+  it("writes edited margins into the page-layout (px -> cm)", () => {
+    const out = htmlToOdt("<p>x</p>", makeMarginOdt(), {
+      page: { widthPx: 794, heightPx: 1123, margin: { top: 96, right: 96, bottom: 96, left: 96 } },
+    });
+    const styles = strFromU8(unzipSync(out)["styles.xml"]);
+    expect(styles).toContain('fo:margin-left="2.54cm"'); // 96px = 1in = 2.54cm
+    expect(styles).toContain('fo:margin-top="2.54cm"');
+  });
+});

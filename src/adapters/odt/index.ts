@@ -1,7 +1,7 @@
 import { strFromU8, strToU8, unzipSync, zipSync } from "fflate";
 import { createRichEditor } from "../../core/editor";
 import { bytesToBase64, firstFontFamily, fontSizeToHalfPt, toHex6 } from "../../core/util";
-import type { Adapter, CommentEdits, CommentMarkers, CommentThread, EditorOptions, NewCommentMeta, RichDoc, RichEditor } from "../../core/types";
+import type { Adapter, CommentEdits, CommentMarkers, CommentThread, EditorOptions, NewCommentMeta, PageGeometry, RichDoc, RichEditor } from "../../core/types";
 
 // odtedit: a standalone, framework-agnostic, client-side OpenDocument Text (.odt) editor.
 //
@@ -787,11 +787,29 @@ function buildTrackedChanges(ctx: OdfCtx): Element | null {
   return tc;
 }
 
+/** Update the page-layout margins in styles.xml from edited margins (px -> cm). */
+function applyPageMargins(files: Record<string, Uint8Array>, geometry: PageGeometry): void {
+  if (!files["styles.xml"]) return;
+  const doc = new DOMParser().parseFromString(strFromU8(files["styles.xml"]), "application/xml");
+  const pl = doc.getElementsByTagName("style:page-layout")[0];
+  if (!pl) return;
+  let props = pl.getElementsByTagName("style:page-layout-properties")[0];
+  if (!props) {
+    props = doc.createElementNS(NS.style, "style:page-layout-properties");
+    pl.insertBefore(props, pl.firstChild);
+  }
+  props.setAttributeNS(NS.fo, "fo:margin-top", pxToCm(geometry.margin.top));
+  props.setAttributeNS(NS.fo, "fo:margin-right", pxToCm(geometry.margin.right));
+  props.setAttributeNS(NS.fo, "fo:margin-bottom", pxToCm(geometry.margin.bottom));
+  props.setAttributeNS(NS.fo, "fo:margin-left", pxToCm(geometry.margin.left));
+  files["styles.xml"] = strToU8(new XMLSerializer().serializeToString(doc));
+}
+
 /** Rebuild an .odt from edited HTML, preserving every other part of the archive. */
 export function htmlToOdt(
   html: string,
   original: Uint8Array,
-  opts?: { done?: Map<string, boolean>; parts?: { path: string; html: string }[] },
+  opts?: { done?: Map<string, boolean>; parts?: { path: string; html: string }[]; page?: PageGeometry },
 ): Uint8Array {
   const files = unzipSync(original);
   const content = files["content.xml"];
@@ -828,6 +846,7 @@ export function htmlToOdt(
   if (tc) body.insertBefore(tc, body.firstChild);
   addManifestEntries(files, ctx.pics); // register any images embedded above
   if (opts?.parts) applyHeaderFooter(files, opts.parts); // header/footer -> styles.xml
+  if (opts?.page) applyPageMargins(files, opts.page); // margins -> styles.xml page-layout
 
   const out = new XMLSerializer().serializeToString(doc);
   // Re-zip. ODF requires the "mimetype" entry first and stored (uncompressed).
@@ -869,8 +888,8 @@ export function createOdtAdapter(bytes: Uint8Array): Adapter {
         comments: parts.comments,
       };
     },
-    write(bodyHtml: string, parts: { path: string; html: string }[], edits: CommentEdits): Uint8Array {
-      return htmlToOdt(bodyHtml, original, { done: edits.done, parts });
+    write(bodyHtml: string, parts: { path: string; html: string }[], edits: CommentEdits, page?: PageGeometry): Uint8Array {
+      return htmlToOdt(bodyHtml, original, { done: edits.done, parts, page });
     },
     newCommentMarkers(meta: NewCommentMeta): CommentMarkers {
       const cmark = (): HTMLElement => {

@@ -491,3 +491,14 @@ describe("page geometry (w:sectPr)", () => {
     expect(docxToParts(makeDocx(doc)).page).toBeUndefined();
   });
 });
+
+describe("page margin write-back (w:pgMar)", () => {
+  it("writes edited margins into the section's w:pgMar (px -> twips)", () => {
+    const out = htmlToDocx("<p>x</p>", makeDocx(), undefined, {
+      pageGeometry: { widthPx: 794, heightPx: 1123, margin: { top: 48, right: 48, bottom: 48, left: 48 } },
+    });
+    const xml = strFromU8(unzipSync(out)["word/document.xml"]);
+    expect(xml).toMatch(/w:pgMar[^>]*w:top="720"/); // 48px * 15 = 720 twips
+    expect(xml).toMatch(/w:pgMar[^>]*w:left="720"/);
+  });
+});

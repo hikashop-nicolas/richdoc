@@ -475,7 +475,8 @@ function runToHtml(run: Element): string {
 }
 
 // A zero-width passthrough for a comment range marker, so it round-trips on save.
-const commentMark = (el: Element): string => `<span class="docx-cmark" contenteditable="false"${passthroughAttr(el)}></span>`;
+const commentMark = (el: Element): string =>
+  `<span class="docx-cmark" contenteditable="false" data-comment-id="${escapeAttr(el.getAttribute("w:id") ?? "")}"${passthroughAttr(el)}></span>`;
 
 /** A clickable comment reference marker carrying the comment's author/date/text. */
 function commentRefHtml(run: Element, ctx: RenderCtx): string {
@@ -1474,11 +1475,31 @@ function applyDeletedComments(files: Record<string, Uint8Array>, ids: string[]):
  * Rebuild a .docx from edited HTML, preserving every other part of the archive. Pass
  * `parts` to also write back edited header/footer parts, and `opts` for comment edits.
  */
+/** Update the body section's w:pgMar from edited margins (px -> twips). */
+function applyPageMargins(files: Record<string, Uint8Array>, geometry: PageGeometry): void {
+  const raw = files["word/document.xml"];
+  if (!raw) return;
+  const doc = new DOMParser().parseFromString(strFromU8(raw), "application/xml");
+  const sectPr = Array.from(doc.getElementsByTagName("w:sectPr")).pop();
+  if (!sectPr) return;
+  let pgMar = sectPr.getElementsByTagName("w:pgMar")[0];
+  if (!pgMar) {
+    pgMar = doc.createElementNS(W, "w:pgMar");
+    sectPr.appendChild(pgMar);
+  }
+  const tw = (px: number): string => String(Math.round(px * 15));
+  pgMar.setAttributeNS(W, "w:top", tw(geometry.margin.top));
+  pgMar.setAttributeNS(W, "w:right", tw(geometry.margin.right));
+  pgMar.setAttributeNS(W, "w:bottom", tw(geometry.margin.bottom));
+  pgMar.setAttributeNS(W, "w:left", tw(geometry.margin.left));
+  files["word/document.xml"] = strToU8(new XMLSerializer().serializeToString(doc));
+}
+
 export function htmlToDocx(
   html: string,
   original: Uint8Array,
   parts?: { path: string; html: string }[],
-  opts?: { reactions?: ReactionEdit[]; replies?: ReplyEdit[]; done?: Map<string, boolean>; deletedComments?: string[] },
+  opts?: { reactions?: ReactionEdit[]; replies?: ReplyEdit[]; done?: Map<string, boolean>; deletedComments?: string[]; pageGeometry?: PageGeometry },
 ): Uint8Array {
   const files = unzipSync(original);
   rebuildPart(files, "word/document.xml", html);
@@ -1488,6 +1509,7 @@ export function htmlToDocx(
   applyReplies(files, opts?.replies ?? []);
   applyDone(files, opts?.done ?? new Map());
   applyDeletedComments(files, opts?.deletedComments ?? []);
+  if (opts?.pageGeometry) applyPageMargins(files, opts.pageGeometry);
   return zipSync(files);
 }
 
@@ -1506,6 +1528,7 @@ function docxCommentMarkers(meta: NewCommentMeta): { start: HTMLElement; end: HT
     const s = document.createElement("span");
     s.className = "docx-cmark";
     s.contentEditable = "false";
+    s.setAttribute("data-comment-id", id);
     s.setAttribute("data-docx-xml", xml);
     return s;
   };
@@ -1555,8 +1578,8 @@ export function createDocxAdapter(bytes: Uint8Array): Adapter {
       }
       return { ...parts, fontCss, fontUrls, defaultFont: defaultFontName };
     },
-    write(bodyHtml: string, editedParts: { path: string; html: string }[], edits: CommentEdits): Uint8Array {
-      return htmlToDocx(bodyHtml, original, editedParts, edits);
+    write(bodyHtml: string, editedParts: { path: string; html: string }[], edits: CommentEdits, page?: PageGeometry): Uint8Array {
+      return htmlToDocx(bodyHtml, original, editedParts, { ...edits, pageGeometry: page });
     },
     newCommentMarkers: docxCommentMarkers,
     capabilities: {

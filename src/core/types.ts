@@ -94,7 +94,8 @@ export interface Capabilities {
 export interface Adapter {
   original: Uint8Array;
   read(): RichDoc;
-  write(bodyHtml: string, parts: { path: string; html: string }[], edits: CommentEdits): Uint8Array;
+  /** Serialize edits. `page` is passed when the user changed the page geometry (margins). */
+  write(bodyHtml: string, parts: { path: string; html: string }[], edits: CommentEdits, page?: PageGeometry): Uint8Array;
   newCommentMarkers(meta: NewCommentMeta): CommentMarkers;
   capabilities: Capabilities;
 }
