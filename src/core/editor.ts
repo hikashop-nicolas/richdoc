@@ -600,11 +600,13 @@ export function createRichEditor(container: HTMLElement, adapter: Adapter, optio
     return tmp.innerHTML;
   };
 
+  let afterReflow = () => {}; // assigned once the toolbar exists (toggles change buttons)
   const reflow = () => {
     if (editingBand) return; // don't yank the band currently being edited
     repaginate();
     applyZoom();
     positionCards();
+    afterReflow();
   };
   let reflowTimer = 0;
   const scheduleReflow = () => {
@@ -818,6 +820,18 @@ export function createRichEditor(container: HTMLElement, adapter: Adapter, optio
     b.innerHTML = svg;
     return b;
   };
+  const bulletIcon =
+    '<svg width="14" height="14" viewBox="0 0 16 16" fill="currentColor" aria-hidden="true">' +
+    '<circle cx="2.3" cy="4" r="1.3"/><circle cx="2.3" cy="11" r="1.3"/>' +
+    '<rect x="6" y="3.2" width="9" height="1.6" rx=".6"/><rect x="6" y="10.2" width="9" height="1.6" rx=".6"/></svg>';
+  const numberIcon =
+    '<svg width="14" height="14" viewBox="0 0 16 16" aria-hidden="true">' +
+    '<text x="0.3" y="6.2" font-size="6" font-family="sans-serif" fill="currentColor">1</text>' +
+    '<text x="0.3" y="13.4" font-size="6" font-family="sans-serif" fill="currentColor">2</text>' +
+    '<rect x="6" y="3.2" width="9" height="1.6" rx=".6" fill="currentColor"/><rect x="6" y="10.2" width="9" height="1.6" rx=".6" fill="currentColor"/></svg>';
+  const linkIcon =
+    '<svg width="14" height="14" viewBox="0 0 16 16" fill="none" stroke="currentColor" stroke-width="1.4" stroke-linecap="round" aria-hidden="true">' +
+    '<path d="M6.6 9.4l2.8-2.8"/><path d="M7.2 4.6l1-1a2.4 2.4 0 0 1 3.4 3.4l-1 1"/><path d="M8.8 11.4l-1 1a2.4 2.4 0 0 1-3.4-3.4l1-1"/></svg>';
 
   const block = document.createElement("select");
   block.title = t("paragraphStyle");
@@ -840,8 +854,7 @@ export function createRichEditor(container: HTMLElement, adapter: Adapter, optio
     for (const [v, label] of opts) s.add(new Option(label, v));
     s.addEventListener("mousedown", () => activeEl.focus());
     s.addEventListener("change", () => {
-      if (s.value) fn(s.value);
-      s.selectedIndex = 0;
+      if (s.value) fn(s.value); // keep the chosen value shown (do not reset to the placeholder)
     });
     return s;
   };
@@ -888,6 +901,17 @@ export function createRichEditor(container: HTMLElement, adapter: Adapter, optio
     beginFormatChange();
     styleSel("fontSize", `${v}pt`);
   });
+
+  // A new (empty) document gets a default font + size, shown in the pickers and applied so
+  // typing starts in them. Existing documents keep their own fonts; the pickers stay blank.
+  if (caps.fontControls && !doc.textContent?.trim()) {
+    const defFont = parts.defaultFont && FONTS.includes(parts.defaultFont) ? parts.defaultFont : "Arial";
+    const defSize = "11";
+    fontSel.value = defFont;
+    sizeSel.value = defSize;
+    doc.style.fontFamily = `'${defFont}', sans-serif`;
+    doc.style.fontSize = `${defSize}pt`;
+  }
 
   const insertPageBreak = () => {
     activeEl.focus();
@@ -1270,12 +1294,22 @@ export function createRichEditor(container: HTMLElement, adapter: Adapter, optio
 
   // Toolbar: shared controls always shown; image/comment/page-break/track-changes are
   // gated by the adapter's capabilities so a format can hide what it cannot serialize.
-  const linkBtn = btn(t("link"), t("linkAria"), () => {
+  const linkBtn = iconBtn(linkIcon, t("linkAria"), () => {
     const url = prompt(t("linkPrompt"), "https://");
     if (url === null) return;
     if (url === "") exec("unlink");
     else exec("createLink", url);
   });
+  // Accept-all / reject-all apply to tracked changes; shown only when the doc has some.
+  const acceptAllBtn = btn("✓", t("acceptAll"), () => resolveAll(true));
+  const rejectAllBtn = btn("✕", t("rejectAll"), () => resolveAll(false));
+  const updateChangeButtons = () => {
+    const has = !!doc.querySelector(".docx-ins, .docx-del");
+    acceptAllBtn.style.display = has ? "" : "none";
+    rejectAllBtn.style.display = has ? "" : "none";
+  };
+  afterReflow = updateChangeButtons;
+  updateChangeButtons();
   const items: (Node | null)[] = [
     btn("B", t("bold"), () => { beginFormatChange(); exec("bold"); }, "docxedit-tb-bold"),
     btn("I", t("italic"), () => { beginFormatChange(); exec("italic"); }, "docxedit-tb-italic"),
@@ -1287,8 +1321,8 @@ export function createRichEditor(container: HTMLElement, adapter: Adapter, optio
     caps.fontControls ? fontSel : null,
     caps.fontControls ? sizeSel : null,
     sep(),
-    btn(t("bulletedLabel"), t("bulleted"), () => exec("insertUnorderedList")),
-    btn(t("numberedLabel"), t("numbered"), () => exec("insertOrderedList")),
+    iconBtn(bulletIcon, t("bulleted"), () => exec("insertUnorderedList")),
+    iconBtn(numberIcon, t("numbered"), () => exec("insertOrderedList")),
     caps.alignment ? sep() : null,
     caps.alignment ? iconBtn(alignIcon([[2, 12], [2, 8], [2, 11]]), t("alignLeft"), () => exec("justifyLeft")) : null,
     caps.alignment ? iconBtn(alignIcon([[2, 12], [4, 8], [3, 10]]), t("alignCenter"), () => exec("justifyCenter")) : null,
@@ -1302,8 +1336,8 @@ export function createRichEditor(container: HTMLElement, adapter: Adapter, optio
     linkBtn,
     caps.trackChanges ? sep() : null,
     caps.trackChanges ? suggestBtn : null,
-    caps.trackChanges ? btn("✓", t("acceptAll"), () => resolveAll(true)) : null,
-    caps.trackChanges ? btn("✕", t("rejectAll"), () => resolveAll(false)) : null,
+    caps.trackChanges ? acceptAllBtn : null,
+    caps.trackChanges ? rejectAllBtn : null,
     sep(),
     zoomSlider,
     zoomLabel,
