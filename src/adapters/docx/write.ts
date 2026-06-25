@@ -135,7 +135,7 @@ function buildImageDrawing(ctx: DocxCtx, src: string, widthPx: number, heightPx:
   return r;
 }
 
-const fmtHasProps = (f: Fmt): boolean => !!(f.b || f.i || f.u || f.strike || f.vertAlign || f.color || f.highlight || f.shading || f.sizeHalfPt || f.font);
+const fmtHasProps = (f: Fmt): boolean => !!(f.b || f.i || f.u || f.strike || f.vertAlign || f.color || f.highlight || f.shading || f.sizeHalfPt || f.font || f.cStyle);
 
 /** Append the property elements for a Fmt to a w:rPr, in OOXML schema order. */
 function fillRPr(ctx: DocxCtx, rPr: Element, f: Fmt): void {
@@ -145,6 +145,7 @@ function fillRPr(ctx: DocxCtx, rPr: Element, f: Fmt): void {
     el.setAttributeNS(W, "w:val", val);
     rPr.appendChild(el);
   };
+  if (f.cStyle) valEl("w:rStyle", f.cStyle); // first in rPr schema order
   if (f.font) {
     const rf = ctx.doc.createElementNS(W, "w:rFonts");
     rf.setAttributeNS(W, "w:ascii", f.font);
@@ -324,6 +325,7 @@ function appendInline(ctx: DocxCtx, node: Node, parent: Element, f: Fmt, del = f
       shading,
       sizeHalfPt: fontSizeToHalfPt(el.style.fontSize) ?? f.sizeHalfPt,
       font: firstFontFamily(el.style.fontFamily) ?? f.font,
+      cStyle: el.getAttribute("data-rdoc-cstyle") || f.cStyle,
     };
     appendInline(ctx, el, parent, next, del, change);
   }

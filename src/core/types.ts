@@ -50,6 +50,7 @@ export interface RichDoc {
   defaultFont?: string;
   page?: PageGeometry; // the document's own page size/margins, if it declares them
   paragraphStyles?: ParagraphStyle[]; // named paragraph styles, for the style picker
+  characterStyles?: ParagraphStyle[]; // named character styles, for the character-style picker
   styleCss?: string; // CSS rules giving each named style its appearance in the editor
 }
 

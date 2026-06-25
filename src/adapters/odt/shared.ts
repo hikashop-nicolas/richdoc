@@ -25,6 +25,7 @@ export interface Fmt {
   bg?: string; // highlight, 6-hex
   font?: string; // family name
   sizePt?: number; // font size in points
+  cStyle?: string; // named character style id (text:style-name)
 }
 export const FMT0: Fmt = { b: false, i: false, u: false };
 export const fmtKey = (f: Fmt): string =>

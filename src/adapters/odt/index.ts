@@ -38,6 +38,7 @@ export function createOdtAdapter(bytes: Uint8Array): Adapter {
         comments: parts.comments,
         page: parts.page,
         paragraphStyles: parts.paragraphStyles,
+        characterStyles: parts.characterStyles,
         styleCss: parts.styleCss,
       };
     },

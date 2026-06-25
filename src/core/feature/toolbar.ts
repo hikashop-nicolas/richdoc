@@ -136,6 +136,54 @@ export function setupToolbar(deps: ToolbarDeps) {
     }
   });
 
+  // Character styles: wrap the selection in a span carrying the style id (or strip it). The
+  // appearance comes from the injected style CSS; the id round-trips to w:rStyle / text:style-name.
+  const charStyles = parts.characterStyles ?? [];
+  const applyCStyle = (id: string | null): void => {
+    getActiveEl().focus();
+    const sel = window.getSelection();
+    if (!sel || !sel.rangeCount) return;
+    const range = sel.getRangeAt(0);
+    if (id === null) {
+      // clear: strip the attribute from styled spans intersecting the selection
+      for (const s of Array.from(getActiveEl().querySelectorAll<HTMLElement>("[data-rdoc-cstyle]"))) {
+        if (range.intersectsNode(s)) s.removeAttribute("data-rdoc-cstyle");
+      }
+      mark();
+      syncToolbarState();
+      return;
+    }
+    if (range.collapsed) return; // a character style needs a selection to wrap
+    const span = document.createElement("span");
+    span.setAttribute("data-rdoc-cstyle", id);
+    try {
+      span.appendChild(range.extractContents());
+      range.insertNode(span);
+    } catch {
+      return;
+    }
+    sel.removeAllRanges();
+    const r2 = document.createRange();
+    r2.selectNodeContents(span);
+    sel.addRange(r2);
+    mark();
+    syncToolbarState();
+  };
+  const cstyleSel = document.createElement("select");
+  cstyleSel.title = t("characterStyle");
+  cstyleSel.setAttribute("aria-label", t("characterStyle"));
+  const cstyleHead = new Option(t("characterStyle"), "");
+  cstyleHead.disabled = true;
+  cstyleSel.add(cstyleHead);
+  cstyleSel.add(new Option(t("noCharStyle"), "none"));
+  for (const s of charStyles) cstyleSel.add(new Option(s.name, `c:${s.id}`));
+  cstyleSel.addEventListener("mousedown", () => getActiveEl().focus());
+  cstyleSel.addEventListener("change", () => {
+    const v = cstyleSel.value;
+    if (v === "none") applyCStyle(null);
+    else if (v.startsWith("c:")) applyCStyle(v.slice(2));
+  });
+
   // A select whose first option is a non-selectable title; firing fn(value) on change.
   const pickerSelect = (title: string, opts: [string, string][], fn: (v: string) => void): HTMLSelectElement => {
     const s = document.createElement("select");
@@ -683,6 +731,11 @@ export function setupToolbar(deps: ToolbarDeps) {
     const tag = el.closest("h1,h2,h3,p")?.tagName ?? "";
     if (styleId && namedStyles.some((s) => s.id === styleId)) block.value = `s:${styleId}`;
     else block.value = tag === "H1" || tag === "H2" || tag === "H3" ? tag : "P";
+    // reflect the character style enclosing the caret (or none)
+    const cstyled = el.closest("[data-rdoc-cstyle]") as HTMLElement | null;
+    const cId = cstyled && regions.some((r) => r.contains(cstyled)) ? cstyled.getAttribute("data-rdoc-cstyle") : null;
+    if (cId && charStyles.some((s) => s.id === cId)) cstyleSel.value = `c:${cId}`;
+    else cstyleSel.selectedIndex = 0;
     const lh = (el.closest(BLOCK_SEL) as HTMLElement | null)?.style.lineHeight ?? "";
     for (const b of lsButtons) b.classList.toggle("is-on", b.dataset.v === lh);
     const setOn = (b: HTMLElement | null, on: boolean) => b?.classList.toggle("is-on", on);
@@ -717,6 +770,7 @@ export function setupToolbar(deps: ToolbarDeps) {
     caps.textColor ? bgWrap : null,
     sep(),
     block,
+    cstyleSel,
     caps.fontControls ? fontSel : null,
     caps.fontControls ? sizeSel : null,
     sep(),

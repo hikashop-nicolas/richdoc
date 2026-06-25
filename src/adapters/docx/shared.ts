@@ -39,6 +39,7 @@ export interface Fmt {
   shading?: string; // 6-hex arbitrary background (w:shd fill)
   sizeHalfPt?: number; // w:sz value, in half-points
   font?: string; // ascii font family
+  cStyle?: string; // named character style id (w:rStyle)
 }
 export const FMT0: Fmt = { b: false, i: false, u: false, strike: false };
 export const escapeHtml = (s: string): string => s.replace(/&/g, "&amp;").replace(/</g, "&lt;").replace(/>/g, "&gt;");

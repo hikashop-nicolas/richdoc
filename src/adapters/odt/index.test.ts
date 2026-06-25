@@ -623,3 +623,35 @@ describe("odt named paragraph styles", () => {
     expect(content).toMatch(/<text:p[^>]*text:style-name="Quote"[^>]*>quoted<\/text:p>/);
   });
 });
+
+describe("odt named character styles", () => {
+  const STYLES = `<?xml version="1.0"?>
+<office:document-styles xmlns:office="urn:oasis:names:tc:opendocument:xmlns:office:1.0" xmlns:style="urn:oasis:names:tc:opendocument:xmlns:style:1.0" xmlns:fo="urn:oasis:names:tc:opendocument:xmlns:xsl-fo-compatible:1.0">
+ <office:styles>
+  <style:style style:name="Emphasis" style:display-name="Emphasis" style:family="text"><style:text-properties fo:font-style="italic"/></style:style>
+ </office:styles>
+</office:document-styles>`;
+  const CONTENT = `<?xml version="1.0"?>
+<office:document-content xmlns:office="urn:oasis:names:tc:opendocument:xmlns:office:1.0" xmlns:text="urn:oasis:names:tc:opendocument:xmlns:text:1.0" xmlns:style="urn:oasis:names:tc:opendocument:xmlns:style:1.0" xmlns:fo="urn:oasis:names:tc:opendocument:xmlns:xsl-fo-compatible:1.0">
+ <office:body><office:text><text:p>a <text:span text:style-name="Emphasis">em</text:span></text:p></office:text></office:body></office:document-content>`;
+  const makeStyledOdt = () => zipSync({
+    mimetype: [strToU8("application/vnd.oasis.opendocument.text"), { level: 0 }],
+    "content.xml": strToU8(CONTENT),
+    "styles.xml": strToU8(STYLES),
+    "META-INF/manifest.xml": strToU8("<m/>"),
+  });
+
+  it("lists character styles and emits their CSS", () => {
+    const parts = odtToParts(makeStyledOdt());
+    expect((parts.characterStyles ?? []).map((s) => s.id)).toContain("Emphasis");
+    expect(parts.styleCss).toMatch(/\[data-rdoc-cstyle="Emphasis"\]\{[^}]*font-style:italic/);
+  });
+
+  it("reads a styled span as data-rdoc-cstyle and writes the style-name back", () => {
+    const html = odtToHtml(makeStyledOdt());
+    expect(html).toMatch(/data-rdoc-cstyle="Emphasis"/);
+    const out = htmlToOdt(html, makeStyledOdt());
+    const content = strFromU8(unzipSync(out)["content.xml"]);
+    expect(content).toMatch(/<text:span[^>]*text:style-name="Emphasis"[^>]*>em<\/text:span>/);
+  });
+});

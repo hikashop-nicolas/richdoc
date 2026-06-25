@@ -24,12 +24,15 @@ function ensureAutoStyles(doc: Document, beforeTag = "office:body"): Element {
 function styleFor(doc: Document, auto: Element, created: Map<string, string>, f: Fmt): string | null {
   const key = fmtKey(f);
   if (!key) return null;
-  const existing = created.get(key);
+  const parent = f.cStyle; // direct formatting layered over a named character style
+  const ckey = parent ? `${key}|${parent}` : key;
+  const existing = created.get(ckey);
   if (existing) return existing;
   const name = `OT_t${created.size}`;
   const st = doc.createElementNS(NS.style, "style:style");
   st.setAttributeNS(NS.style, "style:name", name);
   st.setAttributeNS(NS.style, "style:family", "text");
+  if (parent) st.setAttributeNS(NS.style, "style:parent-style-name", parent);
   const tp = doc.createElementNS(NS.style, "style:text-properties");
   if (f.b) tp.setAttributeNS(NS.fo, "fo:font-weight", "bold");
   if (f.i) tp.setAttributeNS(NS.fo, "fo:font-style", "italic");
@@ -52,7 +55,7 @@ function styleFor(doc: Document, auto: Element, created: Map<string, string>, f:
   if (f.sizePt) tp.setAttributeNS(NS.fo, "fo:font-size", `${f.sizePt}pt`);
   st.appendChild(tp);
   auto.appendChild(st);
-  created.set(key, name);
+  created.set(ckey, name);
   return name;
 }
 
@@ -183,12 +186,15 @@ function htmlInlineToOdf(node: Node, parent: Element, f: Fmt, ctx: OdfCtx): void
     if (child.nodeType === 3) {
       const txt = child.textContent ?? "";
       if (!txt) continue;
-      if (!fmtKey(f)) {
+      // Direct formatting -> an automatic style (parented to the named char style if any);
+      // a bare named char style -> referenced directly; nothing -> a plain text node.
+      const auto = fmtKey(f) ? styleFor(ctx.doc, ctx.auto, ctx.created, f) : null;
+      const styleName = auto ?? f.cStyle ?? null;
+      if (!styleName) {
         parent.appendChild(ctx.doc.createTextNode(txt));
       } else {
         const span = ctx.doc.createElementNS(NS.text, "text:span");
-        const name = styleFor(ctx.doc, ctx.auto, ctx.created, f);
-        if (name) span.setAttributeNS(NS.text, "text:style-name", name);
+        span.setAttributeNS(NS.text, "text:style-name", styleName);
         span.appendChild(ctx.doc.createTextNode(txt));
         parent.appendChild(span);
       }
@@ -284,6 +290,7 @@ function htmlInlineToOdf(node: Node, parent: Element, f: Fmt, ctx: OdfCtx): void
       bg: toHex6(el.style.backgroundColor) ?? f.bg,
       font: firstFontFamily(el.style.fontFamily) ?? f.font,
       sizePt: hp ? hp / 2 : f.sizePt,
+      cStyle: el.getAttribute("data-rdoc-cstyle") || f.cStyle,
     };
     htmlInlineToOdf(el, parent, next, ctx);
   }

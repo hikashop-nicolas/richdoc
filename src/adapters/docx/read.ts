@@ -454,6 +454,9 @@ function runToHtml(run: Element): string {
     }
   }
   flush();
+  // A named character style on the run, so it round-trips and picks up the injected style CSS.
+  const rStyle = attrVal(rPr, "w:rStyle");
+  if (rStyle && out) out = `<span data-rdoc-cstyle="${escapeAttr(rStyle)}">${out}</span>`;
   if (rPrChange && out) {
     const author = rPrChange.getAttribute("w:author") ?? "";
     const date = rPrChange.getAttribute("w:date") ?? "";
@@ -708,6 +711,7 @@ export interface DocxParts {
   comments: CommentThread[]; // top-level threads in document order, replies nested
   page?: PageGeometry; // page size/margins from w:sectPr, for the paginated view
   paragraphStyles?: { id: string; name: string }[]; // named paragraph styles, for the picker
+  characterStyles?: { id: string; name: string }[]; // named character styles, for the picker
   styleCss?: string; // CSS giving each named style its appearance
 }
 
@@ -749,45 +753,55 @@ function partKey(target: string | undefined, files: Record<string, Uint8Array>):
 /** A CSS-safe attribute selector value: backslash-escape quotes and backslashes. */
 const cssAttrValue = (v: string): string => v.replace(/[\\"]/g, "\\$&");
 
-/** Read named paragraph styles from styles.xml into a picker list plus CSS that gives each
-    style its appearance (keyed on data-rdoc-style), resolving the w:basedOn chain. */
-function readParagraphStyles(stylesXml: Uint8Array | undefined): { styles: { id: string; name: string }[]; css: string } {
-  if (!stylesXml) return { styles: [], css: "" };
+/** Read named paragraph and character styles from styles.xml into picker lists plus the CSS
+    that gives each its appearance (keyed on data-rdoc-style / data-rdoc-cstyle), resolving the
+    w:basedOn chain. Character styles contribute run properties only. */
+function readStyles(stylesXml: Uint8Array | undefined): {
+  paragraphStyles: { id: string; name: string }[];
+  characterStyles: { id: string; name: string }[];
+  css: string;
+} {
+  if (!stylesXml) return { paragraphStyles: [], characterStyles: [], css: "" };
   const doc = new DOMParser().parseFromString(strFromU8(stylesXml), "application/xml");
   const wv = (el: Element | undefined, name: string): string | null => el?.getAttributeNS(W, name) ?? el?.getAttribute("w:" + name) ?? null;
-  const byId = new Map<string, Element>();
+  const paraById = new Map<string, Element>();
+  const charById = new Map<string, Element>();
   for (const st of Array.from(doc.getElementsByTagName("w:style"))) {
-    if ((wv(st, "type") ?? "paragraph") !== "paragraph") continue;
+    const type = wv(st, "type") ?? "paragraph";
     const id = wv(st, "styleId");
-    if (id) byId.set(id, st);
+    if (!id) continue;
+    if (type === "paragraph") paraById.set(id, st);
+    else if (type === "character") charById.set(id, st);
   }
-  // Resolve a style's effective CSS by walking basedOn from root to leaf (leaf overrides).
   const flagOn = (rPr: Element | undefined, tag: string): boolean | undefined => {
     const e = rPr ? Array.from(rPr.children).find((c) => c.tagName === tag) : undefined;
     if (!e) return undefined;
     const v = wv(e, "val");
     return v === null || (v !== "0" && v !== "false");
   };
-  const cssFor = (id: string, seen: Set<string>): Record<string, string> => {
+  // Resolve a style's effective CSS by walking basedOn from root to leaf (leaf overrides).
+  const cssFor = (byId: Map<string, Element>, id: string, withPara: boolean, seen: Set<string>): Record<string, string> => {
     const st = byId.get(id);
     if (!st || seen.has(id)) return {};
     seen.add(id);
     const based = wv(st, "basedOn");
-    const out: Record<string, string> = based ? cssFor(based, seen) : {};
-    const pPr = Array.from(st.children).find((c) => c.tagName === "w:pPr");
+    const out: Record<string, string> = based ? cssFor(byId, based, withPara, seen) : {};
     const rPr = Array.from(st.children).find((c) => c.tagName === "w:rPr");
-    const jc = wv(pPr?.getElementsByTagName("w:jc")[0] ?? undefined, "val");
-    if (jc && JC_TO_ALIGN[jc]) out["text-align"] = JC_TO_ALIGN[jc];
-    const ind = pPr?.getElementsByTagName("w:ind")[0];
-    const left = twipToPx(wv(ind ?? undefined, "left") ?? wv(ind ?? undefined, "start"));
-    if (left && left > 0) out["margin-left"] = `${Math.round(left)}px`;
-    const sp = pPr?.getElementsByTagName("w:spacing")[0];
-    const before = twipToPx(wv(sp ?? undefined, "before"));
-    const after = twipToPx(wv(sp ?? undefined, "after"));
-    const line = wv(sp ?? undefined, "line");
-    if (before !== undefined) out["margin-top"] = `${Math.round(before)}px`;
-    if (after !== undefined) out["margin-bottom"] = `${Math.round(after)}px`;
-    if (line && (wv(sp ?? undefined, "lineRule") ?? "auto") === "auto") out["line-height"] = String(Math.round((Number(line) / 240) * 100) / 100);
+    if (withPara) {
+      const pPr = Array.from(st.children).find((c) => c.tagName === "w:pPr");
+      const jc = wv(pPr?.getElementsByTagName("w:jc")[0] ?? undefined, "val");
+      if (jc && JC_TO_ALIGN[jc]) out["text-align"] = JC_TO_ALIGN[jc];
+      const ind = pPr?.getElementsByTagName("w:ind")[0];
+      const left = twipToPx(wv(ind ?? undefined, "left") ?? wv(ind ?? undefined, "start"));
+      if (left && left > 0) out["margin-left"] = `${Math.round(left)}px`;
+      const sp = pPr?.getElementsByTagName("w:spacing")[0];
+      const before = twipToPx(wv(sp ?? undefined, "before"));
+      const after = twipToPx(wv(sp ?? undefined, "after"));
+      const line = wv(sp ?? undefined, "line");
+      if (before !== undefined) out["margin-top"] = `${Math.round(before)}px`;
+      if (after !== undefined) out["margin-bottom"] = `${Math.round(after)}px`;
+      if (line && (wv(sp ?? undefined, "lineRule") ?? "auto") === "auto") out["line-height"] = String(Math.round((Number(line) / 240) * 100) / 100);
+    }
     const b = flagOn(rPr, "w:b");
     if (b !== undefined) out["font-weight"] = b ? "bold" : "normal";
     const it = flagOn(rPr, "w:i");
@@ -804,20 +818,25 @@ function readParagraphStyles(stylesXml: Uint8Array | undefined): { styles: { id:
     if (font) out["font-family"] = `'${font.replace(/'/g, "")}'`;
     return out;
   };
-  const styles: { id: string; name: string }[] = [];
   let css = "";
-  for (const [id, st] of byId) {
-    if (/^heading[1-9]$/i.test(id.replace(/\s+/g, ""))) continue; // headings use the H1-H3 entries
-    if (wv(st, "default") === "1") continue; // the Normal/default style is the plain "Paragraph" entry
-    if (Array.from(st.children).some((c) => c.tagName === "w:semiHidden")) continue; // Word's hidden built-ins
-    const name = wv(st.getElementsByTagName("w:name")[0] ?? undefined, "val") || id;
-    styles.push({ id, name });
-    const decls = cssFor(id, new Set());
-    const body = Object.entries(decls).map(([k, v]) => `${k}:${v}`).join(";");
-    if (body) css += `.docxedit-doc [data-rdoc-style="${cssAttrValue(id)}"]{${body}}\n`;
-  }
-  styles.sort((a, b) => a.name.localeCompare(b.name));
-  return { styles, css };
+  const collect = (byId: Map<string, Element>, withPara: boolean, attr: string, skipId: (id: string) => boolean): { id: string; name: string }[] => {
+    const list: { id: string; name: string }[] = [];
+    for (const [id, st] of byId) {
+      if (skipId(id)) continue;
+      if (wv(st, "default") === "1") continue; // the default style is the plain "Paragraph" / no-style entry
+      if (Array.from(st.children).some((c) => c.tagName === "w:semiHidden")) continue; // Word's hidden built-ins
+      const name = wv(st.getElementsByTagName("w:name")[0] ?? undefined, "val") || id;
+      list.push({ id, name });
+      const decls = cssFor(byId, id, withPara, new Set());
+      const body = Object.entries(decls).map(([k, v]) => `${k}:${v}`).join(";");
+      if (body) css += `.docxedit-doc [${attr}="${cssAttrValue(id)}"]{${body}}\n`;
+    }
+    list.sort((a, b) => a.name.localeCompare(b.name));
+    return list;
+  };
+  const paragraphStyles = collect(paraById, true, "data-rdoc-style", (id) => /^heading[1-9]$/i.test(id.replace(/\s+/g, "")));
+  const characterStyles = collect(charById, false, "data-rdoc-cstyle", () => false);
+  return { paragraphStyles, characterStyles, css };
 }
 
 /** Parse a .docx into the editable body HTML plus the header/footer HTML and part keys. */
@@ -884,7 +903,7 @@ export function docxToParts(bytes: Uint8Array): DocxParts {
       parentThread.replies.push(entry(id));
     }
   }
-  const ps = readParagraphStyles(files["word/styles.xml"]);
+  const ps = readStyles(files["word/styles.xml"]);
   return {
     body: html || "<p><br></p>",
     header: renderRefPart(files, headerTarget),
@@ -893,7 +912,8 @@ export function docxToParts(bytes: Uint8Array): DocxParts {
     footerPath: partKey(footerTarget, files),
     comments: threads,
     page: parsePageGeometry(sectPr),
-    paragraphStyles: ps.styles,
+    paragraphStyles: ps.paragraphStyles,
+    characterStyles: ps.characterStyles,
     styleCss: ps.css,
   };
 }
