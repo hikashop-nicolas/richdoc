@@ -58,7 +58,7 @@
 
 /* These controls set display:flex/inline-flex, which beats the UA [hidden]{display:none};
    restore hiding via a higher-specificity rule so .hidden = true actually hides them. */
-.docxedit-th[hidden], .docxedit-th-cell[hidden], .docxedit-menu[hidden], .docxedit-tb-overflow[hidden], .docxedit-table-picker[hidden] { display: none; }
+.docxedit-th[hidden], .docxedit-th-cell[hidden], .docxedit-menu[hidden], .docxedit-tb-overflow[hidden], .docxedit-table-picker[hidden], .docxedit-dialog-overlay[hidden] { display: none; }
 
 /* Hover handles around a table (Google-Docs style): row handle on the left, column handle
    on top (a drag grip + a "+" menu), and a per-cell options button. */
