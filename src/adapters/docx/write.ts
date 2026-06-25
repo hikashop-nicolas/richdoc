@@ -1227,12 +1227,31 @@ function addNewStyles(files: Record<string, Uint8Array>, styles: NewStyle[]): vo
     e.setAttributeNS(W, "w:val", val);
     parent.appendChild(e);
   };
+  const shd = (parent: Element, fill: string) => {
+    const e = el("w:shd");
+    e.setAttributeNS(W, "w:val", "clear");
+    e.setAttributeNS(W, "w:color", "auto");
+    e.setAttributeNS(W, "w:fill", fill);
+    parent.appendChild(e);
+  };
+  // Find an existing w:style by id so editing replaces its formatting (keeping name/basedOn).
+  const existingById = new Map<string, Element>();
+  for (const st of Array.from(doc.getElementsByTagName("w:style"))) {
+    const id = st.getAttributeNS(W, "styleId") ?? st.getAttribute("w:styleId");
+    if (id) existingById.set(id, st);
+  }
   for (const s of styles) {
     const c = s.css;
-    const st = el("w:style");
-    st.setAttributeNS(W, "w:type", s.kind === "paragraph" ? "paragraph" : "character");
-    st.setAttributeNS(W, "w:styleId", s.id);
-    valEl(st, "w:name", s.name);
+    const prev = existingById.get(s.id);
+    const st = prev ?? el("w:style");
+    if (!prev) {
+      st.setAttributeNS(W, "w:type", s.kind === "paragraph" ? "paragraph" : "character");
+      st.setAttributeNS(W, "w:styleId", s.id);
+      valEl(st, "w:name", s.name);
+    } else {
+      // editing: drop the old formatting children, keep name / basedOn / others
+      for (const ch of Array.from(st.children)) if (ch.tagName === "w:pPr" || ch.tagName === "w:rPr") st.removeChild(ch);
+    }
     if (s.kind === "paragraph") {
       const pPr = el("w:pPr");
       if (c["margin-top"] || c["margin-bottom"] || c["line-height"]) {
@@ -1252,7 +1271,9 @@ function addNewStyles(files: Record<string, Uint8Array>, styles: NewStyle[]): vo
       }
       const jc = JC_BY_ALIGN[c["text-align"] ?? ""];
       if (jc) valEl(pPr, "w:jc", jc);
-      if (pPr.childNodes.length) st.appendChild(pPr);
+      const pbg = (c["background-color"] ?? "").replace(/^#/, "");
+      if (/^[0-9a-f]{6}$/i.test(pbg)) shd(pPr, pbg); // paragraph shading
+      if (pPr.childNodes.length) st.insertBefore(pPr, st.firstChild);
     }
     const rPr = el("w:rPr");
     const font = (c["font-family"] ?? "").replace(/['"]/g, "").split(",")[0]?.trim();
@@ -1269,8 +1290,12 @@ function addNewStyles(files: Record<string, Uint8Array>, styles: NewStyle[]): vo
     const color = (c["color"] ?? "").replace(/^#/, "");
     if (/^[0-9a-f]{6}$/i.test(color)) valEl(rPr, "w:color", color);
     if (c["font-size"]) valEl(rPr, "w:sz", String(Math.round(parseFloat(c["font-size"]) * 2)));
+    if (s.kind === "character") {
+      const cbg = (c["background-color"] ?? "").replace(/^#/, "");
+      if (/^[0-9a-f]{6}$/i.test(cbg)) shd(rPr, cbg); // run shading (text background)
+    }
     if (rPr.childNodes.length) st.appendChild(rPr);
-    root.appendChild(st);
+    if (!prev) root.appendChild(st);
   }
   files[key] = strToU8(new XMLSerializer().serializeToString(doc));
   if (created) registerStylesPart(files);

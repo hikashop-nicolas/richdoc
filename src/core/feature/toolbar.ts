@@ -121,11 +121,14 @@ export function setupToolbar(deps: ToolbarDeps) {
   for (const s of namedStyles) paraGroup.appendChild(new Option(s.name, `s:${s.id}`));
   if (namedStyles.length) block.appendChild(paraGroup);
   block.add(new Option(t("newParagraphStyle"), "__newpara__"));
+  block.add(new Option(t("editCurrentStyle"), "__editpara__"));
   block.addEventListener("mousedown", () => getActiveEl().focus());
   block.addEventListener("change", () => {
     const v = block.value;
     if (v === "__newpara__") {
       createParagraphStyle();
+    } else if (v === "__editpara__") {
+      editCurrentParagraphStyle();
     } else if (BUILTIN_BLOCKS.has(v)) {
       // a built-in block clears any named style on the affected paragraphs
       exec("formatBlock", v);
@@ -184,15 +187,22 @@ export function setupToolbar(deps: ToolbarDeps) {
   for (const s of charStyles) cstyleSel.add(new Option(s.name, `c:${s.id}`));
   const cstyleNewOpt = new Option(t("newCharacterStyle"), "__newchar__");
   cstyleSel.add(cstyleNewOpt);
+  const cstyleEditOpt = new Option(t("editCurrentStyle"), "__editchar__");
+  cstyleSel.add(cstyleEditOpt);
   cstyleSel.addEventListener("mousedown", () => getActiveEl().focus());
   cstyleSel.addEventListener("change", () => {
     const v = cstyleSel.value;
     if (v === "__newchar__") createCharacterStyle();
+    else if (v === "__editchar__") editCurrentCharacterStyle();
     else if (v === "none") applyCStyle(null);
     else if (v.startsWith("c:")) applyCStyle(v.slice(2));
   });
 
-  // --- Authoring new styles ---------------------------------------------------------------
+  // --- Authoring and editing styles -------------------------------------------------------
+  const styleName = (id: string): string => [...namedStyles, ...charStyles].find((s) => s.id === id)?.name ?? id;
+  // Each known style's current definition (CSS), so the edit dialog can be prefilled.
+  const styleDefMap = new Map<string, { kind: "paragraph" | "character"; css: Record<string, string> }>();
+  for (const d of parts.styleDefs ?? []) styleDefMap.set(d.id, { kind: d.kind, css: { ...d.css } });
   const existingIds = new Set<string>([...namedStyles, ...charStyles].map((s) => s.id));
   const makeStyleId = (name: string): string => {
     const base = name.replace(/[^A-Za-z0-9]/g, "") || "Style";
@@ -203,14 +213,27 @@ export function setupToolbar(deps: ToolbarDeps) {
     return id;
   };
   const cssBody = (css: Record<string, string>): string => Object.entries(css).map(([k, v]) => `${k}:${v}`).join(";");
-  // Register an authored style: record it for save, append its appearance CSS live, and add it
-  // to the matching dropdown so it can be reused immediately.
-  const registerStyle = (kind: "paragraph" | "character", name: string, css: Record<string, string>): string => {
-    const id = makeStyleId(name);
-    newStyles.push({ id, name, kind, css });
+  // In-session CSS for created/edited styles, rebuilt whole so an edit replaces (not stacks).
+  const overrideCss = new Map<string, string>();
+  const rebuildNewStyleCss = (): void => {
+    newStyleCss.textContent = [...overrideCss.values()].join("\n");
+  };
+  // Create or update a style: refresh its definition, its live CSS, and its save record.
+  const upsertStyle = (kind: "paragraph" | "character", id: string, name: string, css: Record<string, string>): void => {
+    styleDefMap.set(id, { kind, css });
     const attr = kind === "paragraph" ? "data-rdoc-style" : "data-rdoc-cstyle";
     const body = cssBody(css);
-    if (body) newStyleCss.textContent += `.docxedit-doc [${attr}="${id}"]{${body}}\n`;
+    if (body) overrideCss.set(id, `.docxedit-doc [${attr}="${id}"]{${body}}`);
+    else overrideCss.delete(id);
+    rebuildNewStyleCss();
+    const i = newStyles.findIndex((s) => s.id === id);
+    if (i >= 0) newStyles[i] = { id, name, kind, css };
+    else newStyles.push({ id, name, kind, css });
+  };
+  // Register a brand-new style and add it to the matching dropdown.
+  const registerStyle = (kind: "paragraph" | "character", name: string, css: Record<string, string>): string => {
+    const id = makeStyleId(name);
+    upsertStyle(kind, id, name, css);
     if (kind === "paragraph") {
       namedStyles.push({ id, name });
       if (!paraGroup.parentNode) block.insertBefore(paraGroup, block.querySelector('option[value="__newpara__"]'));
@@ -229,6 +252,7 @@ export function setupToolbar(deps: ToolbarDeps) {
     if (b.style.lineHeight) css["line-height"] = b.style.lineHeight;
     if (b.style.marginTop) css["margin-top"] = b.style.marginTop;
     if (b.style.marginBottom) css["margin-bottom"] = b.style.marginBottom;
+    if (b.style.backgroundColor) css["background-color"] = rgbToHex(b.style.backgroundColor) ?? "";
     return css;
   };
   // Capture the selection's run formatting (toggles via execCommand state, the rest computed).
@@ -326,6 +350,24 @@ export function setupToolbar(deps: ToolbarDeps) {
   colorLabel.className = "docxedit-dialog-color";
   colorLabel.append(dColorChk, document.createTextNode(t("textColor")), dColor);
   sizeRow.append(dSize, colorLabel);
+  // Background colour (checkbox + picker) and font family (populated on open from FONTS).
+  const bgRow = document.createElement("div");
+  bgRow.className = "docxedit-dialog-row";
+  const dBgChk = document.createElement("input");
+  dBgChk.type = "checkbox";
+  const dBg = document.createElement("input");
+  dBg.type = "color";
+  dBg.value = "#ffff00";
+  dBg.title = t("highlight");
+  dBg.addEventListener("input", () => (dBgChk.checked = true));
+  const bgLabel = document.createElement("label");
+  bgLabel.className = "docxedit-dialog-color";
+  bgLabel.append(dBgChk, document.createTextNode(t("background")), dBg);
+  const dFont = document.createElement("select");
+  dFont.className = "docxedit-dialog-font";
+  dFont.title = t("font");
+  let dFontFilled = false; // populated lazily from FONTS (defined later)
+  bgRow.append(dFont, bgLabel);
   const dCreate = document.createElement("button");
   dCreate.type = "button";
   dCreate.className = "docxedit-menu-item docxedit-dialog-primary";
@@ -337,34 +379,67 @@ export function setupToolbar(deps: ToolbarDeps) {
   const btnRow = document.createElement("div");
   btnRow.className = "docxedit-dialog-row docxedit-dialog-actions";
   btnRow.append(dCancel, dCreate);
-  panel.append(dlgTitle, dlgName, fmtRow, alignRow, sizeRow, btnRow);
+  panel.append(dlgTitle, dlgName, fmtRow, alignRow, sizeRow, bgRow, btnRow);
   wrap.appendChild(overlay);
 
+  let dlgEditId: string | null = null; // set when editing an existing style
+  let dlgPassthrough: Record<string, string> = {}; // captured props with no dialog control
   const closeStyleDialog = (): void => {
     overlay.hidden = true;
     dlgBlocks = [];
     dlgRange = null;
+    dlgEditId = null;
+    dlgPassthrough = {};
+    dlgName.disabled = false;
     syncToolbarState(); // reset the dropdowns off the "New..." entry
   };
-  // Build the style CSS from the dialog controls.
+  // Build the style CSS from the dialog controls, carrying through props with no control
+  // (indent / spacing captured at open) so they are not lost.
   const dialogCss = (): Record<string, string> => {
-    const css: Record<string, string> = {};
-    if (dB.classList.contains("is-on")) css["font-weight"] = "bold";
-    if (dI.classList.contains("is-on")) css["font-style"] = "italic";
+    const css: Record<string, string> = { ...dlgPassthrough };
+    css["font-weight"] = dB.classList.contains("is-on") ? "bold" : "normal";
+    css["font-style"] = dI.classList.contains("is-on") ? "italic" : "normal";
     const deco: string[] = [];
     if (dU.classList.contains("is-on")) deco.push("underline");
     if (dS.classList.contains("is-on")) deco.push("line-through");
     if (deco.length) css["text-decoration"] = deco.join(" ");
     const sz = parseInt(dSize.value, 10);
     if (sz > 0) css["font-size"] = `${sz}pt`;
+    else delete css["font-size"];
     if (dColorChk.checked) css["color"] = dColor.value;
+    if (dBgChk.checked) css["background-color"] = dBg.value;
+    if (dFont.value) css["font-family"] = `'${dFont.value}'`;
     if (dlgKind === "paragraph") {
+      delete css["text-align"];
       for (const k of Object.keys(alignBtns)) if (alignBtns[k]!.classList.contains("is-on")) css["text-align"] = k;
     }
     return css;
   };
+  // Fill the dialog controls from a CSS map; stash the un-controlled props for passthrough.
+  const fillDialog = (pre: Record<string, string>): void => {
+    if (!dFontFilled) {
+      dFont.add(new Option(t("defaultFont"), ""));
+      for (const f of FONTS) dFont.add(new Option(f, f));
+      dFontFilled = true;
+    }
+    dB.classList.toggle("is-on", pre["font-weight"] === "bold");
+    dI.classList.toggle("is-on", pre["font-style"] === "italic");
+    dU.classList.toggle("is-on", /underline/.test(pre["text-decoration"] ?? ""));
+    dS.classList.toggle("is-on", /line-through/.test(pre["text-decoration"] ?? ""));
+    dSize.value = pre["font-size"] ? String(parseInt(pre["font-size"], 10)) : "";
+    dColorChk.checked = !!pre["color"];
+    dColor.value = pre["color"] ?? "#000000";
+    dBgChk.checked = !!pre["background-color"];
+    dBg.value = pre["background-color"] ?? "#ffff00";
+    const fam = (pre["font-family"] ?? "").replace(/['"]/g, "").split(",")[0]?.trim() ?? "";
+    dFont.value = Array.from(dFont.options).some((o) => o.value === fam) ? fam : "";
+    for (const k of Object.keys(alignBtns)) alignBtns[k]!.classList.toggle("is-on", pre["text-align"] === k);
+    dlgPassthrough = {};
+    for (const p of ["margin-left", "margin-top", "margin-bottom", "line-height"]) if (pre[p]) dlgPassthrough[p] = pre[p]!;
+  };
   const openStyleDialog = (kind: "paragraph" | "character"): void => {
     dlgKind = kind;
+    dlgEditId = null;
     if (kind === "paragraph") {
       dlgBlocks = selectedBlocks();
       if (!dlgBlocks.length) {
@@ -381,21 +456,33 @@ export function setupToolbar(deps: ToolbarDeps) {
       dlgRange = sel.getRangeAt(0).cloneRange();
       dlgBlocks = [];
     }
-    // Prefill the controls from the current formatting so the dialog reflects the selection.
     const pre = kind === "paragraph" ? { ...captureCharCss(), ...captureParaCss(dlgBlocks[0]!) } : captureCharCss();
     dlgTitle.textContent = (kind === "paragraph" ? t("newParagraphStyle") : t("newCharacterStyle")).replace(/…$/, "");
     dlgName.value = "";
-    dB.classList.toggle("is-on", pre["font-weight"] === "bold");
-    dI.classList.toggle("is-on", pre["font-style"] === "italic");
-    dU.classList.toggle("is-on", /underline/.test(pre["text-decoration"] ?? ""));
-    dS.classList.toggle("is-on", /line-through/.test(pre["text-decoration"] ?? ""));
-    dSize.value = pre["font-size"] ? String(parseInt(pre["font-size"], 10)) : "";
-    dColorChk.checked = !!pre["color"];
-    dColor.value = pre["color"] ?? "#000000";
-    for (const k of Object.keys(alignBtns)) alignBtns[k]!.classList.toggle("is-on", pre["text-align"] === k);
+    dlgName.disabled = false;
+    fillDialog(pre);
     alignRow.hidden = kind !== "paragraph";
     overlay.hidden = false;
     dlgName.focus();
+  };
+  // Edit an existing style's definition; on save it updates every block/run using it.
+  const editStyle = (kind: "paragraph" | "character", id: string): void => {
+    const def = styleDefMap.get(id);
+    if (!def) {
+      syncToolbarState();
+      return;
+    }
+    dlgKind = kind;
+    dlgEditId = id;
+    dlgBlocks = [];
+    dlgRange = null;
+    dlgTitle.textContent = t("editStyle") + ": " + styleName(id);
+    dlgName.value = styleName(id);
+    dlgName.disabled = true; // renaming a style id is not supported
+    fillDialog(def.css);
+    alignRow.hidden = kind !== "paragraph";
+    overlay.hidden = false;
+    dCreate.focus();
   };
   const submitStyleDialog = (): void => {
     const name = dlgName.value.trim();
@@ -404,7 +491,10 @@ export function setupToolbar(deps: ToolbarDeps) {
       return;
     }
     const css = dialogCss();
-    if (dlgKind === "paragraph") {
+    if (dlgEditId) {
+      upsertStyle(dlgKind, dlgEditId, name, css); // update the definition in place
+      mark();
+    } else if (dlgKind === "paragraph") {
       const id = registerStyle("paragraph", name, css);
       for (const b of dlgBlocks) {
         b.setAttribute("data-rdoc-style", id);
@@ -438,6 +528,22 @@ export function setupToolbar(deps: ToolbarDeps) {
   });
   const createParagraphStyle = (): void => openStyleDialog("paragraph");
   const createCharacterStyle = (): void => openStyleDialog("character");
+  // Edit the style applied at the caret (paragraph) / around the selection (character).
+  const styledAncestor = (attr: string): HTMLElement | null => {
+    const node = window.getSelection()?.anchorNode as Node | null;
+    const el = node ? (node.nodeType === 3 ? node.parentElement : (node as HTMLElement)) : null;
+    return (el?.closest?.(`[${attr}]`) as HTMLElement | null) ?? null;
+  };
+  const editCurrentParagraphStyle = (): void => {
+    const id = styledAncestor("data-rdoc-style")?.getAttribute("data-rdoc-style");
+    if (id && styleDefMap.get(id)?.kind === "paragraph") editStyle("paragraph", id);
+    else syncToolbarState();
+  };
+  const editCurrentCharacterStyle = (): void => {
+    const id = styledAncestor("data-rdoc-cstyle")?.getAttribute("data-rdoc-cstyle");
+    if (id && styleDefMap.get(id)?.kind === "character") editStyle("character", id);
+    else syncToolbarState();
+  };
 
   // A select whose first option is a non-selectable title; firing fn(value) on change.
   const pickerSelect = (title: string, opts: [string, string][], fn: (v: string) => void): HTMLSelectElement => {

@@ -790,6 +790,41 @@ describe("authoring new styles", () => {
     expect(stylesXml).toMatch(/w:color[^>]*w:val="cc0000"/);
     expect(docxToParts(out).characterStyles?.some((s) => s.id === "Em")).toBe(true);
   });
+
+  it("writes background colour as shading (paragraph shading / run shading) and reads it back", () => {
+    const out = htmlToDocx('<p data-rdoc-style="Box">x</p><p>y <span data-rdoc-cstyle="Hi">z</span></p>', make(P("<w:p/>")), undefined, {
+      newStyles: [
+        { id: "Box", name: "Box", kind: "paragraph", css: { "background-color": "#ffeecc" } },
+        { id: "Hi", name: "Hi", kind: "character", css: { "background-color": "#ffff00" } },
+      ],
+    });
+    const stylesXml = strFromU8(unzipSync(out)["word/styles.xml"]!);
+    expect(stylesXml).toMatch(/w:shd[^>]*w:fill="ffeecc"/);
+    expect(stylesXml).toMatch(/w:shd[^>]*w:fill="ffff00"/);
+    const defs = docxToParts(out).styleDefs ?? [];
+    expect(defs.find((d) => d.id === "Box")?.css["background-color"]).toBe("#ffeecc");
+    expect(defs.find((d) => d.id === "Hi")?.css["background-color"]).toBe("#ffff00");
+  });
+
+  it("editing an existing style replaces its definition in place (no duplicate)", () => {
+    const STYLES = `<?xml version="1.0"?><w:styles xmlns:w="http://schemas.openxmlformats.org/wordprocessingml/2006/main">
+ <w:style w:type="paragraph" w:styleId="Quote"><w:name w:val="Quote"/><w:rPr><w:i/></w:rPr></w:style></w:styles>`;
+    const docx = zipSync({
+      "[Content_Types].xml": strToU8("<Types/>"),
+      "_rels/.rels": strToU8("<Relationships/>"),
+      "word/document.xml": strToU8(P('<w:p><w:pPr><w:pStyle w:val="Quote"/></w:pPr><w:r><w:t>q</w:t></w:r></w:p>')),
+      "word/_rels/document.xml.rels": strToU8(RELS),
+      "word/styles.xml": strToU8(STYLES),
+    });
+    const out = htmlToDocx('<p data-rdoc-style="Quote">q</p>', docx, undefined, {
+      newStyles: [{ id: "Quote", name: "Quote", kind: "paragraph", css: { "font-weight": "bold", "text-align": "center" } }],
+    });
+    const stylesXml = strFromU8(unzipSync(out)["word/styles.xml"]!);
+    expect((stylesXml.match(/w:styleId="Quote"/g) ?? []).length).toBe(1); // not duplicated
+    expect(stylesXml).toContain("<w:b"); // new prop present
+    expect(stylesXml).toMatch(/w:jc[^>]*w:val="center"/);
+    expect(stylesXml).not.toContain("<w:i"); // old prop replaced
+  });
 });
 
 describe("named character styles", () => {

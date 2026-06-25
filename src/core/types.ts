@@ -51,7 +51,15 @@ export interface RichDoc {
   page?: PageGeometry; // the document's own page size/margins, if it declares them
   paragraphStyles?: ParagraphStyle[]; // named paragraph styles, for the style picker
   characterStyles?: ParagraphStyle[]; // named character styles, for the character-style picker
+  styleDefs?: StyleDef[]; // each named style's resolved CSS, so its definition can be edited
   styleCss?: string; // CSS rules giving each named style its appearance in the editor
+}
+
+/** A named style's resolved appearance, so the editor can prefill the edit dialog. */
+export interface StyleDef {
+  id: string;
+  kind: "paragraph" | "character";
+  css: Record<string, string>;
 }
 
 /** A named paragraph style the user can pick from the style dropdown. */

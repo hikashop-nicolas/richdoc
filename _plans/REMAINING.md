@@ -7,11 +7,13 @@ line spacing, paragraph space before/after, and nested ordered/unordered lists),
 (cell border colour/style/width, table column/row/indent resize with graduated rulers
 + magnet, and fields: page number / count / table of contents). What is left:
 
-Named paragraph and character styles are now fully editable: the block dropdown and a
+Named paragraph and character styles are fully editable: the block dropdown and a
 character-style dropdown list the document's styles, apply them (w:pStyle / w:rStyle,
-odt text:style-name), render each via injected CSS, and round-trip. New paragraph and
-character styles can be authored from the current formatting (the "New ... style"
-entries), added to the document's stylesheet on save.
+odt text:style-name), render each via injected CSS, and round-trip. A style settings
+dialog (name, bold/italic/underline/strike, alignment, size, text colour, background
+colour, font) authors new styles and edits an existing style's definition in place
+(updating every paragraph/run that uses it); both are persisted to the stylesheet on
+save (add-or-update by id).
 
 ## Modelled-but-incomplete
 - **List restart/continue numbering**: nesting levels and ordered/bullet kind now
@@ -19,11 +21,10 @@ entries), added to the document's stylesheet on save.
   outdent buttons create real nesting. Restart-at-N and continue-previous-list are
   still not modelled; every ordered list restarts at 1.
 - **Tab stops**: custom tab stops (`w:tabs`) are dropped on paragraph regen.
-- **Style editing depth**: authored styles capture the common run/paragraph properties
-  (align, indent, spacing, weight/italic/underline/strike, colour, size, font). basedOn
-  inheritance, tab stops, borders and the long tail of style properties are not modelled
-  when authoring; editing an existing style's definition (vs. authoring a new one) is not
-  exposed yet.
+- **Style editing depth**: the style dialog covers the common run/paragraph properties
+  (align, indent + spacing via passthrough, weight/italic/underline/strike, colour,
+  background, size, font). basedOn inheritance is flattened when a style is edited, and
+  tab stops, borders and the long tail of style properties are not exposed.
 
 ## Preserved-but-not-editable (round-trip via passthrough; no insert/edit UI)
 These survive a save untouched but cannot be created or modified in the editor:

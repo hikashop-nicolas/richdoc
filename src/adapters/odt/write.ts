@@ -778,12 +778,24 @@ function addOdtStyles(files: Record<string, Uint8Array>, styles: NewStyle[]): vo
     officeStyles = doc.createElementNS(NS.office, "office:styles");
     doc.documentElement!.appendChild(officeStyles);
   }
+  // Existing named styles by id, so editing replaces a style's properties in place.
+  const existingById = new Map<string, Element>();
+  for (const st of Array.from(doc.getElementsByTagName("style:style"))) {
+    const id = st.getAttribute("style:name");
+    if (id) existingById.set(id, st);
+  }
   for (const s of styles) {
     const c = s.css;
-    const st = doc.createElementNS(NS.style, "style:style");
-    st.setAttributeNS(NS.style, "style:name", s.id);
-    st.setAttributeNS(NS.style, "style:display-name", s.name);
-    st.setAttributeNS(NS.style, "style:family", s.kind === "paragraph" ? "paragraph" : "text");
+    const prev = existingById.get(s.id);
+    const st = prev ?? doc.createElementNS(NS.style, "style:style");
+    if (!prev) {
+      st.setAttributeNS(NS.style, "style:name", s.id);
+      st.setAttributeNS(NS.style, "style:display-name", s.name);
+      st.setAttributeNS(NS.style, "style:family", s.kind === "paragraph" ? "paragraph" : "text");
+    } else {
+      // editing: drop old property children, keep the style element + parent-style-name
+      for (const ch of Array.from(st.children)) if (ch.tagName === "style:paragraph-properties" || ch.tagName === "style:text-properties") st.removeChild(ch);
+    }
     if (s.kind === "paragraph") {
       const pp = doc.createElementNS(NS.style, "style:paragraph-properties");
       const a = ODF_ALIGN[c["text-align"] ?? ""];
@@ -792,7 +804,8 @@ function addOdtStyles(files: Record<string, Uint8Array>, styles: NewStyle[]): vo
       if (c["margin-top"]) pp.setAttributeNS(NS.fo, "fo:margin-top", pxToCm(parseFloat(c["margin-top"])));
       if (c["margin-bottom"]) pp.setAttributeNS(NS.fo, "fo:margin-bottom", pxToCm(parseFloat(c["margin-bottom"])));
       if (c["line-height"]) pp.setAttributeNS(NS.fo, "fo:line-height", `${Math.round(parseFloat(c["line-height"]) * 100)}%`);
-      if (pp.attributes.length) st.appendChild(pp);
+      if (c["background-color"]) pp.setAttributeNS(NS.fo, "fo:background-color", c["background-color"]);
+      if (pp.attributes.length) st.insertBefore(pp, st.firstChild);
     }
     const tp = doc.createElementNS(NS.style, "style:text-properties");
     if (/bold|[6-9]00/.test(c["font-weight"] ?? "")) tp.setAttributeNS(NS.fo, "fo:font-weight", "bold");
@@ -808,13 +821,14 @@ function addOdtStyles(files: Record<string, Uint8Array>, styles: NewStyle[]): vo
     }
     if (c["color"]) tp.setAttributeNS(NS.fo, "fo:color", c["color"]);
     if (c["font-size"]) tp.setAttributeNS(NS.fo, "fo:font-size", c["font-size"]);
+    if (s.kind === "character" && c["background-color"]) tp.setAttributeNS(NS.fo, "fo:background-color", c["background-color"]);
     const font = (c["font-family"] ?? "").replace(/['"]/g, "").split(",")[0]?.trim();
     if (font) {
       tp.setAttributeNS(NS.fo, "fo:font-family", font);
       tp.setAttributeNS(NS.style, "style:font-name", font);
     }
     if (tp.attributes.length) st.appendChild(tp);
-    officeStyles.appendChild(st);
+    if (!prev) officeStyles.appendChild(st);
   }
   files[key] = strToU8(new XMLSerializer().serializeToString(doc));
 }

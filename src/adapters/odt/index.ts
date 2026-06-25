@@ -39,6 +39,7 @@ export function createOdtAdapter(bytes: Uint8Array): Adapter {
         page: parts.page,
         paragraphStyles: parts.paragraphStyles,
         characterStyles: parts.characterStyles,
+        styleDefs: parts.styleDefs,
         styleCss: parts.styleCss,
       };
     },

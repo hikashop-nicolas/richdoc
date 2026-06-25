@@ -249,13 +249,14 @@ const cssAttrValue = (v: string): string => v.replace(/[\\"]/g, "\\$&");
 function readOdtStyles(stylesXml: Uint8Array | undefined): {
   paragraphStyles: { id: string; name: string }[];
   characterStyles: { id: string; name: string }[];
+  styleDefs: { id: string; kind: "paragraph" | "character"; css: Record<string, string> }[];
   css: string;
   namedPara: Set<string>;
   namedChar: Set<string>;
 } {
   const namedPara = new Set<string>();
   const namedChar = new Set<string>();
-  if (!stylesXml) return { paragraphStyles: [], characterStyles: [], css: "", namedPara, namedChar };
+  if (!stylesXml) return { paragraphStyles: [], characterStyles: [], styleDefs: [], css: "", namedPara, namedChar };
   const doc = new DOMParser().parseFromString(strFromU8(stylesXml), "application/xml");
   const mapFor = (family: string): Map<string, Element> => {
     const m = new Map<string, Element>();
@@ -285,7 +286,11 @@ function readOdtStyles(stylesXml: Uint8Array | undefined): {
       if (mb != null) out["margin-bottom"] = `${Math.round(lenToPx(mb) ?? 0)}px`;
       const lh = pp?.getAttribute("fo:line-height");
       if (lh && lh.endsWith("%")) out["line-height"] = String(Math.round((parseFloat(lh) / 100) * 100) / 100);
+      const pbg = pp?.getAttribute("fo:background-color");
+      if (pbg && /^#[0-9a-f]{6}$/i.test(pbg)) out["background-color"] = pbg;
     }
+    const bg = tp?.getAttribute("fo:background-color");
+    if (bg && /^#[0-9a-f]{6}$/i.test(bg)) out["background-color"] = bg;
     const fw = tp?.getAttribute("fo:font-weight");
     if (fw) out["font-weight"] = /bold|[6-9]00/.test(fw) ? "bold" : "normal";
     const fs = tp?.getAttribute("fo:font-style");
@@ -303,7 +308,8 @@ function readOdtStyles(stylesXml: Uint8Array | undefined): {
     return out;
   };
   let css = "";
-  const collect = (family: string, withPara: boolean, attr: string, named: Set<string>, skip: (id: string, s: Element) => boolean): { id: string; name: string }[] => {
+  const styleDefs: { id: string; kind: "paragraph" | "character"; css: Record<string, string> }[] = [];
+  const collect = (family: string, kind: "paragraph" | "character", attr: string, named: Set<string>, skip: (id: string, s: Element) => boolean): { id: string; name: string }[] => {
     const byId = mapFor(family);
     const list: { id: string; name: string }[] = [];
     for (const [id, s] of byId) {
@@ -311,16 +317,17 @@ function readOdtStyles(stylesXml: Uint8Array | undefined): {
       named.add(id);
       const name = (s.getAttribute("style:display-name") || id).replace(/_20_/g, " ");
       list.push({ id, name });
-      const decls = cssFor(byId, id, withPara, new Set());
+      const decls = cssFor(byId, id, kind === "paragraph", new Set());
+      styleDefs.push({ id, kind, css: decls });
       const body = Object.entries(decls).map(([k, v]) => `${k}:${v}`).join(";");
       if (body) css += `.docxedit-doc [${attr}="${cssAttrValue(id)}"]{${body}}\n`;
     }
     list.sort((a, b) => a.name.localeCompare(b.name));
     return list;
   };
-  const paragraphStyles = collect("paragraph", true, "data-rdoc-style", namedPara, (id, s) => /^heading(_20_)?[1-9]$/i.test(id) || id === "Standard" || s.getAttribute("style:class") === "extra");
-  const characterStyles = collect("text", false, "data-rdoc-cstyle", namedChar, () => false);
-  return { paragraphStyles, characterStyles, css, namedPara, namedChar };
+  const paragraphStyles = collect("paragraph", "paragraph", "data-rdoc-style", namedPara, (id, s) => /^heading(_20_)?[1-9]$/i.test(id) || id === "Standard" || s.getAttribute("style:class") === "extra");
+  const characterStyles = collect("text", "character", "data-rdoc-cstyle", namedChar, () => false);
+  return { paragraphStyles, characterStyles, styleDefs, css, namedPara, namedChar };
 }
 
 /** Map an automatic style-name -> its parent style-name (from content.xml), for the given
@@ -584,7 +591,7 @@ function parsePageGeometry(files: Record<string, Uint8Array>): PageGeometry | un
   return { widthPx: Math.round(w), heightPx: Math.round(h), margin: { top: m("top"), right: m("right"), bottom: m("bottom"), left: m("left") }, vertical, rtl };
 }
 
-export function odtToParts(bytes: Uint8Array): { body: string; comments: CommentThread[]; header: string; footer: string; page?: PageGeometry; paragraphStyles?: { id: string; name: string }[]; characterStyles?: { id: string; name: string }[]; styleCss?: string } {
+export function odtToParts(bytes: Uint8Array): { body: string; comments: CommentThread[]; header: string; footer: string; page?: PageGeometry; paragraphStyles?: { id: string; name: string }[]; characterStyles?: { id: string; name: string }[]; styleDefs?: { id: string; kind: "paragraph" | "character"; css: Record<string, string> }[]; styleCss?: string } {
   const files = unzipSync(bytes);
   const { header, footer } = readHeaderFooter(files);
   const page = parsePageGeometry(files);
@@ -605,7 +612,7 @@ export function odtToParts(bytes: Uint8Array): { body: string; comments: Comment
     if (block.tagName === "text:tracked-changes") continue; // metadata, parsed into ctx.changes
     html += blockToHtml(block, ctx);
   }
-  return { body: html || "<p><br></p>", comments: ctx.threads, header, footer, page, paragraphStyles: ps.paragraphStyles, characterStyles: ps.characterStyles, styleCss: ps.css };
+  return { body: html || "<p><br></p>", comments: ctx.threads, header, footer, page, paragraphStyles: ps.paragraphStyles, characterStyles: ps.characterStyles, styleDefs: ps.styleDefs, styleCss: ps.css };
 }
 
 /** Convert an .odt's body to HTML. Returns "" if there is no editable text body. */
