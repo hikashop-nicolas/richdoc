@@ -259,85 +259,185 @@ export function setupToolbar(deps: ToolbarDeps) {
     }
     return css;
   };
-  const createParagraphStyle = (): void => {
-    const blocks = selectedBlocks();
-    if (!blocks.length) return;
-    const css = captureParaCss(blocks[0]!);
-    promptStyleName(block, (name) => {
+  // --- New-style dialog: a name plus formatting controls -----------------------------------
+  let dlgKind: "paragraph" | "character" = "paragraph";
+  let dlgBlocks: HTMLElement[] = []; // target paragraphs (paragraph kind)
+  let dlgRange: Range | null = null; // target selection (character kind)
+  const overlay = document.createElement("div");
+  overlay.className = "docxedit-dialog-overlay";
+  overlay.hidden = true;
+  const panel = document.createElement("div");
+  panel.className = "docxedit-dialog";
+  overlay.appendChild(panel);
+  const dlgTitle = document.createElement("div");
+  dlgTitle.className = "docxedit-dialog-title";
+  const dlgName = document.createElement("input");
+  dlgName.type = "text";
+  dlgName.className = "docxedit-name-input";
+  dlgName.placeholder = t("styleName");
+  const toggleBtn = (label: string, title: string): HTMLButtonElement => {
+    const b = document.createElement("button");
+    b.type = "button";
+    b.className = "docxedit-dialog-toggle";
+    b.textContent = label;
+    b.title = title;
+    b.addEventListener("click", () => b.classList.toggle("is-on"));
+    return b;
+  };
+  const dB = toggleBtn("B", t("bold"));
+  const dI = toggleBtn("I", t("italic"));
+  const dU = toggleBtn("U", t("underline"));
+  const dS = toggleBtn("S", t("strikethrough"));
+  const fmtRow = document.createElement("div");
+  fmtRow.className = "docxedit-dialog-row";
+  fmtRow.append(dB, dI, dU, dS);
+  const alignBtns: Record<string, HTMLButtonElement> = {};
+  const alignRow = document.createElement("div");
+  alignRow.className = "docxedit-dialog-row";
+  for (const [val, key, lab] of [["left", "alignLeft", "←"], ["center", "alignCenter", "≡"], ["right", "alignRight", "→"], ["justify", "alignJustify", "☰"]] as const) {
+    const b = document.createElement("button");
+    b.type = "button";
+    b.className = "docxedit-dialog-toggle";
+    b.textContent = lab;
+    b.title = t(key);
+    b.addEventListener("click", () => {
+      const on = b.classList.contains("is-on");
+      for (const k of Object.keys(alignBtns)) alignBtns[k]!.classList.remove("is-on");
+      if (!on) b.classList.add("is-on");
+    });
+    alignBtns[val] = b;
+    alignRow.appendChild(b);
+  }
+  const sizeRow = document.createElement("div");
+  sizeRow.className = "docxedit-dialog-row";
+  const dSize = document.createElement("input");
+  dSize.type = "number";
+  dSize.min = "1";
+  dSize.className = "docxedit-dialog-size";
+  dSize.placeholder = t("size");
+  const dColorChk = document.createElement("input");
+  dColorChk.type = "checkbox";
+  const dColor = document.createElement("input");
+  dColor.type = "color";
+  dColor.value = "#000000";
+  dColor.title = t("textColor");
+  dColor.addEventListener("input", () => (dColorChk.checked = true));
+  const colorLabel = document.createElement("label");
+  colorLabel.className = "docxedit-dialog-color";
+  colorLabel.append(dColorChk, document.createTextNode(t("textColor")), dColor);
+  sizeRow.append(dSize, colorLabel);
+  const dCreate = document.createElement("button");
+  dCreate.type = "button";
+  dCreate.className = "docxedit-menu-item docxedit-dialog-primary";
+  dCreate.textContent = t("createStyle");
+  const dCancel = document.createElement("button");
+  dCancel.type = "button";
+  dCancel.className = "docxedit-menu-item";
+  dCancel.textContent = t("cancel");
+  const btnRow = document.createElement("div");
+  btnRow.className = "docxedit-dialog-row docxedit-dialog-actions";
+  btnRow.append(dCancel, dCreate);
+  panel.append(dlgTitle, dlgName, fmtRow, alignRow, sizeRow, btnRow);
+  wrap.appendChild(overlay);
+
+  const closeStyleDialog = (): void => {
+    overlay.hidden = true;
+    dlgBlocks = [];
+    dlgRange = null;
+    syncToolbarState(); // reset the dropdowns off the "New..." entry
+  };
+  // Build the style CSS from the dialog controls.
+  const dialogCss = (): Record<string, string> => {
+    const css: Record<string, string> = {};
+    if (dB.classList.contains("is-on")) css["font-weight"] = "bold";
+    if (dI.classList.contains("is-on")) css["font-style"] = "italic";
+    const deco: string[] = [];
+    if (dU.classList.contains("is-on")) deco.push("underline");
+    if (dS.classList.contains("is-on")) deco.push("line-through");
+    if (deco.length) css["text-decoration"] = deco.join(" ");
+    const sz = parseInt(dSize.value, 10);
+    if (sz > 0) css["font-size"] = `${sz}pt`;
+    if (dColorChk.checked) css["color"] = dColor.value;
+    if (dlgKind === "paragraph") {
+      for (const k of Object.keys(alignBtns)) if (alignBtns[k]!.classList.contains("is-on")) css["text-align"] = k;
+    }
+    return css;
+  };
+  const openStyleDialog = (kind: "paragraph" | "character"): void => {
+    dlgKind = kind;
+    if (kind === "paragraph") {
+      dlgBlocks = selectedBlocks();
+      if (!dlgBlocks.length) {
+        syncToolbarState();
+        return;
+      }
+      dlgRange = null;
+    } else {
+      const sel = window.getSelection();
+      if (!sel || !sel.rangeCount || sel.getRangeAt(0).collapsed) {
+        syncToolbarState();
+        return; // a character style needs selected text
+      }
+      dlgRange = sel.getRangeAt(0).cloneRange();
+      dlgBlocks = [];
+    }
+    // Prefill the controls from the current formatting so the dialog reflects the selection.
+    const pre = kind === "paragraph" ? { ...captureCharCss(), ...captureParaCss(dlgBlocks[0]!) } : captureCharCss();
+    dlgTitle.textContent = (kind === "paragraph" ? t("newParagraphStyle") : t("newCharacterStyle")).replace(/…$/, "");
+    dlgName.value = "";
+    dB.classList.toggle("is-on", pre["font-weight"] === "bold");
+    dI.classList.toggle("is-on", pre["font-style"] === "italic");
+    dU.classList.toggle("is-on", /underline/.test(pre["text-decoration"] ?? ""));
+    dS.classList.toggle("is-on", /line-through/.test(pre["text-decoration"] ?? ""));
+    dSize.value = pre["font-size"] ? String(parseInt(pre["font-size"], 10)) : "";
+    dColorChk.checked = !!pre["color"];
+    dColor.value = pre["color"] ?? "#000000";
+    for (const k of Object.keys(alignBtns)) alignBtns[k]!.classList.toggle("is-on", pre["text-align"] === k);
+    alignRow.hidden = kind !== "paragraph";
+    overlay.hidden = false;
+    dlgName.focus();
+  };
+  const submitStyleDialog = (): void => {
+    const name = dlgName.value.trim();
+    if (!name) {
+      dlgName.focus();
+      return;
+    }
+    const css = dialogCss();
+    if (dlgKind === "paragraph") {
       const id = registerStyle("paragraph", name, css);
-      for (const b of blocks) {
+      for (const b of dlgBlocks) {
         b.setAttribute("data-rdoc-style", id);
-        // the captured direct formatting now lives in the style; clear it so it is not written twice
+        // captured direct formatting now lives in the style; clear it so it is not written twice
         for (const p of ["textAlign", "marginLeft", "lineHeight", "marginTop", "marginBottom"] as const) b.style[p] = "";
       }
       mark();
-      syncToolbarState();
-    });
-  };
-  const createCharacterStyle = (): void => {
-    const sel = window.getSelection();
-    if (!sel || !sel.rangeCount || sel.getRangeAt(0).collapsed) {
-      syncToolbarState();
-      return; // need a selection
-    }
-    const css = captureCharCss();
-    const saved = sel.getRangeAt(0).cloneRange();
-    promptStyleName(cstyleSel, (name) => {
+    } else if (dlgRange) {
       const id = registerStyle("character", name, css);
       const s = window.getSelection();
       if (s) {
         s.removeAllRanges();
-        s.addRange(saved);
+        s.addRange(dlgRange);
       }
-      applyCStyle(id);
-    });
+      applyCStyle(id); // wraps the selection in the new style
+    }
+    closeStyleDialog();
   };
-  // A small inline popover to name a new style (input + Create), anchored under the trigger.
-  const namePopover = document.createElement("div");
-  namePopover.className = "docxedit-menu docxedit-name-popover";
-  namePopover.hidden = true;
-  const nameInput = document.createElement("input");
-  nameInput.type = "text";
-  nameInput.className = "docxedit-name-input";
-  nameInput.placeholder = t("styleName");
-  const nameCreate = document.createElement("button");
-  nameCreate.type = "button";
-  nameCreate.className = "docxedit-menu-item";
-  nameCreate.textContent = t("createStyle");
-  namePopover.append(nameInput, nameCreate);
-  let onNamed: ((name: string) => void) | null = null;
-  const hideNamePopover = () => {
-    namePopover.hidden = true;
-    onNamed = null;
-    syncToolbarState(); // reset the dropdowns off the "New..." entry
-  };
-  const promptStyleName = (anchor: HTMLElement, cb: (name: string) => void): void => {
-    onNamed = cb;
-    const r = anchor.getBoundingClientRect();
-    const wr = wrap.getBoundingClientRect();
-    namePopover.style.left = `${r.left - wr.left}px`;
-    namePopover.style.top = `${r.bottom - wr.top + 2}px`;
-    nameInput.value = "";
-    namePopover.hidden = false;
-    nameInput.focus();
-  };
-  const submitName = () => {
-    const v = nameInput.value.trim();
-    const cb = onNamed;
-    hideNamePopover();
-    if (v && cb) cb(v);
-  };
-  nameCreate.addEventListener("mousedown", (e) => e.preventDefault());
-  nameCreate.addEventListener("click", submitName);
-  nameInput.addEventListener("keydown", (e) => {
+  dCreate.addEventListener("click", submitStyleDialog);
+  dCancel.addEventListener("click", closeStyleDialog);
+  overlay.addEventListener("mousedown", (e) => {
+    if (e.target === overlay) closeStyleDialog();
+  });
+  dlgName.addEventListener("keydown", (e) => {
     if (e.key === "Enter") {
       e.preventDefault();
-      submitName();
+      submitStyleDialog();
     } else if (e.key === "Escape") {
-      hideNamePopover();
+      closeStyleDialog();
     }
   });
-  wrap.appendChild(namePopover);
+  const createParagraphStyle = (): void => openStyleDialog("paragraph");
+  const createCharacterStyle = (): void => openStyleDialog("character");
 
   // A select whose first option is a non-selectable title; firing fn(value) on change.
   const pickerSelect = (title: string, opts: [string, string][], fn: (v: string) => void): HTMLSelectElement => {
@@ -980,7 +1080,6 @@ export function setupToolbar(deps: ToolbarDeps) {
     if (!tablePicker.hidden && !tablePicker.contains(e.target as Node) && !tableBtn.contains(e.target as Node)) tablePicker.hidden = true;
     if (!lineSpacingMenu.hidden && !lineSpacingMenu.contains(e.target as Node) && !lineSpacingBtn.contains(e.target as Node)) lineSpacingMenu.hidden = true;
     if (!fieldsMenu.hidden && !fieldsMenu.contains(e.target as Node) && !fieldsBtn.contains(e.target as Node)) fieldsMenu.hidden = true;
-    if (!namePopover.hidden && !namePopover.contains(e.target as Node)) hideNamePopover();
   };
   document.addEventListener("click", closeOverflow);
   toolbar.append(...toolbarItems, moreBtn);
