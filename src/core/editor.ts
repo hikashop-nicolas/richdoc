@@ -111,10 +111,8 @@ export function createRichEditor(container: HTMLElement, adapter: Adapter, optio
   // Paginated view: one continuous editable body (doc) on top of a layer of page-card
   // decorations, with inert spacer gaps inserted at page boundaries. Pageless view keeps
   // the body and header/footer stacked in one card (the previous behaviour).
-  // Multi-column sections render as one continuous columned sheet: CSS columns flow within the
-  // single body element, which the block-height paginator cannot split per page, so pagination
-  // is turned off when columns are present.
-  const paginated = (options.paginated ?? true) && !(geometry.columns && geometry.columns > 1);
+  const paginated = options.paginated ?? true;
+  const columnCount = geometry.columns && geometry.columns > 1 ? geometry.columns : 1;
   const pagelayer = document.createElement("div"); // page cards, behind the body
   pagelayer.className = "docxedit-pagelayer";
   pagelayer.setAttribute("aria-hidden", "true");
@@ -365,9 +363,152 @@ export function createRichEditor(container: HTMLElement, adapter: Adapter, optio
     decorateFields(cardCount, pageStep, true);
   };
 
+  // Multi-column pagination: wrap the body's blocks into one balanced multi-column box per
+  // page. The browser's own column flow decides where a page fills (a wrapper sized to the page
+  // content with column-fill:auto overflows past N columns when full), so the engine only buckets
+  // blocks into pages; column-fill:balance then equalises each page's columns. The same block
+  // nodes are moved (not cloned), so the caret survives a reparent (saved + restored here).
+  const COLPAGE = "docxedit-colpage";
+  // The caret's character offset within a block (walking text nodes), so it can be re-placed
+  // after the block is reparented into a column wrapper (moving a node drops the live selection).
+  const charOffsetIn = (block: Node, container: Node, offset: number): number => {
+    if (container.nodeType !== 3) return 0; // element container (empty block): start
+    let total = 0;
+    const walker = document.createTreeWalker(block, NodeFilter.SHOW_TEXT);
+    let n: Node | null;
+    while ((n = walker.nextNode())) {
+      if (n === container) return total + offset;
+      total += (n.textContent ?? "").length;
+    }
+    return total;
+  };
+  const placeCaret = (block: HTMLElement, target: number): void => {
+    const walker = document.createTreeWalker(block, NodeFilter.SHOW_TEXT);
+    let n: Node | null;
+    let acc = 0;
+    let last: Node | null = null;
+    while ((n = walker.nextNode())) {
+      const len = (n.textContent ?? "").length;
+      if (acc + len >= target) {
+        last = n;
+        break;
+      }
+      acc += len;
+      last = n;
+    }
+    const s = window.getSelection();
+    if (!s) return;
+    const r = document.createRange();
+    if (last) r.setStart(last, Math.min((last.textContent ?? "").length, Math.max(0, target - acc)));
+    else r.setStart(block, 0);
+    r.collapse(true);
+    s.removeAllRanges();
+    s.addRange(r);
+  };
+  const repaginateColumns = () => {
+    // Flatten: collect the body's blocks, unwrapping any wrappers from a previous pass.
+    const blocks: HTMLElement[] = [];
+    for (const child of Array.from(doc.children) as HTMLElement[]) {
+      if (child.classList.contains(COLPAGE)) blocks.push(...(Array.from(child.children) as HTMLElement[]));
+      else if (!child.classList.contains("docxedit-pagespacer")) blocks.push(child);
+    }
+    // Remember the caret as a (block, char-offset) pair so it survives the reparent below.
+    const sel = window.getSelection();
+    let caretBlock: HTMLElement | null = null;
+    let caretOffset = 0;
+    if (sel && sel.rangeCount) {
+      const r = sel.getRangeAt(0);
+      const blk = blocks.find((b) => b === r.startContainer || b.contains(r.startContainer));
+      if (blk) {
+        caretBlock = blk;
+        caretOffset = charOffsetIn(blk, r.startContainer, r.startOffset);
+      }
+    }
+    measure.style.width = `${geometry.widthPx}px`;
+    const headerH = header ? header.offsetHeight : 0;
+    const footerH = footer ? footer.offsetHeight : 0;
+    const contentTop = geometry.margin.top + headerH;
+    const contentBottomInset = geometry.margin.bottom + footerH;
+    const contentHeight = geometry.heightPx - contentTop - contentBottomInset;
+    const contentWidth = geometry.widthPx - geometry.margin.left - geometry.margin.right;
+    const pageStep = geometry.heightPx + PAGE_GAP;
+    const interPage = contentBottomInset + PAGE_GAP + contentTop; // gap between consecutive wrappers
+    doc.style.padding = `${contentTop}px ${geometry.margin.right}px ${contentBottomInset}px ${geometry.margin.left}px`;
+
+    const newWrapper = (first: boolean): HTMLElement => {
+      const w = document.createElement("div");
+      w.className = COLPAGE;
+      w.style.height = `${contentHeight}px`;
+      w.style.width = `${contentWidth}px`;
+      w.style.columnFill = "auto"; // column-by-column during bucketing; balanced when finalized
+      if (!first) w.style.marginTop = `${interPage}px`;
+      return w;
+    };
+    const isManual = (el: Element) => el.classList.contains("docx-pagebreak") && el.getAttribute("data-docx-pagebreak") === "manual";
+
+    // Re-bucket without ever detaching a block from the document: each appendChild moves a
+    // block straight from its old parent (the doc or a previous wrapper) into the new wrapper,
+    // so the node holding the caret stays connected and the selection is not collapsed.
+    // old wrappers/spacers to drop after blocks are moved out (NOT the blocks themselves)
+    const stale = (Array.from(doc.children) as HTMLElement[]).filter((c) => c.classList.contains(COLPAGE) || c.classList.contains("docxedit-pagespacer"));
+    const wrappers: HTMLElement[] = [];
+    let wrap = newWrapper(true);
+    doc.appendChild(wrap);
+    wrappers.push(wrap);
+    const EPS = 2;
+    for (const block of blocks) {
+      if (isManual(block) && wrap.children.length) {
+        wrap.style.columnFill = "balance";
+        wrap = newWrapper(false);
+        doc.appendChild(wrap);
+        wrappers.push(wrap);
+        wrap.appendChild(block);
+        continue;
+      }
+      wrap.appendChild(block);
+      // scrollWidth grows when content spills into an (N+1)th column: this page is full.
+      if (wrap.scrollWidth > wrap.clientWidth + EPS && wrap.children.length > 1) {
+        wrap.removeChild(block);
+        wrap.style.columnFill = "balance";
+        wrap = newWrapper(false);
+        doc.appendChild(wrap);
+        wrappers.push(wrap);
+        wrap.appendChild(block); // a lone oversized block stays even if it still overflows
+      }
+    }
+    wrap.style.columnFill = "balance";
+    for (const old of stale) old.remove(); // now-empty previous wrappers + spacers
+
+    pagelayer.replaceChildren();
+    hflayer.replaceChildren();
+    const cardCount = wrappers.length;
+    for (let p = 0; p < cardCount; p++) {
+      const base = p * pageStep;
+      const card = document.createElement("div");
+      card.className = "docxedit-pagecard";
+      card.style.top = `${base}px`;
+      card.style.height = `${geometry.heightPx}px`;
+      pagelayer.appendChild(card);
+      if (header) {
+        const hc = mkClone(header, `top:${base + geometry.margin.top}px;left:0;width:100%`);
+        setCloneFields(hc, p + 1, cardCount);
+        hflayer.appendChild(hc);
+      }
+      if (footer) {
+        const fc = mkClone(footer, `top:${base + geometry.heightPx - contentBottomInset}px;left:0;width:100%`);
+        setCloneFields(fc, p + 1, cardCount);
+        hflayer.appendChild(fc);
+      }
+    }
+    page.style.minHeight = `${cardCount * pageStep - PAGE_GAP}px`;
+    decorateFields(cardCount, pageStep, false);
+    if (caretBlock && caretBlock.isConnected) placeCaret(caretBlock, caretOffset);
+  };
+
   const repaginate = () => {
     if (!paginated || editingBand) return;
     if (isVertical) return repaginateVertical();
+    if (columnCount > 1) return repaginateColumns();
     for (const s of Array.from(doc.querySelectorAll(":scope > .docxedit-pagespacer"))) s.remove();
     pagelayer.replaceChildren();
     hflayer.replaceChildren();
@@ -444,10 +585,15 @@ export function createRichEditor(container: HTMLElement, adapter: Adapter, optio
   // Body HTML for saving: the live doc minus pagination artifacts (inert spacers and the
   // transient page-top class the engine adds for alignment).
   const cleanBody = (): string => {
-    if (!doc.querySelector(".docxedit-pagespacer, .docxedit-pagetop")) return doc.innerHTML;
+    if (!doc.querySelector(".docxedit-pagespacer, .docxedit-pagetop, .docxedit-colpage")) return doc.innerHTML;
     const tmp = doc.cloneNode(true) as HTMLElement;
     for (const s of Array.from(tmp.querySelectorAll(".docxedit-pagespacer"))) s.remove();
     for (const el of Array.from(tmp.querySelectorAll(".docxedit-pagetop"))) el.classList.remove("docxedit-pagetop");
+    // Unwrap the per-page multi-column wrappers, lifting their blocks back to the flat body.
+    for (const w of Array.from(tmp.querySelectorAll(".docxedit-colpage"))) {
+      while (w.firstChild) w.parentNode!.insertBefore(w.firstChild, w);
+      w.remove();
+    }
     return tmp.innerHTML;
   };
 

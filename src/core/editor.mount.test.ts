@@ -149,4 +149,34 @@ describe("shared engine mount", () => {
     expect(out).toEqual(ODT);
     ed.destroy();
   });
+
+  it("paginates columns and strips the column wrappers on save", async () => {
+    const { strFromU8, unzipSync } = await import("fflate");
+    const doc = `<?xml version="1.0"?><w:document xmlns:w="http://schemas.openxmlformats.org/wordprocessingml/2006/main"><w:body>` +
+      "<w:p><w:r><w:t>Alpha</w:t></w:r></w:p><w:p><w:r><w:t>Beta</w:t></w:r></w:p><w:p><w:r><w:t>Gamma</w:t></w:r></w:p>" +
+      '<w:sectPr><w:pgSz w:w="11906" w:h="16838"/><w:cols w:num="2" w:space="720"/></w:sectPr></w:body></w:document>';
+    const docx = zipSync({
+      "[Content_Types].xml": strToU8("<Types/>"),
+      "_rels/.rels": strToU8("<Relationships/>"),
+      "word/document.xml": strToU8(doc),
+      "word/_rels/document.xml.rels": strToU8(`<Relationships xmlns="http://schemas.openxmlformats.org/package/2006/relationships"></Relationships>`),
+    });
+    const host = document.createElement("div");
+    document.body.appendChild(host);
+    const ed = createDocxEditor(host, docx);
+    // The body is wrapped into per-page column boxes for display.
+    expect(host.querySelector(".docxedit-colpage")).toBeTruthy();
+    // An edit makes it dirty; saving unwraps the column boxes back to flat paragraphs.
+    const p = host.querySelector(".docxedit-doc p")!;
+    p.firstChild!.textContent = "Alpha edited";
+    (host.querySelector(".docxedit-doc") as HTMLElement).dispatchEvent(new Event("input", { bubbles: true }));
+    const xml = strFromU8(unzipSync(await ed.getBytes())["word/document.xml"]!);
+    expect(xml).not.toContain("docxedit-colpage"); // wrappers stripped
+    expect(xml).toContain("Alpha edited");
+    expect(xml).toContain("Beta");
+    expect(xml).toContain("Gamma");
+    expect(xml).toContain("<w:cols"); // the column section is preserved
+    ed.destroy();
+    host.remove();
+  });
 });
