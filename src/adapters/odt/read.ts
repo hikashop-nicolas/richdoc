@@ -1,7 +1,7 @@
 // odt READ: parse an .odt archive into editable HTML, header/footer and comments. Pure
 // XML -> HTML; the write half lives in ./write.
 import { strFromU8, unzipSync } from "fflate";
-import { bytesToBase64 } from "../../core/util";
+import { bytesToBase64, imageLayoutAttrs } from "../../core/util";
 import { t } from "../../core/i18n";
 import type { CommentThread, PageGeometry } from "../../core/types";
 import { ODF_ALIGN, escapeHtml, escapeAttr, inlinePass, blockPass, passthroughAttr, FMT0, IMG_MIME } from "./shared";
@@ -177,14 +177,7 @@ function imageHtml(frame: Element, ctx: RCtx): string {
   const w = lenToPx(frame.getAttribute("svg:width"));
   const h = lenToPx(frame.getAttribute("svg:height"));
   const dims = (w ? ` width="${Math.round(w)}"` : "") + (h ? ` height="${Math.round(h)}"` : "");
-  const layout = readOdtLayout(frame, ctx.graphicStyles, lenToPx);
-  let lay = "";
-  if (layout) {
-    lay = ` data-rdoc-wrap="${layout.wrap}" data-rdoc-align="${layout.align}"`;
-    if (layout.wrap === "behind" || layout.wrap === "front") {
-      lay += ` data-rdoc-x="${layout.x}" data-rdoc-y="${layout.y}" style="left:${layout.x}px;top:${layout.y}px"`;
-    }
-  }
+  const lay = imageLayoutAttrs(readOdtLayout(frame, ctx.graphicStyles, lenToPx));
   const alt = frame.getElementsByTagName("svg:desc")[0]?.textContent ?? frame.getElementsByTagName("svg:title")[0]?.textContent ?? "";
   return `<img src="data:${mime};base64,${bytesToBase64(bytes)}" alt="${escapeAttr(alt)}" contenteditable="false"${passthroughAttr(frame)}${dims}${lay}>`;
 }
@@ -676,7 +669,7 @@ function readHeaderFooter(files: Record<string, Uint8Array>): { header: string; 
   const doc = new DOMParser().parseFromString(strFromU8(raw), "application/xml");
   const master = doc.getElementsByTagName("style:master-page")[0];
   if (!master) return { header: "", footer: "" };
-  const ctx: RCtx = { files, styles: collectTextStyles(doc), paras: collectParaStyles(doc), cellStyles: collectCellStyles(doc), tableMargins: collectTableMargins(doc), listStyles: collectListStyles(doc), namedStyles: new Set(), autoParent: new Map(), namedCharStyles: new Set(), textAutoParent: new Map(), threads: [], rangedNames: new Set(), openComment: new Set(), changes: new Map(), openIns: new Set(), graphicStyles: collectGraphicStyles(doc), paraBreaks: collectParaBreaks(doc), listStarts: collectListStarts(doc), listRun: { last: 0 }, tabStops: collectTabStops(doc, lenToPx) };
+  const ctx: RCtx = { files, styles: collectTextStyles(doc), paras: collectParaStyles(doc), cellStyles: collectCellStyles(doc), tableMargins: collectTableMargins(doc), listStyles: collectListStyles(doc), namedStyles: new Set(), autoParent: new Map(), namedCharStyles: new Set(), textAutoParent: new Map(), threads: [], rangedNames: new Set(), openComment: new Set(), changes: new Map(), openIns: new Set(), graphicStyles: collectGraphicStyles(doc, lenToPx), paraBreaks: collectParaBreaks(doc), listStarts: collectListStarts(doc), listRun: { last: 0 }, tabStops: collectTabStops(doc, lenToPx) };
   const render = (tag: string): string => {
     const el = master.getElementsByTagName(tag)[0];
     if (!el) return "";
@@ -723,14 +716,14 @@ export function odtToParts(bytes: Uint8Array): { body: string; comments: Comment
   );
   // Graphic styles (for image wrap) and paragraph breaks (for sections) can live in content.xml's
   // automatic styles or styles.xml; merge both, preferring content.xml.
-  const graphicStyles = collectGraphicStyles(doc);
+  const graphicStyles = collectGraphicStyles(doc, lenToPx);
   const paraBreaks = collectParaBreaks(doc);
   const listStarts = collectListStarts(doc);
   const tabStops = collectTabStops(doc, lenToPx);
   const stylesRaw = files["styles.xml"];
   if (stylesRaw) {
     const sdoc = new DOMParser().parseFromString(strFromU8(stylesRaw), "application/xml");
-    for (const [k, v] of collectGraphicStyles(sdoc)) if (!graphicStyles.has(k)) graphicStyles.set(k, v);
+    for (const [k, v] of collectGraphicStyles(sdoc, lenToPx)) if (!graphicStyles.has(k)) graphicStyles.set(k, v);
     for (const [k, v] of collectParaBreaks(sdoc)) if (!paraBreaks.has(k)) paraBreaks.set(k, v);
     for (const [k, v] of collectListStarts(sdoc)) if (!listStarts.has(k)) listStarts.set(k, v);
     for (const [k, v] of collectTabStops(sdoc, lenToPx)) if (!tabStops.has(k)) tabStops.set(k, v);

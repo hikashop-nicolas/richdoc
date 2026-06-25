@@ -43,10 +43,35 @@ export function imageLayoutFromEl(el: Element): ImageLayout | null {
   const wrap = el.getAttribute("data-rdoc-wrap") as ImageWrap | null;
   if (!wrap) return null;
   const a = el.getAttribute("data-rdoc-align");
+  // data-rdoc-wrapdist is "t,r,b,l" in px (the gap kept clear of text on each side).
+  const d = (el.getAttribute("data-rdoc-wrapdist") ?? "").split(",").map((n) => Number(n));
+  const dist = d.length === 4 && d.every((n) => Number.isFinite(n)) ? { t: d[0]!, r: d[1]!, b: d[2]!, l: d[3]! } : undefined;
   return {
     wrap,
     align: a === "right" || a === "center" ? a : "left",
     x: Number(el.getAttribute("data-rdoc-x")) || 0,
     y: Number(el.getAttribute("data-rdoc-y")) || 0,
+    dist,
   };
+}
+
+/** Build the data-rdoc-* attributes (and inline style) an adapter's reader puts on a floating
+ *  <img> from its layout. Shared so docx and odt render floating images identically. */
+export function imageLayoutAttrs(layout: ImageLayout | null): string {
+  if (!layout) return "";
+  let out = ` data-rdoc-wrap="${layout.wrap}" data-rdoc-align="${layout.align}"`;
+  const styles: string[] = [];
+  if (layout.wrap === "behind" || layout.wrap === "front") {
+    out += ` data-rdoc-x="${layout.x}" data-rdoc-y="${layout.y}"`;
+    styles.push(`left:${layout.x}px`, `top:${layout.y}px`);
+  }
+  if (layout.dist) {
+    const d = layout.dist;
+    out += ` data-rdoc-wrapdist="${d.t},${d.r},${d.b},${d.l}"`;
+    if (layout.wrap === "square" || layout.wrap === "tight" || layout.wrap === "topbottom") {
+      styles.push(`margin:${d.t}px ${d.r}px ${d.b}px ${d.l}px`); // the file's wrap padding
+    }
+  }
+  if (styles.length) out += ` style="${styles.join(";")}"`;
+  return out;
 }

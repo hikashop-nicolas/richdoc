@@ -14,11 +14,13 @@ export interface ImageLayoutDeps {
   reposition: () => void; // re-place the resize handle after a layout change moves the image
 }
 
-const WRAP_ICONS: Record<"inline" | "square" | "topbottom" | "behind" | "front", string> = {
+const WRAP_ICONS: Record<"inline" | "square" | "tight" | "topbottom" | "behind" | "front", string> = {
   inline:
     '<svg width="14" height="14" viewBox="0 0 16 16" aria-hidden="true"><rect x="1.5" y="5" width="5" height="6" rx="1" fill="currentColor"/><rect x="8" y="5.4" width="6.5" height="1.4" rx=".6" fill="currentColor"/><rect x="8" y="9.2" width="6.5" height="1.4" rx=".6" fill="currentColor"/></svg>',
   square:
     '<svg width="14" height="14" viewBox="0 0 16 16" aria-hidden="true"><rect x="1.5" y="2.5" width="6" height="6" rx="1" fill="currentColor"/><rect x="9" y="2.8" width="5.5" height="1.3" rx=".5" fill="currentColor"/><rect x="9" y="6" width="5.5" height="1.3" rx=".5" fill="currentColor"/><rect x="1.5" y="10.6" width="13" height="1.3" rx=".5" fill="currentColor"/><rect x="1.5" y="13.2" width="13" height="1.3" rx=".5" fill="currentColor"/></svg>',
+  tight:
+    '<svg width="14" height="14" viewBox="0 0 16 16" aria-hidden="true"><path d="M8 2.2 11 6 8 9.8 5 6z" fill="currentColor"/><rect x="11.5" y="3.2" width="3" height="1.2" rx=".5" fill="currentColor"/><rect x="12" y="6" width="2.5" height="1.2" rx=".5" fill="currentColor"/><rect x="1.5" y="3.2" width="3" height="1.2" rx=".5" fill="currentColor"/><rect x="1.5" y="6" width="2.5" height="1.2" rx=".5" fill="currentColor"/><rect x="1.5" y="11" width="13" height="1.3" rx=".5" fill="currentColor"/><rect x="1.5" y="13.4" width="13" height="1.3" rx=".5" fill="currentColor"/></svg>',
   topbottom:
     '<svg width="14" height="14" viewBox="0 0 16 16" aria-hidden="true"><rect x="1.5" y="1.5" width="13" height="1.3" rx=".5" fill="currentColor"/><rect x="1.5" y="3.9" width="13" height="1.3" rx=".5" fill="currentColor"/><rect x="4.5" y="6.4" width="7" height="3.2" rx="1" fill="currentColor"/><rect x="1.5" y="10.8" width="13" height="1.3" rx=".5" fill="currentColor"/><rect x="1.5" y="13.2" width="13" height="1.3" rx=".5" fill="currentColor"/></svg>',
   behind:
@@ -58,8 +60,8 @@ export function setupImageLayout(deps: ImageLayoutDeps) {
   const setWrap = (mode: "inline" | ImageWrap): void => {
     if (!img) return;
     if (mode === "inline") {
-      for (const a of ["data-rdoc-wrap", "data-rdoc-align", "data-rdoc-x", "data-rdoc-y"]) img.removeAttribute(a);
-      img.style.left = img.style.top = "";
+      for (const a of ["data-rdoc-wrap", "data-rdoc-align", "data-rdoc-x", "data-rdoc-y", "data-rdoc-wrapdist"]) img.removeAttribute(a);
+      img.style.cssText = ""; // drop the left/top/margin the floating layout set
     } else {
       if ((mode === "behind" || mode === "front") && !img.getAttribute("data-rdoc-wrap")) {
         const x = img.offsetLeft;
@@ -96,6 +98,7 @@ export function setupImageLayout(deps: ImageLayoutDeps) {
   const wrapBtns: Record<string, HTMLButtonElement> = {
     inline: mkBtn(WRAP_ICONS.inline, t("wrapInline"), () => setWrap("inline")),
     square: mkBtn(WRAP_ICONS.square, t("wrapSquare"), () => setWrap("square")),
+    tight: mkBtn(WRAP_ICONS.tight, t("wrapTight"), () => setWrap("tight")),
     topbottom: mkBtn(WRAP_ICONS.topbottom, t("wrapTopBottom"), () => setWrap("topbottom")),
     behind: mkBtn(WRAP_ICONS.behind, t("wrapBehind"), () => setWrap("behind")),
     front: mkBtn(WRAP_ICONS.front, t("wrapFront"), () => setWrap("front")),
@@ -119,7 +122,7 @@ export function setupImageLayout(deps: ImageLayoutDeps) {
     e.stopPropagation();
     editAlt();
   });
-  bar.append(wrapBtns.inline!, wrapBtns.square!, wrapBtns.topbottom!, wrapBtns.behind!, wrapBtns.front!, sep, alignBtns.left!, alignBtns.center!, alignBtns.right!, sep2, altBtn);
+  bar.append(wrapBtns.inline!, wrapBtns.square!, wrapBtns.tight!, wrapBtns.topbottom!, wrapBtns.behind!, wrapBtns.front!, sep, alignBtns.left!, alignBtns.center!, alignBtns.right!, sep2, altBtn);
   wrap.appendChild(bar);
 
   // Reflect the image's current wrap/align on the buttons; hide alignment for behind/front.

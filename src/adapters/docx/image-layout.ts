@@ -30,7 +30,11 @@ export function readLayout(run: Element): ImageLayout | null {
   const align = alignH === "right" || alignH === "center" ? alignH : "left";
   const x = emuToPx(posH?.getElementsByTagName("wp:posOffset")[0]?.textContent);
   const y = emuToPx(posV?.getElementsByTagName("wp:posOffset")[0]?.textContent);
-  return { wrap, align, x, y };
+  const hasDist = ["distT", "distR", "distB", "distL"].some((a) => anchor.hasAttribute(a));
+  const dist = hasDist
+    ? { t: emuToPx(anchor.getAttribute("distT")), r: emuToPx(anchor.getAttribute("distR")), b: emuToPx(anchor.getAttribute("distB")), l: emuToPx(anchor.getAttribute("distL")) }
+    : undefined;
+  return { wrap, align, x, y, dist };
 }
 
 const el = (doc: Document, name: string): Element => doc.createElementNS(WP_NS, name);
@@ -95,7 +99,9 @@ export function makeContainer(
     return inline;
   }
   const anchor = el(doc, "wp:anchor");
-  for (const [k, v] of Object.entries({ distT: "0", distB: "0", distL: "114300", distR: "114300", simplePos: "0", relativeHeight: "251658240", behindDoc: layout.wrap === "behind" ? "1" : "0", locked: "0", layoutInCell: "1", allowOverlap: "1" })) anchor.setAttribute(k, v);
+  const d = layout.dist;
+  const dist = { distT: String(d ? pxToEmu(d.t) : 0), distB: String(d ? pxToEmu(d.b) : 0), distL: String(d ? pxToEmu(d.l) : 114300), distR: String(d ? pxToEmu(d.r) : 114300) };
+  for (const [k, v] of Object.entries({ ...dist, simplePos: "0", relativeHeight: "251658240", behindDoc: layout.wrap === "behind" ? "1" : "0", locked: "0", layoutInCell: "1", allowOverlap: "1" })) anchor.setAttribute(k, v);
   const simple = el(doc, "wp:simplePos");
   simple.setAttribute("x", "0");
   simple.setAttribute("y", "0");

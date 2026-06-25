@@ -12,20 +12,25 @@ export interface GraphicStyleInfo {
   wrap?: string; // style:wrap
   runThrough?: string; // style:run-through (background = behind, foreground = in front)
   hpos?: string; // style:horizontal-pos
+  dist?: { t: number; r: number; b: number; l: number }; // fo:margin-* (wrap padding, px)
 }
 
 /** Index every graphic-family style in a document by name -> its wrap properties. */
-export function collectGraphicStyles(doc: Document): Map<string, GraphicStyleInfo> {
+export function collectGraphicStyles(doc: Document, lenToPx: (v: string | null) => number | undefined): Map<string, GraphicStyleInfo> {
   const map = new Map<string, GraphicStyleInfo>();
   for (const st of Array.from(doc.getElementsByTagName("style:style"))) {
     if (st.getAttribute("style:family") !== "graphic") continue;
     const name = st.getAttribute("style:name");
     if (!name) continue;
     const gp = st.getElementsByTagName("style:graphic-properties")[0];
+    const hasMargin = gp && ["fo:margin-top", "fo:margin-right", "fo:margin-bottom", "fo:margin-left"].some((a) => gp.hasAttribute(a));
     map.set(name, {
       wrap: gp?.getAttribute("style:wrap") ?? undefined,
       runThrough: gp?.getAttribute("style:run-through") ?? undefined,
       hpos: gp?.getAttribute("style:horizontal-pos") ?? undefined,
+      dist: hasMargin
+        ? { t: Math.round(lenToPx(gp!.getAttribute("fo:margin-top")) ?? 0), r: Math.round(lenToPx(gp!.getAttribute("fo:margin-right")) ?? 0), b: Math.round(lenToPx(gp!.getAttribute("fo:margin-bottom")) ?? 0), l: Math.round(lenToPx(gp!.getAttribute("fo:margin-left")) ?? 0) }
+        : undefined,
     });
   }
   return map;
@@ -44,13 +49,14 @@ export function readOdtLayout(frame: Element, gmap: Map<string, GraphicStyleInfo
   const align = gs?.hpos === "right" || gs?.hpos === "center" ? gs.hpos : "left";
   const x = lenToPx(frame.getAttribute("svg:x")) ?? 0;
   const y = lenToPx(frame.getAttribute("svg:y")) ?? 0;
-  return { wrap, align, x, y };
+  return { wrap, align, x, y, dist: gs?.dist };
 }
 
 /** Create (once) an automatic graphic style for a wrap mode + alignment; return its name. */
 export function graphicStyleFor(doc: Document, auto: Element, created: Map<string, string>, layout: ImageLayout): string {
   const absolute = layout.wrap === "behind" || layout.wrap === "front";
-  const key = `g_${layout.wrap}_${absolute ? "abs" : layout.align}`;
+  const d = layout.dist;
+  const key = `g_${layout.wrap}_${absolute ? "abs" : layout.align}_${d ? `${d.t},${d.r},${d.b},${d.l}` : ""}`;
   const existing = created.get(key);
   if (existing) return existing;
   const name = `OT_fr${created.size}`;
@@ -65,6 +71,12 @@ export function graphicStyleFor(doc: Document, auto: Element, created: Map<strin
   gp.setAttributeNS(NS.style, "style:horizontal-rel", "paragraph");
   gp.setAttributeNS(NS.style, "style:vertical-pos", absolute ? "from-top" : "top");
   gp.setAttributeNS(NS.style, "style:vertical-rel", "paragraph");
+  if (d) {
+    gp.setAttributeNS(NS.fo, "fo:margin-top", pxToCm(d.t));
+    gp.setAttributeNS(NS.fo, "fo:margin-right", pxToCm(d.r));
+    gp.setAttributeNS(NS.fo, "fo:margin-bottom", pxToCm(d.b));
+    gp.setAttributeNS(NS.fo, "fo:margin-left", pxToCm(d.l));
+  }
   st.appendChild(gp);
   auto.appendChild(st);
   created.set(key, name);

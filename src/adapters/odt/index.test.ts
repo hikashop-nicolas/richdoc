@@ -265,6 +265,21 @@ describe("odt images (draw:frame)", () => {
     expect(html).toContain('alt="a cat"');
   });
 
+  it("round-trips a floating frame's wrap distances", () => {
+    const content = `<?xml version="1.0"?><office:document-content ${FLOAT_ROOT} xmlns:fo="urn:oasis:names:tc:opendocument:xmlns:xsl-fo-compatible:1.0">` +
+      "<office:automatic-styles>" +
+      '<style:style style:name="fr1" style:family="graphic"><style:graphic-properties style:wrap="parallel" style:horizontal-pos="left" fo:margin-left="0.635cm" fo:margin-right="0.635cm" fo:margin-top="0cm" fo:margin-bottom="0cm"/></style:style>' +
+      "</office:automatic-styles><office:body><office:text>" +
+      '<text:p>hi<draw:frame text:anchor-type="paragraph" draw:style-name="fr1" svg:width="2.54cm" svg:height="1.27cm"><draw:image xlink:href="Pictures/p.png"/></draw:frame></text:p>' +
+      "</office:text></office:body></office:document-content>";
+    const odt = makeImgOdt(content);
+    const html = odtToHtml(odt);
+    expect(html).toContain('data-rdoc-wrapdist="0,24,0,24"'); // 0.635cm = 24px
+    const xml = strFromU8(unzipSync(htmlToOdt(html.replace(">hi<", ">HI<"), odt))["content.xml"]);
+    expect(xml).toMatch(/fo:margin-left="0.635cm"/);
+    expect(xml).toMatch(/fo:margin-right="0.635cm"/);
+  });
+
   it("writes a wrapped image as an anchored frame + graphic style", () => {
     const base = `<?xml version="1.0"?><office:document-content ${FLOAT_ROOT}><office:body><office:text><text:p/></office:text></office:body></office:document-content>`;
     const out = htmlToOdt('<p><img src="data:image/png;base64,AQIDBAU=" width="100" height="50" data-rdoc-wrap="square" data-rdoc-align="left"></p>', makeImgOdt(base));

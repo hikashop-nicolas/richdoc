@@ -93,8 +93,8 @@ describe("shared engine mount", () => {
     expect(bar.hidden).toBe(true); // hidden until an image is selected
     img.click(); // select it -> the layout toolbar appears
     expect(bar.hidden).toBe(false);
-    // The "behind text" button is the 4th wrap button; clicking it changes the wrap.
-    const behindBtn = bar.querySelectorAll(".docxedit-imgbar-btn")[3] as HTMLButtonElement;
+    // Clicking "Behind text" changes the wrap mode (found by title, not position).
+    const behindBtn = [...bar.querySelectorAll(".docxedit-imgbar-btn")].find((b) => b.getAttribute("title") === "Behind text") as HTMLButtonElement;
     behindBtn.click();
     expect(img.getAttribute("data-rdoc-wrap")).toBe("behind");
     expect(ed.isDirty()).toBe(true);

@@ -279,6 +279,17 @@ describe("docx <-> html", () => {
     expect(xml).toContain("rId100"); // the original picture relationship is preserved
   });
 
+  it("round-trips a floating image's wrap distances (text padding)", () => {
+    const drawing = anchorImg('<wp:wrapSquare wrapText="bothSides"/>', '<wp:positionH relativeFrom="column"><wp:align>left</wp:align></wp:positionH>')
+      .replace('behindDoc="0"', 'behindDoc="0" distT="0" distB="0" distL="228600" distR="228600"');
+    const docx = imgDocx(drawing);
+    const html = docxToHtml(docx);
+    expect(html).toContain('data-rdoc-wrapdist="0,24,0,24"'); // 228600 EMU = 24px (t,r,b,l)
+    const xml = strFromU8(unzipSync(htmlToDocx(html, docx))["word/document.xml"]);
+    expect(xml).toMatch(/distL="228600"/);
+    expect(xml).toMatch(/distR="228600"/);
+  });
+
   it("converts an inline image to wrap text when the toolbar sets a wrap mode", () => {
     const inline =
       '<w:r><w:drawing><wp:inline xmlns:wp="http://schemas.openxmlformats.org/drawingml/2006/wordprocessingDrawing">' +

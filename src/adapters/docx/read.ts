@@ -2,7 +2,7 @@
 // page geometry. Pure XML -> HTML; the write half lives in ./write.
 import { strFromU8, unzipSync } from "fflate";
 import { t } from "../../core/i18n";
-import { bytesToBase64 } from "../../core/util";
+import { bytesToBase64, imageLayoutAttrs } from "../../core/util";
 import type { CommentEntry, CommentThread, PageGeometry } from "../../core/types";
 import { W, R, XMLNS, NS_DECLS, IMG_MIME, escapeHtml, escapeAttr, HL_CSS, JC_TO_ALIGN } from "./shared";
 import type { Fmt } from "./shared";
@@ -211,14 +211,7 @@ function imageHtml(run: Element, ctx: RenderCtx): string {
   const dims = wpx ? ` width="${wpx}"${cy ? ` height="${cy}"` : ""}` : "";
   // A floating (anchored) image: surface its wrap mode + position so it renders out of line
   // and the image toolbar can edit it. Inline images carry no layout attributes.
-  const layout = readLayout(run);
-  let lay = "";
-  if (layout) {
-    lay = ` data-rdoc-wrap="${layout.wrap}" data-rdoc-align="${layout.align}"`;
-    if (layout.wrap === "behind" || layout.wrap === "front") {
-      lay += ` data-rdoc-x="${layout.x}" data-rdoc-y="${layout.y}" style="left:${layout.x}px;top:${layout.y}px"`;
-    }
-  }
+  const lay = imageLayoutAttrs(readLayout(run));
   const altText = run.getElementsByTagName("wp:docPr")[0]?.getAttribute("descr") ?? "";
   return `<img src="data:${mime};base64,${bytesToBase64(bytes)}" alt="${escapeAttr(altText)}" contenteditable="false"${pass}${dims}${lay}>`;
 }

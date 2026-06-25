@@ -26,12 +26,14 @@ export interface CommentThread extends CommentEntry {
 /** How a floating image sits relative to the text. Absent on the element = "inline". */
 export type ImageWrap = "square" | "tight" | "topbottom" | "behind" | "front";
 
-/** A floating image's wrap mode, alignment, and (for behind/front) absolute px offset. */
+/** A floating image's wrap mode, alignment, absolute px offset (behind/front), and the
+ *  distance (px) kept clear of the text on each side. */
 export interface ImageLayout {
   wrap: ImageWrap;
   align: "left" | "center" | "right";
   x: number; // px offset from the anchor (behind/front only)
   y: number; // px offset from the anchor (behind/front only)
+  dist?: { t: number; r: number; b: number; l: number }; // wrap padding; omitted = adapter default
 }
 
 /** A named default page size used when a document carries no geometry of its own. */

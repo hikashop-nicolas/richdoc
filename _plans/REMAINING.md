@@ -37,10 +37,11 @@ context (a paragraph, or the document body) is regenerated from the edited HTML.
   tab stops (the browser's `tab-size`, i.e. the default 0.5in grid); Tab inserts one,
   Shift+Tab removes it; copy/paste yields a real tab. A paragraph's custom tab stops
   are preserved through edits.
-- **Floating / anchored images + text wrap**: inline, wrap (square), break
-  (top-and-bottom), behind text, in front of text; alignment; alt text; behind /
-  front are draggable to position. An on-select image toolbar drives it; docx maps
-  to `wp:anchor` (wrap + positionH/V), odt to a `draw:frame` + graphic style. The
+- **Floating / anchored images + text wrap**: inline, wrap (square), tight, break
+  (top-and-bottom), behind text, in front of text; alignment; alt text; the wrap
+  padding (distance kept clear of text) round-trips; behind / front are draggable to
+  position. An on-select image toolbar drives it; docx maps to `wp:anchor` (wrap +
+  positionH/V + dist), odt to a `draw:frame` + graphic style (wrap + fo:margins). The
   picture relationship is reused on save, so size/wrap edits never re-embed.
 - Comments (+ replies, reactions, resolve) and tracked changes (insert / delete /
   formatting change).
@@ -73,11 +74,11 @@ because their context is regenerated. This is the work for "feature complete".
    its inheritance (see bucket A), but the dialog still only *authors* the common
    properties; tab stops, borders and the long tail cannot yet be set from the UI
    (tab stops overlap with C3).
-5. **Image layout fine detail.** Wrap + alignment + behind/front offset round-trip,
-   but the offset is approximate (mapped to a CSS-positioned element, not a Word
-   layout engine), the toolbar exposes "wrap" as square (a file's `wrapTight` is
-   preserved on read but authored as square), and distT/distB wrap padding uses a
-   fixed default rather than the file's own values.
+5. **Image layout fine detail.** Wrap mode (incl. tight), alignment, behind/front
+   offset and wrap padding now round-trip and are authorable. What remains is minor:
+   square/tight use alignment only (a file's exact `posOffset` for a wrapped image is
+   not honored), and behind/front offsets map to a CSS-positioned element rather than
+   a true layout engine.
 
 ---
 
