@@ -47,6 +47,8 @@ interface RCtx {
   cellStyles: Map<string, CellBorders>;
   tableMargins: Map<string, number>; // table style-name -> left indent (px)
   listStyles: Map<string, boolean[]>; // list style-name -> per-level ordered flag
+  namedStyles: Set<string>; // ids of named paragraph styles (from styles.xml)
+  autoParent: Map<string, string>; // automatic style-name -> its parent style-name
   threads: CommentThread[]; // comments collected while rendering, for the panel
   rangedNames: Set<string>; // annotation names that have a matching annotation-end
   openComment: Set<string>; // comment ranges currently open (reopened per paragraph)
@@ -237,6 +239,83 @@ function collectListStyles(doc: Document): Map<string, boolean[]> {
   return map;
 }
 
+const cssAttrValue = (v: string): string => v.replace(/[\\"]/g, "\\$&");
+
+/** Read named paragraph styles from styles.xml into a picker list, the CSS giving each its
+    appearance (keyed on data-rdoc-style), and the set of named-style ids, resolving parents. */
+function readOdtParagraphStyles(stylesXml: Uint8Array | undefined): { styles: { id: string; name: string }[]; css: string; named: Set<string> } {
+  const named = new Set<string>();
+  if (!stylesXml) return { styles: [], css: "", named };
+  const doc = new DOMParser().parseFromString(strFromU8(stylesXml), "application/xml");
+  const styleEls = Array.from(doc.getElementsByTagName("style:style")).filter((s) => s.getAttribute("style:family") === "paragraph");
+  const byId = new Map<string, Element>();
+  for (const s of styleEls) {
+    const id = s.getAttribute("style:name");
+    if (id) byId.set(id, s);
+  }
+  const cssFor = (id: string, seen: Set<string>): Record<string, string> => {
+    const s = byId.get(id);
+    if (!s || seen.has(id)) return {};
+    seen.add(id);
+    const parent = s.getAttribute("style:parent-style-name");
+    const out: Record<string, string> = parent ? cssFor(parent, seen) : {};
+    const pp = s.getElementsByTagName("style:paragraph-properties")[0];
+    const tp = s.getElementsByTagName("style:text-properties")[0];
+    const align = ODF_ALIGN[pp?.getAttribute("fo:text-align") ?? ""];
+    if (align && align !== "left") out["text-align"] = align;
+    const ml = lenToPx(pp?.getAttribute("fo:margin-left"));
+    if (ml && ml > 0) out["margin-left"] = `${Math.round(ml)}px`;
+    const mt = pp?.getAttribute("fo:margin-top");
+    const mb = pp?.getAttribute("fo:margin-bottom");
+    if (mt != null) out["margin-top"] = `${Math.round(lenToPx(mt) ?? 0)}px`;
+    if (mb != null) out["margin-bottom"] = `${Math.round(lenToPx(mb) ?? 0)}px`;
+    const lh = pp?.getAttribute("fo:line-height");
+    if (lh && lh.endsWith("%")) out["line-height"] = String(Math.round((parseFloat(lh) / 100) * 100) / 100);
+    const fw = tp?.getAttribute("fo:font-weight");
+    if (fw) out["font-weight"] = /bold|[6-9]00/.test(fw) ? "bold" : "normal";
+    const fs = tp?.getAttribute("fo:font-style");
+    if (fs) out["font-style"] = fs === "italic" ? "italic" : "normal";
+    const deco: string[] = [];
+    if ((tp?.getAttribute("style:text-underline-style") ?? "none") !== "none") deco.push("underline");
+    if ((tp?.getAttribute("style:text-line-through-style") ?? "none") !== "none") deco.push("line-through");
+    if (deco.length) out["text-decoration"] = deco.join(" ");
+    const color = tp?.getAttribute("fo:color");
+    if (color && /^#[0-9a-f]{6}$/i.test(color)) out["color"] = color;
+    const sz = tp?.getAttribute("fo:font-size");
+    if (sz && sz.endsWith("pt")) out["font-size"] = sz;
+    const font = tp?.getAttribute("fo:font-family") ?? tp?.getAttribute("style:font-name");
+    if (font) out["font-family"] = `'${font.replace(/'/g, "")}'`;
+    return out;
+  };
+  const styles: { id: string; name: string }[] = [];
+  let css = "";
+  for (const [id, s] of byId) {
+    if (/^heading(_20_)?[1-9]$/i.test(id)) continue; // headings use the H1-H3 entries
+    if (id === "Standard" || s.getAttribute("style:class") === "extra") continue; // base/index styles
+    named.add(id);
+    const name = (s.getAttribute("style:display-name") || id).replace(/_20_/g, " ");
+    styles.push({ id, name });
+    const decls = cssFor(id, new Set());
+    const body = Object.entries(decls).map(([k, v]) => `${k}:${v}`).join(";");
+    if (body) css += `.docxedit-doc [data-rdoc-style="${cssAttrValue(id)}"]{${body}}\n`;
+  }
+  styles.sort((a, b) => a.name.localeCompare(b.name));
+  return { styles, css, named };
+}
+
+/** Map an automatic paragraph style-name -> its parent style-name (from content.xml), so a
+    paragraph that uses an automatic style derived from a named style still shows that style. */
+function collectAutoParents(doc: Document): Map<string, string> {
+  const map = new Map<string, string>();
+  for (const s of Array.from(doc.getElementsByTagName("style:style"))) {
+    if (s.getAttribute("style:family") !== "paragraph") continue;
+    const id = s.getAttribute("style:name");
+    const parent = s.getAttribute("style:parent-style-name");
+    if (id && parent) map.set(id, parent);
+  }
+  return map;
+}
+
 /** Map table style-name -> left indent (px) from fo:margin-left on the table style. */
 function collectTableMargins(doc: Document): Map<string, number> {
   const map = new Map<string, number>();
@@ -416,6 +495,13 @@ function blockToHtml(el: Element, ctx: RCtx): string {
     if (pf.spaceAfterPx !== undefined) css.push(`margin-bottom:${pf.spaceAfterPx}px`);
     return css.length ? ` style="${css.join(";")}"` : "";
   };
+  // The named paragraph style behind this block: a direct reference, or the parent of an
+  // automatic style. Recorded as data-rdoc-style so it round-trips and drives the style CSS.
+  const namedAttr = (): string => {
+    const sn = el.getAttribute("text:style-name") ?? "";
+    const eff = ctx.namedStyles.has(sn) ? sn : ctx.namedStyles.has(ctx.autoParent.get(sn) ?? "") ? ctx.autoParent.get(sn)! : "";
+    return eff ? ` data-rdoc-style="${escapeAttr(eff)}"` : "";
+  };
   switch (el.tagName) {
     case "text:h": {
       const lvl = Math.min(3, Math.max(1, parseInt(el.getAttribute("text:outline-level") ?? "1", 10) || 1));
@@ -428,7 +514,7 @@ function blockToHtml(el: Element, ctx: RCtx): string {
       return odtTableHtml(el, ctx);
     case "text:p": {
       const inner = inlineToHtml(el, ctx);
-      return `<p${alignAttr()}>${inner || "<br>"}</p>`;
+      return `<p${alignAttr()}${namedAttr()}>${inner || "<br>"}</p>`;
     }
     default:
       // Tables, tracked-changes, sequence-decls, sections, ... preserved verbatim.
@@ -443,7 +529,7 @@ function readHeaderFooter(files: Record<string, Uint8Array>): { header: string; 
   const doc = new DOMParser().parseFromString(strFromU8(raw), "application/xml");
   const master = doc.getElementsByTagName("style:master-page")[0];
   if (!master) return { header: "", footer: "" };
-  const ctx: RCtx = { files, styles: collectTextStyles(doc), paras: collectParaStyles(doc), cellStyles: collectCellStyles(doc), tableMargins: collectTableMargins(doc), listStyles: collectListStyles(doc), threads: [], rangedNames: new Set(), openComment: new Set(), changes: new Map(), openIns: new Set() };
+  const ctx: RCtx = { files, styles: collectTextStyles(doc), paras: collectParaStyles(doc), cellStyles: collectCellStyles(doc), tableMargins: collectTableMargins(doc), listStyles: collectListStyles(doc), namedStyles: new Set(), autoParent: new Map(), threads: [], rangedNames: new Set(), openComment: new Set(), changes: new Map(), openIns: new Set() };
   const render = (tag: string): string => {
     const el = master.getElementsByTagName(tag)[0];
     if (!el) return "";
@@ -473,10 +559,11 @@ function parsePageGeometry(files: Record<string, Uint8Array>): PageGeometry | un
   return { widthPx: Math.round(w), heightPx: Math.round(h), margin: { top: m("top"), right: m("right"), bottom: m("bottom"), left: m("left") }, vertical, rtl };
 }
 
-export function odtToParts(bytes: Uint8Array): { body: string; comments: CommentThread[]; header: string; footer: string; page?: PageGeometry } {
+export function odtToParts(bytes: Uint8Array): { body: string; comments: CommentThread[]; header: string; footer: string; page?: PageGeometry; paragraphStyles?: { id: string; name: string }[]; styleCss?: string } {
   const files = unzipSync(bytes);
   const { header, footer } = readHeaderFooter(files);
   const page = parsePageGeometry(files);
+  const ps = readOdtParagraphStyles(files["styles.xml"]);
   const content = files["content.xml"];
   if (!content) return { body: "", comments: [], header, footer, page };
   const doc = new DOMParser().parseFromString(strFromU8(content), "application/xml");
@@ -487,13 +574,13 @@ export function odtToParts(bytes: Uint8Array): { body: string; comments: Comment
       .map((e) => e.getAttribute("office:name"))
       .filter((n): n is string => !!n),
   );
-  const ctx: RCtx = { files, styles: collectTextStyles(doc), paras: collectParaStyles(doc), cellStyles: collectCellStyles(doc), tableMargins: collectTableMargins(doc), listStyles: collectListStyles(doc), threads: [], rangedNames, openComment: new Set(), changes: readChanges(body), openIns: new Set() };
+  const ctx: RCtx = { files, styles: collectTextStyles(doc), paras: collectParaStyles(doc), cellStyles: collectCellStyles(doc), tableMargins: collectTableMargins(doc), listStyles: collectListStyles(doc), namedStyles: ps.named, autoParent: collectAutoParents(doc), threads: [], rangedNames, openComment: new Set(), changes: readChanges(body), openIns: new Set() };
   let html = "";
   for (const block of Array.from(body.children)) {
     if (block.tagName === "text:tracked-changes") continue; // metadata, parsed into ctx.changes
     html += blockToHtml(block, ctx);
   }
-  return { body: html || "<p><br></p>", comments: ctx.threads, header, footer, page };
+  return { body: html || "<p><br></p>", comments: ctx.threads, header, footer, page, paragraphStyles: ps.styles, styleCss: ps.css };
 }
 
 /** Convert an .odt's body to HTML. Returns "" if there is no editable text body. */

@@ -57,21 +57,23 @@ function styleFor(doc: Document, auto: Element, created: Map<string, string>, f:
 }
 
 /** Create (once) a paragraph style for an alignment and return its name. */
-function paraStyleFor(doc: Document, auto: Element, created: Map<string, string>, p: { align?: string; indentPx?: number; lineHeight?: number; spaceBeforePx?: number; spaceAfterPx?: number }): string | null {
+function paraStyleFor(doc: Document, auto: Element, created: Map<string, string>, p: { align?: string; indentPx?: number; lineHeight?: number; spaceBeforePx?: number; spaceAfterPx?: number; parent?: string }): string | null {
   const a = p.align ? ODF_ALIGN[p.align] : undefined;
   const align = a && a !== "left" ? a : undefined;
   const indentPx = p.indentPx && p.indentPx > 0 ? Math.round(p.indentPx) : undefined;
   const lineHeight = p.lineHeight && p.lineHeight > 0 ? p.lineHeight : undefined;
   const before = p.spaceBeforePx; // may be 0 (explicit "no space"); undefined = not set
   const after = p.spaceAfterPx;
+  // With no direct formatting, the caller references the named (parent) style directly.
   if (!align && !indentPx && !lineHeight && before === undefined && after === undefined) return null;
-  const key = `p_${align ?? ""}_${indentPx ?? ""}_${lineHeight ?? ""}_${before ?? ""}_${after ?? ""}`;
+  const key = `p_${align ?? ""}_${indentPx ?? ""}_${lineHeight ?? ""}_${before ?? ""}_${after ?? ""}_${p.parent ?? ""}`;
   const existing = created.get(key);
   if (existing) return existing;
   const name = `OT_p${created.size}`;
   const st = doc.createElementNS(NS.style, "style:style");
   st.setAttributeNS(NS.style, "style:name", name);
   st.setAttributeNS(NS.style, "style:family", "paragraph");
+  if (p.parent) st.setAttributeNS(NS.style, "style:parent-style-name", p.parent); // direct formatting over a named style
   const pp = doc.createElementNS(NS.style, "style:paragraph-properties");
   if (align) pp.setAttributeNS(NS.fo, "fo:text-align", align === "right" ? "end" : align === "center" ? "center" : "justify");
   if (indentPx) pp.setAttributeNS(NS.fo, "fo:margin-left", `${Math.round((indentPx / (96 / 2.54)) * 1000) / 1000}cm`);
@@ -611,14 +613,18 @@ function htmlBlockToOdf(node: Node, ctx: OdfCtx): Element | null {
   if (stash) return importPassthrough(ctx.doc, stash);
   if (tag === "ul" || tag === "ol") return htmlListToOdf(el, ctx);
   const applyAlign = (block: Element): void => {
+    const base = el.getAttribute("data-rdoc-style") || undefined; // a named paragraph style
     const name = paraStyleFor(ctx.doc, ctx.auto, ctx.created, {
       align: el.style.textAlign || undefined,
       indentPx: parseFloat(el.style.marginLeft) || undefined,
       lineHeight: parseFloat(el.style.lineHeight) || undefined,
       spaceBeforePx: el.style.marginTop !== "" ? parseFloat(el.style.marginTop) || 0 : undefined,
       spaceAfterPx: el.style.marginBottom !== "" ? parseFloat(el.style.marginBottom) || 0 : undefined,
+      parent: base,
     });
+    // direct formatting -> an automatic style (parented to the named one); otherwise the named style itself
     if (name) block.setAttributeNS(NS.text, "text:style-name", name);
+    else if (base) block.setAttributeNS(NS.text, "text:style-name", base);
   };
   const m = /^h([1-6])$/.exec(tag);
   if (m) {

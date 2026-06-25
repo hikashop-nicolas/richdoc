@@ -340,12 +340,13 @@ function makeParagraph(ctx: DocxCtx, src: HTMLElement, opts: { heading?: number;
   const beforePx = parseFloat(src.style.marginTop) || 0;
   const afterPx = parseFloat(src.style.marginBottom) || 0;
   const revPara = src.getAttribute("data-rev-para"); // "ins" | "del" paragraph-mark revision
+  const namedStyle = !opts.heading ? src.getAttribute("data-rdoc-style") : null; // a non-heading named style
   const listIds = opts.list ? ensureListNumbering(ctx) : null;
-  if (opts.heading || listIds || jc || revPara || indentPx > 0 || lineHeight > 0 || hasBefore || hasAfter) {
+  if (opts.heading || namedStyle || listIds || jc || revPara || indentPx > 0 || lineHeight > 0 || hasBefore || hasAfter) {
     const pPr = ctx.doc.createElementNS(W, "w:pPr");
-    if (opts.heading) {
+    if (opts.heading || namedStyle) {
       const st = ctx.doc.createElementNS(W, "w:pStyle");
-      st.setAttributeNS(W, "w:val", `Heading${opts.heading}`);
+      st.setAttributeNS(W, "w:val", opts.heading ? `Heading${opts.heading}` : namedStyle!);
       pPr.appendChild(st);
     }
     if (listIds) {

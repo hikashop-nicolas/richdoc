@@ -37,6 +37,8 @@ export function createOdtAdapter(bytes: Uint8Array): Adapter {
         footerPath: parts.footer ? "footer" : undefined,
         comments: parts.comments,
         page: parts.page,
+        paragraphStyles: parts.paragraphStyles,
+        styleCss: parts.styleCss,
       };
     },
     write(bodyHtml: string, parts: { path: string; html: string }[], edits: CommentEdits, page?: PageGeometry): Uint8Array {

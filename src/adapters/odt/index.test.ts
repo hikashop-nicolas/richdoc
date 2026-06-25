@@ -586,3 +586,40 @@ describe("odt list fidelity: nesting and ordered/bullet", () => {
     expect((back.match(/sub/g) ?? []).length).toBe(1);
   });
 });
+
+describe("odt named paragraph styles", () => {
+  const STYLES = `<?xml version="1.0"?>
+<office:document-styles xmlns:office="urn:oasis:names:tc:opendocument:xmlns:office:1.0" xmlns:style="urn:oasis:names:tc:opendocument:xmlns:style:1.0" xmlns:fo="urn:oasis:names:tc:opendocument:xmlns:xsl-fo-compatible:1.0">
+ <office:styles>
+  <style:style style:name="Standard" style:family="paragraph"/>
+  <style:style style:name="Quote" style:display-name="Quote" style:family="paragraph">
+   <style:paragraph-properties fo:margin-left="1cm"/><style:text-properties fo:font-style="italic"/>
+  </style:style>
+ </office:styles>
+</office:document-styles>`;
+  const CONTENT = `<?xml version="1.0"?>
+<office:document-content xmlns:office="urn:oasis:names:tc:opendocument:xmlns:office:1.0" xmlns:text="urn:oasis:names:tc:opendocument:xmlns:text:1.0" xmlns:style="urn:oasis:names:tc:opendocument:xmlns:style:1.0" xmlns:fo="urn:oasis:names:tc:opendocument:xmlns:xsl-fo-compatible:1.0">
+ <office:body><office:text><text:p text:style-name="Quote">quoted</text:p></office:text></office:body></office:document-content>`;
+  const makeStyledOdt = () => zipSync({
+    mimetype: [strToU8("application/vnd.oasis.opendocument.text"), { level: 0 }],
+    "content.xml": strToU8(CONTENT),
+    "styles.xml": strToU8(STYLES),
+    "META-INF/manifest.xml": strToU8("<m/>"),
+  });
+
+  it("lists named styles (excluding Standard) and emits their CSS", () => {
+    const parts = odtToParts(makeStyledOdt());
+    const ids = (parts.paragraphStyles ?? []).map((s) => s.id);
+    expect(ids).toContain("Quote");
+    expect(ids).not.toContain("Standard");
+    expect(parts.styleCss).toMatch(/\[data-rdoc-style="Quote"\]\{[^}]*font-style:italic/);
+  });
+
+  it("reads a styled paragraph as data-rdoc-style and writes the style-name back", () => {
+    const html = odtToHtml(makeStyledOdt());
+    expect(html).toMatch(/<p[^>]*data-rdoc-style="Quote"[^>]*>quoted<\/p>/);
+    const out = htmlToOdt(html, makeStyledOdt());
+    const content = strFromU8(unzipSync(out)["content.xml"]);
+    expect(content).toMatch(/<text:p[^>]*text:style-name="Quote"[^>]*>quoted<\/text:p>/);
+  });
+});

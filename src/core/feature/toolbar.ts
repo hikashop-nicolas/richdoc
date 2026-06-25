@@ -105,11 +105,36 @@ export function setupToolbar(deps: ToolbarDeps) {
   const block = document.createElement("select");
   block.title = t("paragraphStyle");
   block.setAttribute("aria-label", t("paragraphStyle"));
+  const BUILTIN_BLOCKS = new Set(["P", "H1", "H2", "H3"]);
   for (const [v, key] of [["P", "styleParagraph"], ["H1", "styleH1"], ["H2", "styleH2"], ["H3", "styleH3"]] as const) {
     block.add(new Option(t(key), v));
   }
+  // The document's own named paragraph styles (Title, Quote, ...), value = style id with a
+  // "s:" prefix so it never collides with the built-in block tags.
+  const namedStyles = parts.paragraphStyles ?? [];
+  if (namedStyles.length) {
+    const grp = document.createElement("optgroup");
+    grp.label = t("documentStyles");
+    for (const s of namedStyles) grp.appendChild(new Option(s.name, `s:${s.id}`));
+    block.appendChild(grp);
+  }
   block.addEventListener("mousedown", () => getActiveEl().focus());
-  block.addEventListener("change", () => exec("formatBlock", block.value));
+  block.addEventListener("change", () => {
+    const v = block.value;
+    if (BUILTIN_BLOCKS.has(v)) {
+      // a built-in block clears any named style on the affected paragraphs
+      exec("formatBlock", v);
+      for (const b of selectedBlocks()) b.removeAttribute("data-rdoc-style");
+      mark();
+    } else if (v.startsWith("s:")) {
+      // a named paragraph style: drop heading state, then tag the blocks with the style id
+      getActiveEl().focus();
+      document.execCommand("formatBlock", false, "P");
+      for (const b of selectedBlocks()) b.setAttribute("data-rdoc-style", v.slice(2));
+      mark();
+      syncToolbarState();
+    }
+  });
 
   // A select whose first option is a non-selectable title; firing fn(value) on change.
   const pickerSelect = (title: string, opts: [string, string][], fn: (v: string) => void): HTMLSelectElement => {
@@ -653,8 +678,11 @@ export function setupToolbar(deps: ToolbarDeps) {
       const pt = hp ? String(Math.round(hp / 2)) : "";
       sizeSel.value = SIZES.includes(pt) ? pt : "";
     }
+    const styled = el.closest("[data-rdoc-style]") as HTMLElement | null;
+    const styleId = styled && regions.some((r) => r.contains(styled)) ? styled.getAttribute("data-rdoc-style") : null;
     const tag = el.closest("h1,h2,h3,p")?.tagName ?? "";
-    block.value = tag === "H1" || tag === "H2" || tag === "H3" ? tag : "P";
+    if (styleId && namedStyles.some((s) => s.id === styleId)) block.value = `s:${styleId}`;
+    else block.value = tag === "H1" || tag === "H2" || tag === "H3" ? tag : "P";
     const lh = (el.closest(BLOCK_SEL) as HTMLElement | null)?.style.lineHeight ?? "";
     for (const b of lsButtons) b.classList.toggle("is-on", b.dataset.v === lh);
     const setOn = (b: HTMLElement | null, on: boolean) => b?.classList.toggle("is-on", on);

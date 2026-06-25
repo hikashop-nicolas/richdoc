@@ -49,6 +49,14 @@ export interface RichDoc {
   fontUrls?: string[]; // blob URLs to revoke on destroy
   defaultFont?: string;
   page?: PageGeometry; // the document's own page size/margins, if it declares them
+  paragraphStyles?: ParagraphStyle[]; // named paragraph styles, for the style picker
+  styleCss?: string; // CSS rules giving each named style its appearance in the editor
+}
+
+/** A named paragraph style the user can pick from the style dropdown. */
+export interface ParagraphStyle {
+  id: string; // the style id written back (docx w:pStyle val / odt style:name)
+  name: string; // display name shown in the dropdown
 }
 
 /** Structured side-channel of comment edits the engine collects and the adapter applies. */

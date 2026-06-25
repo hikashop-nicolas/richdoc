@@ -51,6 +51,13 @@ export function createRichEditor(container: HTMLElement, adapter: Adapter, optio
     fs.textContent = parts.fontCss;
     wrap.appendChild(fs);
   }
+  // Named paragraph styles: their appearance is driven by injected CSS keyed on data-rdoc-style,
+  // so applying a style is just setting the attribute (no inline formatting to compute).
+  if (parts.styleCss) {
+    const ss = document.createElement("style");
+    ss.textContent = parts.styleCss;
+    wrap.appendChild(ss);
+  }
   if (parts.defaultFont) page.style.setProperty("--docxedit-doc-font", `"${parts.defaultFont.replace(/"/g, "")}"`);
 
   // Page geometry: render at the document's real size and margins, or the default size

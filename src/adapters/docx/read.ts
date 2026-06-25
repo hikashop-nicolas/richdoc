@@ -548,6 +548,7 @@ interface PInfo {
   spaceBeforePx?: number; // w:spacing @w:before, in px
   spaceAfterPx?: number; // w:spacing @w:after, in px
   border?: string; // CSS border declaration block
+  styleId?: string; // a named paragraph style (w:pStyle val) that is not a heading
   pageBreakBefore: boolean;
   revPara?: "ins" | "del"; // paragraph-mark revision (split/merge)
   revAuthor?: string;
@@ -556,7 +557,8 @@ interface PInfo {
 function paragraphInfo(p: Element, numbering: Map<string, boolean>): PInfo {
   const pPr = p.getElementsByTagName("w:pPr")[0];
   let heading = 0;
-  const styleVal = (pPr?.getElementsByTagName("w:pStyle")[0]?.getAttribute("w:val") ?? "").replace(/\s+/g, "");
+  const rawStyle = pPr?.getElementsByTagName("w:pStyle")[0]?.getAttribute("w:val") ?? "";
+  const styleVal = rawStyle.replace(/\s+/g, "");
   const hm = /^heading([1-9])$/i.exec(styleVal);
   if (hm) heading = Number(hm[1]);
   const numPr = pPr?.getElementsByTagName("w:numPr")[0];
@@ -584,6 +586,7 @@ function paragraphInfo(p: Element, numbering: Map<string, boolean>): PInfo {
     lineHeight,
     spaceBeforePx: spaceBeforePx === undefined ? undefined : Math.round(spaceBeforePx),
     spaceAfterPx: spaceAfterPx === undefined ? undefined : Math.round(spaceAfterPx),
+    styleId: !hm && rawStyle ? rawStyle : undefined,
     border: paragraphBorderStyle(pPr),
     pageBreakBefore: onFlag(pPr, "w:pageBreakBefore"),
     revPara: mark ? (mark.tagName === "w:del" ? "del" : "ins") : undefined,
@@ -600,8 +603,9 @@ function blockStyleAttr(info: PInfo): string {
   if (info.spaceAfterPx !== undefined) parts.push(`margin-bottom:${info.spaceAfterPx}px`);
   if (info.border) parts.push(info.border);
   const style = parts.length ? ` style="${parts.join(";")}"` : "";
-  if (!info.revPara) return style;
-  return `${style} class="docx-para-${info.revPara}" data-rev-para="${info.revPara}" data-rev-author="${escapeAttr(info.revAuthor ?? "")}" data-rev-date="${escapeAttr(info.revDate ?? "")}"`;
+  const styleAttr = info.styleId ? ` data-rdoc-style="${escapeAttr(info.styleId)}"` : "";
+  if (!info.revPara) return style + styleAttr;
+  return `${style}${styleAttr} class="docx-para-${info.revPara}" data-rev-para="${info.revPara}" data-rev-author="${escapeAttr(info.revAuthor ?? "")}" data-rev-date="${escapeAttr(info.revDate ?? "")}"`;
 }
 
 /** Build nested <ul>/<ol> from a flat list of items carrying their nesting level (w:ilvl).
@@ -703,6 +707,8 @@ export interface DocxParts {
   footerPath?: string;
   comments: CommentThread[]; // top-level threads in document order, replies nested
   page?: PageGeometry; // page size/margins from w:sectPr, for the paginated view
+  paragraphStyles?: { id: string; name: string }[]; // named paragraph styles, for the picker
+  styleCss?: string; // CSS giving each named style its appearance
 }
 
 // Convert OOXML twips (1/1440 inch) to CSS px at 96 dpi.
@@ -738,6 +744,80 @@ function partKey(target: string | undefined, files: Record<string, Uint8Array>):
   if (clean.startsWith("/")) return files[clean.slice(1)] ? clean.slice(1) : undefined;
   if (files["word/" + clean]) return "word/" + clean;
   return files[clean] ? clean : undefined;
+}
+
+/** A CSS-safe attribute selector value: backslash-escape quotes and backslashes. */
+const cssAttrValue = (v: string): string => v.replace(/[\\"]/g, "\\$&");
+
+/** Read named paragraph styles from styles.xml into a picker list plus CSS that gives each
+    style its appearance (keyed on data-rdoc-style), resolving the w:basedOn chain. */
+function readParagraphStyles(stylesXml: Uint8Array | undefined): { styles: { id: string; name: string }[]; css: string } {
+  if (!stylesXml) return { styles: [], css: "" };
+  const doc = new DOMParser().parseFromString(strFromU8(stylesXml), "application/xml");
+  const wv = (el: Element | undefined, name: string): string | null => el?.getAttributeNS(W, name) ?? el?.getAttribute("w:" + name) ?? null;
+  const byId = new Map<string, Element>();
+  for (const st of Array.from(doc.getElementsByTagName("w:style"))) {
+    if ((wv(st, "type") ?? "paragraph") !== "paragraph") continue;
+    const id = wv(st, "styleId");
+    if (id) byId.set(id, st);
+  }
+  // Resolve a style's effective CSS by walking basedOn from root to leaf (leaf overrides).
+  const flagOn = (rPr: Element | undefined, tag: string): boolean | undefined => {
+    const e = rPr ? Array.from(rPr.children).find((c) => c.tagName === tag) : undefined;
+    if (!e) return undefined;
+    const v = wv(e, "val");
+    return v === null || (v !== "0" && v !== "false");
+  };
+  const cssFor = (id: string, seen: Set<string>): Record<string, string> => {
+    const st = byId.get(id);
+    if (!st || seen.has(id)) return {};
+    seen.add(id);
+    const based = wv(st, "basedOn");
+    const out: Record<string, string> = based ? cssFor(based, seen) : {};
+    const pPr = Array.from(st.children).find((c) => c.tagName === "w:pPr");
+    const rPr = Array.from(st.children).find((c) => c.tagName === "w:rPr");
+    const jc = wv(pPr?.getElementsByTagName("w:jc")[0] ?? undefined, "val");
+    if (jc && JC_TO_ALIGN[jc]) out["text-align"] = JC_TO_ALIGN[jc];
+    const ind = pPr?.getElementsByTagName("w:ind")[0];
+    const left = twipToPx(wv(ind ?? undefined, "left") ?? wv(ind ?? undefined, "start"));
+    if (left && left > 0) out["margin-left"] = `${Math.round(left)}px`;
+    const sp = pPr?.getElementsByTagName("w:spacing")[0];
+    const before = twipToPx(wv(sp ?? undefined, "before"));
+    const after = twipToPx(wv(sp ?? undefined, "after"));
+    const line = wv(sp ?? undefined, "line");
+    if (before !== undefined) out["margin-top"] = `${Math.round(before)}px`;
+    if (after !== undefined) out["margin-bottom"] = `${Math.round(after)}px`;
+    if (line && (wv(sp ?? undefined, "lineRule") ?? "auto") === "auto") out["line-height"] = String(Math.round((Number(line) / 240) * 100) / 100);
+    const b = flagOn(rPr, "w:b");
+    if (b !== undefined) out["font-weight"] = b ? "bold" : "normal";
+    const it = flagOn(rPr, "w:i");
+    if (it !== undefined) out["font-style"] = it ? "italic" : "normal";
+    const deco: string[] = [];
+    if (flagOn(rPr, "w:u")) deco.push("underline");
+    if (flagOn(rPr, "w:strike")) deco.push("line-through");
+    if (deco.length) out["text-decoration"] = deco.join(" ");
+    const color = wv(rPr?.getElementsByTagName("w:color")[0] ?? undefined, "val");
+    if (color && color !== "auto" && /^[0-9a-f]{6}$/i.test(color)) out["color"] = `#${color}`;
+    const sz = wv(rPr?.getElementsByTagName("w:sz")[0] ?? undefined, "val");
+    if (sz && Number(sz) > 0) out["font-size"] = `${Number(sz) / 2}pt`;
+    const font = wv(rPr?.getElementsByTagName("w:rFonts")[0] ?? undefined, "ascii");
+    if (font) out["font-family"] = `'${font.replace(/'/g, "")}'`;
+    return out;
+  };
+  const styles: { id: string; name: string }[] = [];
+  let css = "";
+  for (const [id, st] of byId) {
+    if (/^heading[1-9]$/i.test(id.replace(/\s+/g, ""))) continue; // headings use the H1-H3 entries
+    if (wv(st, "default") === "1") continue; // the Normal/default style is the plain "Paragraph" entry
+    if (Array.from(st.children).some((c) => c.tagName === "w:semiHidden")) continue; // Word's hidden built-ins
+    const name = wv(st.getElementsByTagName("w:name")[0] ?? undefined, "val") || id;
+    styles.push({ id, name });
+    const decls = cssFor(id, new Set());
+    const body = Object.entries(decls).map(([k, v]) => `${k}:${v}`).join(";");
+    if (body) css += `.docxedit-doc [data-rdoc-style="${cssAttrValue(id)}"]{${body}}\n`;
+  }
+  styles.sort((a, b) => a.name.localeCompare(b.name));
+  return { styles, css };
 }
 
 /** Parse a .docx into the editable body HTML plus the header/footer HTML and part keys. */
@@ -804,6 +884,7 @@ export function docxToParts(bytes: Uint8Array): DocxParts {
       parentThread.replies.push(entry(id));
     }
   }
+  const ps = readParagraphStyles(files["word/styles.xml"]);
   return {
     body: html || "<p><br></p>",
     header: renderRefPart(files, headerTarget),
@@ -812,6 +893,8 @@ export function docxToParts(bytes: Uint8Array): DocxParts {
     footerPath: partKey(footerTarget, files),
     comments: threads,
     page: parsePageGeometry(sectPr),
+    paragraphStyles: ps.styles,
+    styleCss: ps.css,
   };
 }
 

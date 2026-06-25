@@ -718,6 +718,43 @@ describe("run formatting: strike, superscript, subscript", () => {
   });
 });
 
+describe("named paragraph styles", () => {
+  const STYLES = `<?xml version="1.0"?>
+<w:styles xmlns:w="http://schemas.openxmlformats.org/wordprocessingml/2006/main">
+ <w:style w:type="paragraph" w:default="1" w:styleId="Normal"><w:name w:val="Normal"/></w:style>
+ <w:style w:type="paragraph" w:styleId="Quote"><w:name w:val="Quote"/><w:pPr><w:ind w:left="720"/></w:pPr><w:rPr><w:i/><w:color w:val="555555"/></w:rPr></w:style>
+ <w:style w:type="paragraph" w:styleId="ListBullet"><w:name w:val="Hidden"/><w:semiHidden/></w:style>
+</w:styles>`;
+  const DOC = `<?xml version="1.0"?>
+<w:document xmlns:w="http://schemas.openxmlformats.org/wordprocessingml/2006/main" xmlns:r="http://schemas.openxmlformats.org/officeDocument/2006/relationships">
+ <w:body><w:p><w:pPr><w:pStyle w:val="Quote"/></w:pPr><w:r><w:t>quoted</w:t></w:r></w:p>
+ <w:sectPr><w:pgSz w:w="11906" w:h="16838"/></w:sectPr></w:body></w:document>`;
+  const makeStyledDocx = () => zipSync({
+    "[Content_Types].xml": strToU8("<Types/>"),
+    "_rels/.rels": strToU8("<Relationships/>"),
+    "word/document.xml": strToU8(DOC),
+    "word/_rels/document.xml.rels": strToU8(RELS),
+    "word/styles.xml": strToU8(STYLES),
+  });
+
+  it("lists the document's paragraph styles (excluding headings, default, hidden)", () => {
+    const parts = docxToParts(makeStyledDocx());
+    const ids = (parts.paragraphStyles ?? []).map((s) => s.id);
+    expect(ids).toContain("Quote");
+    expect(ids).not.toContain("Normal"); // default
+    expect(ids).not.toContain("ListBullet"); // semiHidden
+    expect(parts.styleCss).toMatch(/\[data-rdoc-style="Quote"\]\{[^}]*font-style:italic/);
+  });
+
+  it("reads a styled paragraph as data-rdoc-style and writes it back as w:pStyle", () => {
+    const html = docxToHtml(makeStyledDocx());
+    expect(html).toMatch(/<p[^>]*data-rdoc-style="Quote"[^>]*>quoted<\/p>/);
+    const out = htmlToDocx(html, makeStyledDocx());
+    const xml = strFromU8(unzipSync(out)["word/document.xml"]!);
+    expect(xml).toMatch(/w:pStyle[^>]*w:val="Quote"/);
+  });
+});
+
 describe("list fidelity: nesting and ordered/bullet", () => {
   it("writes numbering.xml with a bullet and an ordered list and registers the part", () => {
     const out = htmlToDocx("<ul><li>a</li></ul><ol><li>b</li></ol>", makeDocx());
