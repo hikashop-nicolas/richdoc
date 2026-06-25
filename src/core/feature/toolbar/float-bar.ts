@@ -106,6 +106,12 @@ export function setupFloatBar(deps: FloatBarDeps) {
   };
   const onFloatMouseMove = (e: MouseEvent) => {
     if (floatHovered) return;
+    // While an image is selected its own layout toolbar is shown; the text formatting bar must
+    // stay out of the way (the selected image sits next to the caret, so proximity would trip it).
+    if (wrap.querySelector("img.sel")) {
+      hideFloat();
+      return;
+    }
     const rect = selectionRect();
     if (!rect) {
       scheduleFloatHide();
@@ -134,6 +140,7 @@ export function setupFloatBar(deps: FloatBarDeps) {
     for (const r of regions) {
       r.addEventListener("keydown", hideFloat); // typing dismisses it
       r.addEventListener("scroll", hideFloat);
+      r.addEventListener("mousedown", (e) => { if ((e.target as HTMLElement)?.closest?.("img")) hideFloat(); }); // selecting an image dismisses it
     }
     wrap.addEventListener("scroll", hideFloat, true);
   }
