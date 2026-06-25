@@ -332,17 +332,32 @@ export function setupPageView(deps: PageViewDeps) {
   };
   const { row: sizeRow, sel: sizeSel } = mkSelectRow(t("pageSize"), [...Object.keys(PAGE_SIZES).map((k) => [k, SIZE_LABELS[k]!] as [string, string]), ["custom", t("custom")]]);
   const { row: orientRow, sel: orientSel } = mkSelectRow(t("orientation"), [["portrait", t("portrait")], ["landscape", t("landscape")]]);
+  const cmInput = (label: string, min: string): HTMLInputElement => {
+    const i = document.createElement("input");
+    i.type = "number"; i.min = min; i.step = "0.1"; i.className = "docxedit-dialog-size"; i.placeholder = label; i.title = label;
+    return i;
+  };
   const customRow = document.createElement("div");
   customRow.className = "docxedit-dialog-row docxedit-pagesetup-custom";
-  const wIn = document.createElement("input");
-  wIn.type = "number"; wIn.min = "1"; wIn.step = "0.1"; wIn.className = "docxedit-dialog-size"; wIn.placeholder = t("pageWidthCm"); wIn.title = t("pageWidthCm");
-  const hIn = document.createElement("input");
-  hIn.type = "number"; hIn.min = "1"; hIn.step = "0.1"; hIn.className = "docxedit-dialog-size"; hIn.placeholder = t("pageHeightCm"); hIn.title = t("pageHeightCm");
+  const wIn = cmInput(t("pageWidthCm"), "1");
+  const hIn = cmInput(t("pageHeightCm"), "1");
   customRow.append(wIn, hIn);
   const { row: marginRow, sel: marginSel } = mkSelectRow(t("margins"), [["normal", t("marginNormal")], ["narrow", t("marginNarrow")], ["moderate", t("marginModerate")], ["wide", t("marginWide")], ["custom", t("custom")]]);
+  // Custom margins: four cm inputs revealed when the margin preset is "custom".
+  const marginCustomRow = document.createElement("div");
+  marginCustomRow.className = "docxedit-dialog-row docxedit-pagesetup-custom";
+  const mtIn = cmInput(`${t("edgeTop")} (cm)`, "0");
+  const mrIn = cmInput(`${t("edgeRight")} (cm)`, "0");
+  const mbIn = cmInput(`${t("edgeBottom")} (cm)`, "0");
+  const mlIn = cmInput(`${t("edgeLeft")} (cm)`, "0");
+  marginCustomRow.append(mtIn, mrIn, mbIn, mlIn);
   const { row: colRow, sel: colSel } = mkSelectRow(t("columns"), [["1", "1"], ["2", "2"], ["3", "3"]]);
-  const syncCustom = () => { customRow.hidden = sizeSel.value !== "custom"; };
+  const syncCustom = () => {
+    customRow.hidden = sizeSel.value !== "custom";
+    marginCustomRow.hidden = marginSel.value !== "custom";
+  };
   sizeSel.addEventListener("change", syncCustom);
+  marginSel.addEventListener("change", syncCustom);
   const psCancel = document.createElement("button");
   psCancel.type = "button"; psCancel.className = "docxedit-menu-item"; psCancel.textContent = t("cancel");
   const psApply = document.createElement("button");
@@ -350,7 +365,7 @@ export function setupPageView(deps: PageViewDeps) {
   const psActions = document.createElement("div");
   psActions.className = "docxedit-dialog-row docxedit-dialog-actions";
   psActions.append(psCancel, psApply);
-  psPanel.append(psTitle, sizeRow, customRow, orientRow, marginRow, colRow, psActions);
+  psPanel.append(psTitle, sizeRow, customRow, orientRow, marginRow, marginCustomRow, colRow, psActions);
   scroll.appendChild(psOverlay);
   const closePageSetup = () => { psOverlay.hidden = true; };
   const openPageSetup = () => {
@@ -360,6 +375,10 @@ export function setupPageView(deps: PageViewDeps) {
     wIn.value = (geometry.widthPx / CM).toFixed(2);
     hIn.value = (geometry.heightPx / CM).toFixed(2);
     marginSel.value = matchMargins();
+    mtIn.value = (geometry.margin.top / CM).toFixed(2);
+    mrIn.value = (geometry.margin.right / CM).toFixed(2);
+    mbIn.value = (geometry.margin.bottom / CM).toFixed(2);
+    mlIn.value = (geometry.margin.left / CM).toFixed(2);
     colSel.value = String(geometry.columns && geometry.columns > 1 ? geometry.columns : 1);
     syncCustom();
     psOverlay.hidden = false;
@@ -376,7 +395,15 @@ export function setupPageView(deps: PageViewDeps) {
     if ((orientSel.value === "landscape") !== w > h) [w, h] = [h, w];
     geometry.widthPx = w;
     geometry.heightPx = h;
-    if (marginSel.value !== "custom") geometry.margin = { ...MARGIN_PRESETS[marginSel.value]! };
+    if (marginSel.value === "custom") {
+      const cm = (v: string, fallback: number) => { const n = parseFloat(v); return n >= 0 ? Math.round(n * CM) : fallback; };
+      geometry.margin = {
+        top: cm(mtIn.value, geometry.margin.top), right: cm(mrIn.value, geometry.margin.right),
+        bottom: cm(mbIn.value, geometry.margin.bottom), left: cm(mlIn.value, geometry.margin.left),
+      };
+    } else {
+      geometry.margin = { ...MARGIN_PRESETS[marginSel.value]! };
+    }
     const c = parseInt(colSel.value, 10) || 1;
     geometry.columns = c > 1 ? c : undefined;
     if (geometry.columns && !geometry.columnGapPx) geometry.columnGapPx = 36;

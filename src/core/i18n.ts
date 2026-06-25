@@ -155,6 +155,10 @@ const en: Dict = {
   pageWidthCm: "Width (cm)",
   pageHeightCm: "Height (cm)",
   apply: "Apply",
+  edgeTop: "Top",
+  edgeRight: "Right",
+  edgeBottom: "Bottom",
+  edgeLeft: "Left",
 };
 
 const fr: Dict = {
@@ -307,6 +311,10 @@ const fr: Dict = {
   pageWidthCm: "Largeur (cm)",
   pageHeightCm: "Hauteur (cm)",
   apply: "Appliquer",
+  edgeTop: "Haut",
+  edgeRight: "Droite",
+  edgeBottom: "Bas",
+  edgeLeft: "Gauche",
 };
 
 const LOCALES: Record<string, Dict> = { en, fr };

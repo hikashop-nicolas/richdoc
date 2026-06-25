@@ -45,7 +45,7 @@
   padding: 3px 8px; height: 28px; box-sizing: border-box;
 }
 .docxedit-pagesetup-custom { gap: 8px; }
-.docxedit-pagesetup-custom input { flex: 1; min-width: 0; }
+.docxedit-pagesetup-custom input { flex: 1 1 calc(50% - 4px); min-width: 0; }
 
 .docxedit-toolbar {
   display: flex; flex-wrap: nowrap; overflow: hidden; position: relative;
