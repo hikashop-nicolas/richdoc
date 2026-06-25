@@ -743,12 +743,13 @@ export function setupToolbar(deps: ToolbarDeps) {
 
   // Toolbar: shared controls always shown; image/comment/page-break/track-changes are
   // gated by the adapter's capabilities so a format can hide what it cannot serialize.
-  const linkBtn = iconBtn(linkIcon, t("linkAria"), () => {
+  const insertLink = () => {
     const url = prompt(t("linkPrompt"), "https://");
     if (url === null) return;
     if (url === "") exec("unlink");
     else exec("createLink", url);
-  });
+  };
+  const linkBtn = iconBtn(linkIcon, t("linkAria"), insertLink);
   const supIcon =
     '<svg width="14" height="14" viewBox="0 0 16 16" fill="currentColor" aria-hidden="true">' +
     '<text x="0" y="14" font-size="11" font-family="serif">x</text><text x="8" y="7" font-size="7" font-family="serif">2</text></svg>';
@@ -1410,11 +1411,67 @@ export function setupToolbar(deps: ToolbarDeps) {
     wrap.addEventListener("scroll", hideFloat, true);
   }
 
+  // --- Keyboard shortcuts (Word-like) -------------------------------------------------------
+  // Bound to the editable regions so they fire only while editing (single-key bindings such as
+  // Ctrl+R for right-align therefore leave the browser's own shortcuts alone everywhere else).
+  const applyBlockTag = (tag: string) => {
+    getActiveEl().focus();
+    document.execCommand("formatBlock", false, tag);
+    for (const b of selectedBlocks()) b.removeAttribute("data-rdoc-style");
+    mark();
+    syncToolbarState();
+  };
+  const changeFontSize = (delta: number) => {
+    const node = window.getSelection()?.anchorNode as Node | null;
+    const el = node ? (node.nodeType === 3 ? node.parentElement : (node as HTMLElement)) : null;
+    let pt = 11;
+    if (el) {
+      const px = parseFloat(getComputedStyle(el).fontSize);
+      if (px) pt = Math.round((px * 72) / 96);
+    }
+    beginFormatChange();
+    styleSel("fontSize", `${Math.max(1, pt + delta)}pt`);
+  };
+  const onShortcut = (e: KeyboardEvent) => {
+    if (!(e.metaKey || e.ctrlKey)) return;
+    const k = e.key.toLowerCase();
+    const run = (fn: () => void) => {
+      e.preventDefault();
+      fn();
+    };
+    if (e.altKey && !e.shiftKey) {
+      if (k === "1") return run(() => applyBlockTag("H1"));
+      if (k === "2") return run(() => applyBlockTag("H2"));
+      if (k === "3") return run(() => applyBlockTag("H3"));
+      if (k === "0") return run(() => applyBlockTag("P"));
+      return;
+    }
+    if (e.shiftKey) {
+      if (k === "l") return run(() => exec("insertUnorderedList")); // bulleted list
+      if (k === "7") return run(() => exec("insertOrderedList")); // numbered list
+      return;
+    }
+    switch (k) {
+      case "b": return run(() => { beginFormatChange(); exec("bold"); });
+      case "i": return run(() => { beginFormatChange(); exec("italic"); });
+      case "u": return run(() => { beginFormatChange(); exec("underline"); });
+      case "k": return run(insertLink);
+      case "l": if (caps.alignment) return run(() => exec("justifyLeft")); return;
+      case "e": if (caps.alignment) return run(() => exec("justifyCenter")); return;
+      case "r": if (caps.alignment) return run(() => exec("justifyRight")); return;
+      case "j": if (caps.alignment) return run(() => exec("justifyFull")); return;
+      case "]": if (caps.fontControls) return run(() => changeFontSize(1)); return;
+      case "[": if (caps.fontControls) return run(() => changeFontSize(-1)); return;
+    }
+  };
+  for (const r of regions) r.addEventListener("keydown", onShortcut);
+
   const teardown = () => {
     toolbarObserver.disconnect();
     document.removeEventListener("click", closeOverflow);
     document.removeEventListener("selectionchange", scheduleSync);
     document.removeEventListener("mousemove", onFloatMouseMove);
+    for (const r of regions) r.removeEventListener("keydown", onShortcut);
     window.clearTimeout(syncTimer);
     window.clearTimeout(floatHideTimer);
   };
