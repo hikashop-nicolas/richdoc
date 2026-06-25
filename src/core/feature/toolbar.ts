@@ -141,7 +141,9 @@ export function setupToolbar(deps: ToolbarDeps) {
   for (const s of namedStyles) paraGroup.appendChild(new Option(s.name, `s:${s.id}`));
   if (namedStyles.length) block.appendChild(paraGroup);
   block.add(new Option(t("newParagraphStyle"), "__newpara__"));
-  block.add(new Option(t("editCurrentStyle"), "__editpara__"));
+  const paraEditOpt = new Option(t("editCurrentStyle"), "__editpara__");
+  paraEditOpt.hidden = true; // shown only when the caret is in a styled paragraph
+  block.add(paraEditOpt);
   block.addEventListener("mousedown", () => {
     captureSel();
     getActiveEl().focus();
@@ -211,6 +213,7 @@ export function setupToolbar(deps: ToolbarDeps) {
   const cstyleNewOpt = new Option(t("newCharacterStyle"), "__newchar__");
   cstyleSel.add(cstyleNewOpt);
   const cstyleEditOpt = new Option(t("editCurrentStyle"), "__editchar__");
+  cstyleEditOpt.hidden = true; // shown only when the caret is in a styled run
   cstyleSel.add(cstyleEditOpt);
   cstyleSel.addEventListener("mousedown", () => {
     captureSel();
@@ -1123,14 +1126,18 @@ export function setupToolbar(deps: ToolbarDeps) {
     }
     const styled = el.closest("[data-rdoc-style]") as HTMLElement | null;
     const styleId = styled && regions.some((r) => r.contains(styled)) ? styled.getAttribute("data-rdoc-style") : null;
+    const editablePara = !!(styleId && namedStyles.some((s) => s.id === styleId));
     const tag = el.closest("h1,h2,h3,p")?.tagName ?? "";
-    if (styleId && namedStyles.some((s) => s.id === styleId)) block.value = `s:${styleId}`;
+    if (editablePara) block.value = `s:${styleId}`;
     else block.value = tag === "H1" || tag === "H2" || tag === "H3" ? tag : "P";
+    paraEditOpt.hidden = !editablePara; // only offer "Edit current style" when one is applied
     // reflect the character style enclosing the caret (or none)
     const cstyled = el.closest("[data-rdoc-cstyle]") as HTMLElement | null;
     const cId = cstyled && regions.some((r) => r.contains(cstyled)) ? cstyled.getAttribute("data-rdoc-cstyle") : null;
-    if (cId && charStyles.some((s) => s.id === cId)) cstyleSel.value = `c:${cId}`;
+    const editableChar = !!(cId && charStyles.some((s) => s.id === cId));
+    if (editableChar) cstyleSel.value = `c:${cId}`;
     else cstyleSel.selectedIndex = 0;
+    cstyleEditOpt.hidden = !editableChar;
     const lh = (el.closest(BLOCK_SEL) as HTMLElement | null)?.style.lineHeight ?? "";
     for (const b of lsButtons) b.classList.toggle("is-on", b.dataset.v === lh);
     const setOn = (b: HTMLElement | null, on: boolean) => b?.classList.toggle("is-on", on);
