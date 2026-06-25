@@ -1,4 +1,7 @@
-import { createEditor, sniffFormat, type RichEditor } from "../src/index";
+import { createEditor, sniffFormat, initLocale, type RichEditor } from "../src/index";
+
+// Load the browser's language once at startup so the editor UI is localised on first paint.
+const localeReady = initLocale();
 
 const fileInput = document.getElementById("file") as HTMLInputElement;
 const mount = document.getElementById("mount") as HTMLElement;
@@ -13,6 +16,7 @@ fileInput.addEventListener("change", async () => {
   if (!f) return;
   currentName = f.name;
   const bytes = new Uint8Array(await f.arrayBuffer());
+  await localeReady;
   editor?.destroy();
   mount.innerHTML = "";
   const fmt = sniffFormat(bytes);

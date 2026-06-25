@@ -8,7 +8,7 @@ import { createOdtEditor, type OdtEditor } from "./adapters/odt";
 
 export { createDocxEditor, type DocxEditor } from "./adapters/docx";
 export { createOdtEditor, type OdtEditor } from "./adapters/odt";
-export { setLocale } from "./core/i18n";
+export { setLocale, initLocale, detectLocale, getLocale, availableLocales } from "./core/i18n";
 
 export type RichEditor = DocxEditor | OdtEditor;
 export type EditorFormat = "docx" | "odt";
