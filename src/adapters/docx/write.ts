@@ -373,8 +373,9 @@ function makeParagraph(ctx: DocxCtx, src: HTMLElement, opts: { heading?: number;
   const afterPx = parseFloat(src.style.marginBottom) || 0;
   const revPara = src.getAttribute("data-rev-para"); // "ins" | "del" paragraph-mark revision
   const namedStyle = !opts.heading ? src.getAttribute("data-rdoc-style") : null; // a non-heading named style
+  const sectXml = src.getAttribute("data-docx-sectpr"); // a mid-document section break to re-emit
   const listIds = opts.list ? ensureListNumbering(ctx) : null;
-  if (opts.heading || namedStyle || listIds || jc || revPara || indentPx > 0 || lineHeight > 0 || hasBefore || hasAfter) {
+  if (opts.heading || namedStyle || listIds || jc || revPara || sectXml || indentPx > 0 || lineHeight > 0 || hasBefore || hasAfter) {
     const pPr = ctx.doc.createElementNS(W, "w:pPr");
     if (opts.heading || namedStyle) {
       const st = ctx.doc.createElementNS(W, "w:pStyle");
@@ -420,6 +421,11 @@ function makeParagraph(ctx: DocxCtx, src: HTMLElement, opts: { heading?: number;
       if (d) rev.setAttributeNS(W, "w:date", d);
       rPr.appendChild(rev);
       pPr.appendChild(rPr);
+    }
+    // The section break is the last child of w:pPr (schema order: after rPr).
+    if (sectXml) {
+      const sect = importPassthrough(ctx, sectXml);
+      if (sect) pPr.appendChild(sect);
     }
     p.appendChild(pPr);
   }

@@ -32,6 +32,10 @@ context (a paragraph, or the document body) is regenerated from the edited HTML.
   picture relationship is reused on save, so size/wrap edits never re-embed.
 - Comments (+ replies, reactions, resolve) and tracked changes (insert / delete /
   formatting change).
+- **Mid-document section breaks (docx)**: a `w:sectPr` inside a paragraph is
+  preserved through edits and shown as a page boundary, so editing a multi-section
+  document no longer flattens it to one section. (Authoring new breaks + per-section
+  page setup is still pending, see C1; the odt equivalent is not done yet, see C1.)
 
 ---
 
@@ -40,13 +44,16 @@ context (a paragraph, or the document body) is regenerated from the edited HTML.
 These are the only things that do not round-trip once the document is edited,
 because their context is regenerated. This is the work for "feature complete".
 
-1. **Multiple sections / mid-document section breaks.** Only the final section's
-   `w:sectPr` is kept; mid-document section breaks are dropped, collapsing a
-   multi-section document to one section on save. (A single-section document keeps
-   its section richness fine.) Needs: model section breaks + per-section page
-   setup.
+1. **Authoring sections / per-section page setup (+ odt parity).** docx mid-document
+   section breaks now round-trip (preserved, see bucket A). What remains: a UI to
+   *insert* a section break and edit per-section page setup (size / orientation /
+   margins / columns / headers), and the **odt** equivalent, which is a different,
+   larger model (a paragraph's automatic style carrying `fo:break-before` +
+   `style:master-page-name`); those can still be lost when such a paragraph is
+   edited. odt section breaks carried by a *named* style already round-trip.
 2. **Columns (`w:cols`).** Preserved for a single section (it rides the trailing
-   sectPr) but not authorable, and lost together with multi-section flattening.
+   sectPr) but not authorable, and authored sections (C1) would need a per-section
+   column control.
 3. **Tab stops (`w:tabs`).** Dropped from any paragraph that is edited. Needs a
    model + ruler tab markers (browsers do not render custom tab stops natively, so
    this is real work).

@@ -568,6 +568,8 @@ interface PInfo {
   revPara?: "ins" | "del"; // paragraph-mark revision (split/merge)
   revAuthor?: string;
   revDate?: string;
+  sectPr?: string; // a mid-document section break (w:pPr/w:sectPr), preserved verbatim
+  sectBreak?: boolean; // that section starts a new page (type != continuous) -> show a page break
 }
 function paragraphInfo(p: Element, numbering: Map<string, boolean>): PInfo {
   const pPr = p.getElementsByTagName("w:pPr")[0];
@@ -591,6 +593,10 @@ function paragraphInfo(p: Element, numbering: Map<string, boolean>): PInfo {
   // Paragraph-mark revision lives in pPr > rPr > w:ins / w:del.
   const markRPr = pPr ? Array.from(pPr.children).find((c) => c.tagName === "w:rPr") : undefined;
   const mark = markRPr && (Array.from(markRPr.children).find((c) => c.tagName === "w:ins" || c.tagName === "w:del") as Element | undefined);
+  // A mid-document section break: w:sectPr inside this paragraph's w:pPr (the final section's
+  // sectPr is a child of w:body and handled separately). Preserve it so editing keeps sections.
+  const sectEl = pPr ? Array.from(pPr.children).find((c) => c.tagName === "w:sectPr") : undefined;
+  const sectType = sectEl?.getElementsByTagName("w:type")[0]?.getAttribute("w:val");
   return {
     heading,
     isList: !!numPr,
@@ -607,6 +613,8 @@ function paragraphInfo(p: Element, numbering: Map<string, boolean>): PInfo {
     revPara: mark ? (mark.tagName === "w:del" ? "del" : "ins") : undefined,
     revAuthor: mark?.getAttribute("w:author") ?? undefined,
     revDate: mark?.getAttribute("w:date") ?? undefined,
+    sectPr: sectEl ? serializePassthrough(sectEl) : undefined,
+    sectBreak: sectEl ? sectType !== "continuous" : undefined,
   };
 }
 function blockStyleAttr(info: PInfo): string {
@@ -619,8 +627,9 @@ function blockStyleAttr(info: PInfo): string {
   if (info.border) parts.push(info.border);
   const style = parts.length ? ` style="${parts.join(";")}"` : "";
   const styleAttr = info.styleId ? ` data-rdoc-style="${escapeAttr(info.styleId)}"` : "";
-  if (!info.revPara) return style + styleAttr;
-  return `${style}${styleAttr} class="docx-para-${info.revPara}" data-rev-para="${info.revPara}" data-rev-author="${escapeAttr(info.revAuthor ?? "")}" data-rev-date="${escapeAttr(info.revDate ?? "")}"`;
+  const sectAttr = info.sectPr ? ` data-docx-sectpr="${escapeAttr(info.sectPr)}"` : "";
+  if (!info.revPara) return style + styleAttr + sectAttr;
+  return `${style}${styleAttr}${sectAttr} class="docx-para-${info.revPara}" data-rev-para="${info.revPara}" data-rev-author="${escapeAttr(info.revAuthor ?? "")}" data-rev-date="${escapeAttr(info.revDate ?? "")}"`;
 }
 
 /** Build nested <ul>/<ol> from a flat list of items carrying their nesting level (w:ilvl).
@@ -681,6 +690,9 @@ function renderBlocks(container: Element, ctx: RenderCtx): string {
     } else {
       html += `<p${blockStyleAttr(info)}>${inner || "<br>"}</p>`;
     }
+    // A next-page section break ends the page after its paragraph; show it (display only, the
+    // real break rides the preserved w:sectPr re-injected on save).
+    if (info.sectPr && info.sectBreak) html += pageBreakHtml("auto");
   }
   flushList();
   return html;

@@ -312,6 +312,28 @@ describe("docx <-> html", () => {
     expect(xml).toContain("wp:wrapNone");
   });
 
+  it("preserves a mid-document section break through an edit (no flattening)", () => {
+    // Section one ends at its paragraph (w:pPr/w:sectPr, next-page, portrait); the trailing
+    // body sectPr governs section two (landscape).
+    const doc = `<?xml version="1.0"?>
+<w:document xmlns:w="http://schemas.openxmlformats.org/wordprocessingml/2006/main"><w:body>
+ <w:p><w:pPr><w:sectPr><w:pgSz w:w="11906" w:h="16838"/><w:type w:val="nextPage"/></w:sectPr></w:pPr><w:r><w:t>section one</w:t></w:r></w:p>
+ <w:p><w:r><w:t>section two</w:t></w:r></w:p>
+ <w:sectPr><w:pgSz w:w="16838" w:h="11906" w:orient="landscape"/></w:sectPr>
+</w:body></w:document>`;
+    const html = docxToHtml(makeDocx(doc));
+    expect(html).toContain("data-docx-sectpr"); // the break is surfaced on the paragraph
+    expect(html).toContain("docx-pagebreak-auto"); // shown as a page boundary
+    const xml = strFromU8(unzipSync(htmlToDocx(html.replace("section one", "SECTION ONE"), makeDocx(doc)))["word/document.xml"]);
+    expect(xml).toContain("SECTION ONE");
+    expect(xml).toContain("section two");
+    // Both sections survive: the mid-document sectPr (in a w:pPr) and the trailing body sectPr.
+    expect(xml.match(/<w:sectPr/g)?.length).toBe(2);
+    expect(xml).toContain("<w:pPr><w:sectPr"); // the mid-doc break stays inside its paragraph
+    expect(xml).toContain('w:val="nextPage"'); // section-one type preserved
+    expect(xml).toContain('w:orient="landscape"'); // section-two trailing sectPr preserved
+  });
+
   it("shows manual page breaks (and Word's auto breaks) and round-trips the manual one", () => {
     const doc = `<?xml version="1.0"?>
 <w:document xmlns:w="http://schemas.openxmlformats.org/wordprocessingml/2006/main"><w:body>
