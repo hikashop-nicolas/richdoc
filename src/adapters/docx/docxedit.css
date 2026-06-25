@@ -163,7 +163,9 @@
 .docxedit-page:focus-within { box-shadow: 0 0 0 2px #6e7bff, 0 2px 12px rgba(0, 0, 0, .45); }
 /* The page is scaled inside this box, which carries the scaled footprint for layout. */
 .docxedit-pagebox { flex: 0 0 auto; overflow: hidden; }
-.docxedit-zoom-label { min-width: 48px; cursor: pointer; }
+.docxedit-zoom-label { width: 54px; height: 28px; box-sizing: border-box; text-align: center; font: inherit; background: #3a3f47; color: #e6e6e6; border: 1px solid #4a4f57; border-radius: 5px; padding: 3px 4px; }
+.docxedit-zoom-label:hover { border-color: #6e7bff; }
+.docxedit-zoom-label:focus { outline: none; border-color: #6e7bff; }
 .docxedit-zoom-slider { width: 96px; flex: 0 0 auto; height: 28px; padding: 0; min-width: 0; background: none; border: none; cursor: pointer; accent-color: #6e7bff; }
 .docxedit-zoom-slider:hover { border: none; }
 

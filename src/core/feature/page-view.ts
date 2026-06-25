@@ -184,7 +184,7 @@ export function setupPageView(deps: PageViewDeps) {
     return Math.max(0.2, Math.min(1, avail / Math.max(1, dim)));
   };
   const effectiveZoom = (): number => userZoom ?? fitZoom();
-  // A slider (like pdfedit) plus a clickable percentage that resets to fit-to-width.
+  // A slider (like pdfedit) plus an editable percentage field the user can type into.
   const zoomSlider = document.createElement("input");
   zoomSlider.type = "range";
   zoomSlider.min = "30";
@@ -195,13 +195,27 @@ export function setupPageView(deps: PageViewDeps) {
   zoomSlider.title = t("zoom");
   zoomSlider.setAttribute("aria-label", t("zoom"));
   zoomSlider.addEventListener("input", () => setZoom(Number(zoomSlider.value) / 100));
-  const zoomLabel = document.createElement("button");
-  zoomLabel.type = "button";
+  const zoomLabel = document.createElement("input");
+  zoomLabel.type = "text";
+  zoomLabel.inputMode = "numeric";
   zoomLabel.className = "docxedit-zoom-label";
-  zoomLabel.title = t("zoomReset");
-  zoomLabel.textContent = "100%";
-  zoomLabel.addEventListener("mousedown", (e) => e.preventDefault());
-  zoomLabel.addEventListener("click", () => setZoom(null));
+  zoomLabel.title = t("zoom");
+  zoomLabel.setAttribute("aria-label", t("zoom"));
+  zoomLabel.value = "100%";
+  const commitZoom = () => {
+    const n = parseInt(zoomLabel.value.replace(/[^0-9]/g, ""), 10);
+    if (Number.isFinite(n) && n > 0) setZoom(n / 100);
+    else applyZoom(); // invalid entry: restore the shown value
+  };
+  zoomLabel.addEventListener("focus", () => zoomLabel.select());
+  zoomLabel.addEventListener("change", commitZoom);
+  zoomLabel.addEventListener("keydown", (e) => {
+    if (e.key === "Enter") {
+      e.preventDefault();
+      commitZoom();
+      zoomLabel.blur();
+    }
+  });
   const applyZoom = () => {
     const z = effectiveZoom();
     page.style.transformOrigin = "top left";
@@ -209,7 +223,7 @@ export function setupPageView(deps: PageViewDeps) {
     // A vertical page grows in width and is fixed in height; a horizontal one is the reverse.
     pagebox.style.width = `${Math.round((vertical ? page.offsetWidth : geometry.widthPx) * z)}px`;
     pagebox.style.height = `${Math.round((vertical ? geometry.heightPx : page.offsetHeight) * z)}px`;
-    zoomLabel.textContent = `${Math.round(z * 100)}%`;
+    if (document.activeElement !== zoomLabel) zoomLabel.value = `${Math.round(z * 100)}%`;
     zoomSlider.value = String(Math.round(z * 100));
     updateRulers();
   };
