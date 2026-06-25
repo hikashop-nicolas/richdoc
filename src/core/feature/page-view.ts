@@ -332,25 +332,34 @@ export function setupPageView(deps: PageViewDeps) {
   };
   const { row: sizeRow, sel: sizeSel } = mkSelectRow(t("pageSize"), [...Object.keys(PAGE_SIZES).map((k) => [k, SIZE_LABELS[k]!] as [string, string]), ["custom", t("custom")]]);
   const { row: orientRow, sel: orientSel } = mkSelectRow(t("orientation"), [["portrait", t("portrait")], ["landscape", t("landscape")]]);
-  const cmInput = (label: string, min: string): HTMLInputElement => {
-    const i = document.createElement("input");
-    i.type = "number"; i.min = min; i.step = "0.1"; i.className = "docxedit-dialog-size"; i.placeholder = label; i.title = label;
-    return i;
+  // A labelled cm field (caption above the input) so the meaning stays visible while typing.
+  const cmField = (label: string, min: string): { wrap: HTMLElement; input: HTMLInputElement } => {
+    const wrap = document.createElement("label");
+    wrap.className = "docxedit-pagesetup-field";
+    const cap = document.createElement("span");
+    cap.className = "docxedit-pagesetup-fieldlabel";
+    cap.textContent = label;
+    const input = document.createElement("input");
+    input.type = "number"; input.min = min; input.step = "0.1"; input.className = "docxedit-dialog-size";
+    wrap.append(cap, input);
+    return { wrap, input };
   };
   const customRow = document.createElement("div");
   customRow.className = "docxedit-dialog-row docxedit-pagesetup-custom";
-  const wIn = cmInput(t("pageWidthCm"), "1");
-  const hIn = cmInput(t("pageHeightCm"), "1");
-  customRow.append(wIn, hIn);
+  const fW = cmField(t("pageWidthCm"), "1");
+  const fH = cmField(t("pageHeightCm"), "1");
+  const wIn = fW.input, hIn = fH.input;
+  customRow.append(fW.wrap, fH.wrap);
   const { row: marginRow, sel: marginSel } = mkSelectRow(t("margins"), [["normal", t("marginNormal")], ["narrow", t("marginNarrow")], ["moderate", t("marginModerate")], ["wide", t("marginWide")], ["custom", t("custom")]]);
-  // Custom margins: four cm inputs revealed when the margin preset is "custom".
+  // Custom margins: four labelled cm fields revealed when the margin preset is "custom".
   const marginCustomRow = document.createElement("div");
   marginCustomRow.className = "docxedit-dialog-row docxedit-pagesetup-custom";
-  const mtIn = cmInput(`${t("edgeTop")} (cm)`, "0");
-  const mrIn = cmInput(`${t("edgeRight")} (cm)`, "0");
-  const mbIn = cmInput(`${t("edgeBottom")} (cm)`, "0");
-  const mlIn = cmInput(`${t("edgeLeft")} (cm)`, "0");
-  marginCustomRow.append(mtIn, mrIn, mbIn, mlIn);
+  const fMT = cmField(`${t("edgeTop")} (cm)`, "0");
+  const fMR = cmField(`${t("edgeRight")} (cm)`, "0");
+  const fMB = cmField(`${t("edgeBottom")} (cm)`, "0");
+  const fML = cmField(`${t("edgeLeft")} (cm)`, "0");
+  const mtIn = fMT.input, mrIn = fMR.input, mbIn = fMB.input, mlIn = fML.input;
+  marginCustomRow.append(fMT.wrap, fMR.wrap, fMB.wrap, fML.wrap);
   const { row: colRow, sel: colSel } = mkSelectRow(t("columns"), [["1", "1"], ["2", "2"], ["3", "3"]]);
   const syncCustom = () => {
     customRow.hidden = sizeSel.value !== "custom";
