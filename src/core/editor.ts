@@ -77,6 +77,10 @@ export function createRichEditor(container: HTMLElement, adapter: Adapter, optio
     page.style.setProperty("--rdoc-margin-right", `${geometry.margin.right}px`);
     page.style.setProperty("--rdoc-margin-bottom", `${geometry.margin.bottom}px`);
     page.style.setProperty("--rdoc-margin-left", `${geometry.margin.left}px`);
+    const cols = geometry.columns && geometry.columns > 1 ? geometry.columns : 1;
+    page.classList.toggle("is-columns", cols > 1);
+    page.style.setProperty("--rdoc-columns", String(cols));
+    page.style.setProperty("--rdoc-column-gap", `${geometry.columnGapPx ?? 36}px`);
   };
   applyGeometry();
   // Vertical (Japanese tategaki): fixed-height page, columns top-to-bottom advancing right to
@@ -107,7 +111,10 @@ export function createRichEditor(container: HTMLElement, adapter: Adapter, optio
   // Paginated view: one continuous editable body (doc) on top of a layer of page-card
   // decorations, with inert spacer gaps inserted at page boundaries. Pageless view keeps
   // the body and header/footer stacked in one card (the previous behaviour).
-  const paginated = options.paginated ?? true;
+  // Multi-column sections render as one continuous columned sheet: CSS columns flow within the
+  // single body element, which the block-height paginator cannot split per page, so pagination
+  // is turned off when columns are present.
+  const paginated = (options.paginated ?? true) && !(geometry.columns && geometry.columns > 1);
   const pagelayer = document.createElement("div"); // page cards, behind the body
   pagelayer.className = "docxedit-pagelayer";
   pagelayer.setAttribute("aria-hidden", "true");

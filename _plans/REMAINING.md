@@ -30,6 +30,10 @@ context (a paragraph, or the document body) is regenerated from the edited HTML.
   resize, merge, in-cell formatting.
 - Page size, margins, orientation; vertical (tategaki) + RTL writing with
   paginated layout, header/footer, and graduated rulers + magnet.
+- **Multi-column sections**: a section's `w:cols` (docx) / page-layout
+  `style:columns` (odt) is read and rendered with CSS columns (count + gap). A
+  columned document renders as one continuous columned sheet (pagination is off for
+  it, since the block paginator cannot split CSS columns per page) and round-trips.
 - Header / footer (the default one), with live page-number / page-count / TOC
   fields.
 - Inline images, hyperlinks.
@@ -62,9 +66,11 @@ because their context is regenerated. This is the work for "feature complete".
    round-trip on both formats (preserved, see bucket A). What remains is a UI to
    *insert* a section break and edit per-section page setup (size / orientation /
    margins / columns / headers) rather than only preserving what a file already has.
-2. **Columns (`w:cols`).** Preserved for a single section (it rides the trailing
-   sectPr) but not authorable, and authored sections (C1) would need a per-section
-   column control.
+2. **Columns authoring.** Columns now read, render and round-trip (see bucket A).
+   What remains is a control to *set* the column count, which needs a live
+   paginated->continuous switch (a columned doc renders continuously, so toggling
+   columns on a paginated doc must rebuild the page view) plus, eventually, per-page
+   column balancing instead of one continuous sheet.
 3. **Tab-stop positioning + authoring.** Tabs and a paragraph's custom stops now
    round-trip (see bucket A), but custom stop *positions* render at the default 0.5in
    grid (preserved on save, not shown at their real x), and right / center / decimal

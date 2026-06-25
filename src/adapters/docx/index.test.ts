@@ -734,6 +734,17 @@ describe("page geometry (w:sectPr)", () => {
     expect(page!.margin).toEqual({ top: 96, right: 120, bottom: 96, left: 120 });
   });
 
+  it("reads section columns from w:cols (count + gap)", () => {
+    const doc = `<?xml version="1.0"?>
+<w:document xmlns:w="http://schemas.openxmlformats.org/wordprocessingml/2006/main"><w:body>
+  <w:p><w:r><w:t>Hi</w:t></w:r></w:p>
+  <w:sectPr><w:pgSz w:w="11906" w:h="16838"/><w:cols w:num="2" w:space="720"/></w:sectPr>
+</w:body></w:document>`;
+    const page = docxToParts(makeDocx(doc)).page;
+    expect(page!.columns).toBe(2);
+    expect(page!.columnGapPx).toBe(48); // 720 twips = 48px
+  });
+
   it("returns no geometry when there is no w:pgSz", () => {
     const doc = `<?xml version="1.0"?>
 <w:document xmlns:w="http://schemas.openxmlformats.org/wordprocessingml/2006/main"><w:body>

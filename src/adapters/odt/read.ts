@@ -696,7 +696,13 @@ function parsePageGeometry(files: Record<string, Uint8Array>): PageGeometry | un
   const wm = props.getAttribute("style:writing-mode") ?? "";
   const vertical = wm.startsWith("tb"); // tb-rl / tb
   const rtl = wm.startsWith("rl"); // rl-tb (horizontal right-to-left)
-  return { widthPx: Math.round(w), heightPx: Math.round(h), margin: { top: m("top"), right: m("right"), bottom: m("bottom"), left: m("left") }, vertical, rtl };
+  // Columns: style:columns @fo:column-count on the page layout, with the gap from a column-sep
+  // or the first column's margins.
+  const colsEl = props.getElementsByTagName("style:columns")[0];
+  const numCols = Number(colsEl?.getAttribute("fo:column-count"));
+  const columns = Number.isFinite(numCols) && numCols > 1 ? numCols : undefined;
+  const gapAttr = colsEl?.getElementsByTagName("style:column-sep")[0]?.getAttribute("style:width");
+  return { widthPx: Math.round(w), heightPx: Math.round(h), margin: { top: m("top"), right: m("right"), bottom: m("bottom"), left: m("left") }, vertical, rtl, columns, columnGapPx: columns ? Math.round(lenToPx(gapAttr) ?? 36) : undefined };
 }
 
 export function odtToParts(bytes: Uint8Array): { body: string; comments: CommentThread[]; header: string; footer: string; page?: PageGeometry; paragraphStyles?: { id: string; name: string }[]; characterStyles?: { id: string; name: string }[]; styleDefs?: { id: string; kind: "paragraph" | "character"; css: Record<string, string> }[]; styleCss?: string } {

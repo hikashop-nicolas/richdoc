@@ -641,6 +641,25 @@ describe("odt page geometry (page-layout)", () => {
   it("returns no geometry when the page-layout has no size", () => {
     expect(odtToParts(odtWith('fo:margin-top="2cm"')).page).toBeUndefined();
   });
+
+  it("reads section columns from style:columns (count + gap)", () => {
+    const styles =
+      '<?xml version="1.0"?><office:document-styles xmlns:office="urn:oasis:names:tc:opendocument:xmlns:office:1.0" ' +
+      'xmlns:style="urn:oasis:names:tc:opendocument:xmlns:style:1.0" xmlns:fo="urn:oasis:names:tc:opendocument:xmlns:xsl-fo-compatible:1.0">' +
+      '<office:automatic-styles><style:page-layout style:name="pm1"><style:page-layout-properties fo:page-width="21cm" fo:page-height="29.7cm">' +
+      '<style:columns fo:column-count="2"><style:column-sep style:width="0.5cm"/></style:columns>' +
+      '</style:page-layout-properties></style:page-layout></office:automatic-styles>' +
+      '<office:master-styles><style:master-page style:name="Standard" style:page-layout-name="pm1"/></office:master-styles></office:document-styles>';
+    const odt = zipSync({
+      mimetype: [strToU8("application/vnd.oasis.opendocument.text"), { level: 0 }],
+      "content.xml": strToU8(CONTENT),
+      "styles.xml": strToU8(styles),
+      "META-INF/manifest.xml": strToU8("<m/>"),
+    });
+    const page = odtToParts(odt).page;
+    expect(page?.columns).toBe(2);
+    expect(page?.columnGapPx).toBe(19); // 0.5cm = ~19px
+  });
 });
 
 describe("odt editable tables (cell content round-trip)", () => {

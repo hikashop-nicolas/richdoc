@@ -48,6 +48,10 @@ export interface PageGeometry {
   vertical?: boolean;
   /** Horizontal right-to-left text (Arabic/Hebrew) when true. Ignored if `vertical`. */
   rtl?: boolean;
+  /** Number of text columns on the (single) section; >1 renders multi-column. */
+  columns?: number;
+  /** Gap between columns, in px. */
+  columnGapPx?: number;
 }
 
 /** The editable model the engine renders: body + header/footer HTML, comments, fonts. */

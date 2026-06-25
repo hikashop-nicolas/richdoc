@@ -243,6 +243,11 @@
    0.5in (tab-size); a paragraph's custom stops (data-rdoc-tabstops) round-trip but render at
    the default positions. The character is preserved so copy/paste yields a real tab. */
 .docxedit-doc { tab-size: 48px; -moz-tab-size: 48px; }
+/* Multi-column section (rendered continuously, see editor.ts): CSS columns flow the body text
+   into N columns. Floats/behind images and tables opt out so they don't split across columns. */
+.docxedit-page.is-columns .docxedit-doc { column-count: var(--rdoc-columns, 1); column-gap: var(--rdoc-column-gap, 36px); }
+.docxedit-page.is-columns .docxedit-doc > .docx-table,
+.docxedit-page.is-columns .docxedit-doc img[data-rdoc-wrap] { column-span: all; }
 .docx-tab { white-space: pre; display: inline; }
 
 /* Floating images: how an image sits relative to the text (data-rdoc-wrap, set by the image

@@ -796,7 +796,12 @@ function parsePageGeometry(sectPr: Element | undefined): PageGeometry | undefine
   // Horizontal RTL section: w:sectPr/w:bidi (a present, non-false element).
   const bidi = sectPr.getElementsByTagName("w:bidi")[0];
   const rtl = !!bidi && (bidi.getAttributeNS(W, "val") ?? bidi.getAttribute("w:val") ?? "1") !== "0";
-  return { widthPx: Math.round(w), heightPx: Math.round(h), margin: { top: m("top"), right: m("right"), bottom: m("bottom"), left: m("left") }, vertical, rtl };
+  // Columns: w:cols @w:num (count) + @w:space (gap, twips). Equal-width columns only.
+  const cols = sectPr.getElementsByTagName("w:cols")[0];
+  const numCols = Number(cols?.getAttributeNS(W, "num") ?? cols?.getAttribute("w:num"));
+  const columns = Number.isFinite(numCols) && numCols > 1 ? numCols : undefined;
+  const colGap = twipToPx(cols?.getAttributeNS(W, "space") ?? cols?.getAttribute("w:space"));
+  return { widthPx: Math.round(w), heightPx: Math.round(h), margin: { top: m("top"), right: m("right"), bottom: m("bottom"), left: m("left") }, vertical, rtl, columns, columnGapPx: columns ? Math.round(colGap ?? 36) : undefined };
 }
 
 /** The archive key for a relationship target relative to word/ (e.g. "header1.xml"). */
