@@ -545,6 +545,8 @@ interface PInfo {
   align?: string; // CSS text-align
   indentPx?: number; // w:ind left indent, in px
   lineHeight?: number; // w:spacing line (auto rule), as a multiple
+  spaceBeforePx?: number; // w:spacing @w:before, in px
+  spaceAfterPx?: number; // w:spacing @w:after, in px
   border?: string; // CSS border declaration block
   pageBreakBefore: boolean;
   revPara?: "ins" | "del"; // paragraph-mark revision (split/merge)
@@ -567,6 +569,8 @@ function paragraphInfo(p: Element, numbering: Map<string, boolean>): PInfo {
   const line = sp?.getAttribute("w:line");
   const rule = sp?.getAttribute("w:lineRule") ?? "auto";
   const lineHeight = line && rule === "auto" ? Math.round((Number(line) / 240) * 100) / 100 : undefined;
+  const spaceBeforePx = twipToPx(sp?.getAttribute("w:before"));
+  const spaceAfterPx = twipToPx(sp?.getAttribute("w:after"));
   // Paragraph-mark revision lives in pPr > rPr > w:ins / w:del.
   const markRPr = pPr ? Array.from(pPr.children).find((c) => c.tagName === "w:rPr") : undefined;
   const mark = markRPr && (Array.from(markRPr.children).find((c) => c.tagName === "w:ins" || c.tagName === "w:del") as Element | undefined);
@@ -578,6 +582,8 @@ function paragraphInfo(p: Element, numbering: Map<string, boolean>): PInfo {
     align: JC_TO_ALIGN[jc],
     indentPx: indentPx && indentPx > 0 ? Math.round(indentPx) : undefined,
     lineHeight,
+    spaceBeforePx: spaceBeforePx === undefined ? undefined : Math.round(spaceBeforePx),
+    spaceAfterPx: spaceAfterPx === undefined ? undefined : Math.round(spaceAfterPx),
     border: paragraphBorderStyle(pPr),
     pageBreakBefore: onFlag(pPr, "w:pageBreakBefore"),
     revPara: mark ? (mark.tagName === "w:del" ? "del" : "ins") : undefined,
@@ -590,6 +596,8 @@ function blockStyleAttr(info: PInfo): string {
   if (info.align && info.align !== "left") parts.push(`text-align:${info.align}`);
   if (info.indentPx) parts.push(`margin-left:${info.indentPx}px`);
   if (info.lineHeight) parts.push(`line-height:${info.lineHeight}`);
+  if (info.spaceBeforePx !== undefined) parts.push(`margin-top:${info.spaceBeforePx}px`);
+  if (info.spaceAfterPx !== undefined) parts.push(`margin-bottom:${info.spaceAfterPx}px`);
   if (info.border) parts.push(info.border);
   const style = parts.length ? ` style="${parts.join(";")}"` : "";
   if (!info.revPara) return style;

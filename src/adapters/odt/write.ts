@@ -57,13 +57,15 @@ function styleFor(doc: Document, auto: Element, created: Map<string, string>, f:
 }
 
 /** Create (once) a paragraph style for an alignment and return its name. */
-function paraStyleFor(doc: Document, auto: Element, created: Map<string, string>, p: { align?: string; indentPx?: number; lineHeight?: number }): string | null {
+function paraStyleFor(doc: Document, auto: Element, created: Map<string, string>, p: { align?: string; indentPx?: number; lineHeight?: number; spaceBeforePx?: number; spaceAfterPx?: number }): string | null {
   const a = p.align ? ODF_ALIGN[p.align] : undefined;
   const align = a && a !== "left" ? a : undefined;
   const indentPx = p.indentPx && p.indentPx > 0 ? Math.round(p.indentPx) : undefined;
   const lineHeight = p.lineHeight && p.lineHeight > 0 ? p.lineHeight : undefined;
-  if (!align && !indentPx && !lineHeight) return null;
-  const key = `p_${align ?? ""}_${indentPx ?? ""}_${lineHeight ?? ""}`;
+  const before = p.spaceBeforePx; // may be 0 (explicit "no space"); undefined = not set
+  const after = p.spaceAfterPx;
+  if (!align && !indentPx && !lineHeight && before === undefined && after === undefined) return null;
+  const key = `p_${align ?? ""}_${indentPx ?? ""}_${lineHeight ?? ""}_${before ?? ""}_${after ?? ""}`;
   const existing = created.get(key);
   if (existing) return existing;
   const name = `OT_p${created.size}`;
@@ -74,6 +76,8 @@ function paraStyleFor(doc: Document, auto: Element, created: Map<string, string>
   if (align) pp.setAttributeNS(NS.fo, "fo:text-align", align === "right" ? "end" : align === "center" ? "center" : "justify");
   if (indentPx) pp.setAttributeNS(NS.fo, "fo:margin-left", `${Math.round((indentPx / (96 / 2.54)) * 1000) / 1000}cm`);
   if (lineHeight) pp.setAttributeNS(NS.fo, "fo:line-height", `${Math.round(lineHeight * 100)}%`);
+  if (before !== undefined) pp.setAttributeNS(NS.fo, "fo:margin-top", pxToCm(before));
+  if (after !== undefined) pp.setAttributeNS(NS.fo, "fo:margin-bottom", pxToCm(after));
   st.appendChild(pp);
   auto.appendChild(st);
   created.set(key, name);
@@ -611,6 +615,8 @@ function htmlBlockToOdf(node: Node, ctx: OdfCtx): Element | null {
       align: el.style.textAlign || undefined,
       indentPx: parseFloat(el.style.marginLeft) || undefined,
       lineHeight: parseFloat(el.style.lineHeight) || undefined,
+      spaceBeforePx: el.style.marginTop !== "" ? parseFloat(el.style.marginTop) || 0 : undefined,
+      spaceAfterPx: el.style.marginBottom !== "" ? parseFloat(el.style.marginBottom) || 0 : undefined,
     });
     if (name) block.setAttributeNS(NS.text, "text:style-name", name);
   };

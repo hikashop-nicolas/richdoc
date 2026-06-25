@@ -157,7 +157,12 @@ function collectParaStyles(doc: Document): Map<string, PFmt> {
     const indentPx = indentRaw && indentRaw > 0 ? Math.round(indentRaw) : undefined;
     const lh = pp?.getAttribute("fo:line-height");
     const lineHeight = lh && lh.endsWith("%") ? Math.round((parseFloat(lh) / 100) * 100) / 100 : undefined;
-    if (align || indentPx || lineHeight) map.set(name, { align, indentPx, lineHeight });
+    const mt = pp?.getAttribute("fo:margin-top");
+    const mb = pp?.getAttribute("fo:margin-bottom");
+    const spaceBeforePx = mt != null ? Math.round(lenToPx(mt) ?? 0) : undefined;
+    const spaceAfterPx = mb != null ? Math.round(lenToPx(mb) ?? 0) : undefined;
+    if (align || indentPx || lineHeight || spaceBeforePx !== undefined || spaceAfterPx !== undefined)
+      map.set(name, { align, indentPx, lineHeight, spaceBeforePx, spaceAfterPx });
   }
   return map;
 }
@@ -407,6 +412,8 @@ function blockToHtml(el: Element, ctx: RCtx): string {
     if (pf.align && pf.align !== "left") css.push(`text-align:${pf.align}`);
     if (pf.indentPx) css.push(`margin-left:${pf.indentPx}px`);
     if (pf.lineHeight) css.push(`line-height:${pf.lineHeight}`);
+    if (pf.spaceBeforePx !== undefined) css.push(`margin-top:${pf.spaceBeforePx}px`);
+    if (pf.spaceAfterPx !== undefined) css.push(`margin-bottom:${pf.spaceAfterPx}px`);
     return css.length ? ` style="${css.join(";")}"` : "";
   };
   switch (el.tagName) {

@@ -400,6 +400,42 @@ export function setupToolbar(deps: ToolbarDeps) {
     return b;
   });
   lineSpacingMenu.append(...lsButtons);
+  // Paragraph space before/after: a default add, or an explicit 0 to remove inherited spacing.
+  const SPACE_ADD = 14; // px, ~10.5pt, a sensible "add space" default
+  const divider = document.createElement("div");
+  divider.className = "docxedit-menu-sep";
+  const setSpace = (side: "marginTop" | "marginBottom", on: boolean): void => {
+    getActiveEl().focus();
+    for (const b of selectedBlocks()) b.style[side] = on ? `${SPACE_ADD}px` : "0px";
+    mark();
+    lineSpacingMenu.hidden = true;
+  };
+  const spaceItem = (side: "marginTop" | "marginBottom"): HTMLButtonElement => {
+    const b = document.createElement("button");
+    b.type = "button";
+    b.className = "docxedit-menu-item";
+    b.dataset.side = side;
+    b.addEventListener("mousedown", (e) => e.preventDefault());
+    b.addEventListener("click", (e) => {
+      e.stopPropagation();
+      setSpace(side, b.dataset.on !== "1"); // toggle off when currently on
+    });
+    return b;
+  };
+  const spaceBeforeItem = spaceItem("marginTop");
+  const spaceAfterItem = spaceItem("marginBottom");
+  lineSpacingMenu.append(divider, spaceBeforeItem, spaceAfterItem);
+  // Reflect the current block's state on the two toggle items (add vs remove).
+  const refreshSpaceItems = (): void => {
+    const b = selectedBlocks()[0];
+    const on = (prop: "marginTop" | "marginBottom"): boolean => (parseFloat(b?.style[prop] ?? "") || 0) > 0;
+    const beforeOn = on("marginTop");
+    const afterOn = on("marginBottom");
+    spaceBeforeItem.dataset.on = beforeOn ? "1" : "0";
+    spaceAfterItem.dataset.on = afterOn ? "1" : "0";
+    spaceBeforeItem.textContent = t(beforeOn ? "removeSpaceBefore" : "addSpaceBefore");
+    spaceAfterItem.textContent = t(afterOn ? "removeSpaceAfter" : "addSpaceAfter");
+  };
   const lineSpacingBtn = iconBtn(lineSpacingIcon, t("lineSpacing"), () => {});
   lineSpacingBtn.addEventListener("click", (e) => {
     e.stopPropagation();
@@ -407,6 +443,7 @@ export function setupToolbar(deps: ToolbarDeps) {
     const wr = wrap.getBoundingClientRect();
     lineSpacingMenu.style.left = `${r.left - wr.left}px`;
     lineSpacingMenu.style.top = `${r.bottom - wr.top + 2}px`;
+    if (lineSpacingMenu.hidden) refreshSpaceItems();
     lineSpacingMenu.hidden = !lineSpacingMenu.hidden;
   });
 

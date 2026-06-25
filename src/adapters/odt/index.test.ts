@@ -534,6 +534,22 @@ describe("odt paragraph indent + line spacing", () => {
     expect(html).toMatch(/margin-left:\s*48px/);
     expect(html).toMatch(/line-height:\s*1\.5/);
   });
+
+  it("writes paragraph space before/after (fo:margin-top/bottom) and reads it back", () => {
+    const out = htmlToOdt('<p style="margin-top:19px;margin-bottom:10px">x</p>', makeOdt());
+    const content = strFromU8(unzipSync(out)["content.xml"]);
+    expect(content).toMatch(/fo:margin-top="0\.50\d*cm"/); // 19px ~= 0.503cm
+    expect(content).toMatch(/fo:margin-bottom="0\.2\d*cm"/); // 10px ~= 0.265cm
+    const html = odtToHtml(out);
+    expect(html).toMatch(/margin-top:\s*19px/);
+    expect(html).toMatch(/margin-bottom:\s*10px/);
+  });
+
+  it("round-trips an explicit zero space-before", () => {
+    const out = htmlToOdt('<p style="margin-top:0px">x</p>', makeOdt());
+    expect(strFromU8(unzipSync(out)["content.xml"])).toContain('fo:margin-top="0cm"');
+    expect(odtToHtml(out)).toMatch(/margin-top:\s*0px/);
+  });
 });
 
 describe("odt run formatting: strike, superscript, subscript", () => {

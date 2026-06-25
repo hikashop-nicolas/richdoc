@@ -685,6 +685,23 @@ describe("paragraph indent + line spacing", () => {
     expect(html).toMatch(/margin-left:\s*48px/);
     expect(html).toMatch(/line-height:\s*1\.5/);
   });
+
+  it("writes paragraph space before/after (w:spacing @before/@after) and reads it back", () => {
+    const out = htmlToDocx('<p style="margin-top:14px;margin-bottom:7px">x</p>', makeDocx());
+    const xml = strFromU8(unzipSync(out)["word/document.xml"]!);
+    expect(xml).toMatch(/w:spacing[^>]*w:before="210"/); // 14px * 15
+    expect(xml).toMatch(/w:spacing[^>]*w:after="105"/); // 7px * 15
+    const html = docxToHtml(out);
+    expect(html).toMatch(/margin-top:\s*14px/);
+    expect(html).toMatch(/margin-bottom:\s*7px/);
+  });
+
+  it("round-trips an explicit zero space-before (no-space paragraph)", () => {
+    const out = htmlToDocx('<p style="margin-top:0px">x</p>', makeDocx());
+    const xml = strFromU8(unzipSync(out)["word/document.xml"]!);
+    expect(xml).toMatch(/w:spacing[^>]*w:before="0"/);
+    expect(docxToHtml(out)).toMatch(/margin-top:\s*0px/);
+  });
 });
 
 describe("run formatting: strike, superscript, subscript", () => {

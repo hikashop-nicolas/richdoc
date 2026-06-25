@@ -334,9 +334,14 @@ function makeParagraph(ctx: DocxCtx, src: HTMLElement, opts: { heading?: number;
   const jc = JC_BY_ALIGN[src.style.textAlign || ""];
   const indentPx = parseFloat(src.style.marginLeft) || 0;
   const lineHeight = parseFloat(src.style.lineHeight) || 0; // unitless multiple
+  // Space before/after: only when set inline (margin-top/bottom present), so 0 round-trips too.
+  const hasBefore = src.style.marginTop !== "";
+  const hasAfter = src.style.marginBottom !== "";
+  const beforePx = parseFloat(src.style.marginTop) || 0;
+  const afterPx = parseFloat(src.style.marginBottom) || 0;
   const revPara = src.getAttribute("data-rev-para"); // "ins" | "del" paragraph-mark revision
   const listIds = opts.list ? ensureListNumbering(ctx) : null;
-  if (opts.heading || listIds || jc || revPara || indentPx > 0 || lineHeight > 0) {
+  if (opts.heading || listIds || jc || revPara || indentPx > 0 || lineHeight > 0 || hasBefore || hasAfter) {
     const pPr = ctx.doc.createElementNS(W, "w:pPr");
     if (opts.heading) {
       const st = ctx.doc.createElementNS(W, "w:pStyle");
@@ -352,11 +357,15 @@ function makeParagraph(ctx: DocxCtx, src: HTMLElement, opts: { heading?: number;
       numPr.append(ilvl, numId);
       pPr.appendChild(numPr);
     }
-    // schema order: w:spacing and w:ind come before w:jc
-    if (lineHeight > 0) {
+    // schema order: w:spacing and w:ind come before w:jc; line + before/after share one element
+    if (lineHeight > 0 || hasBefore || hasAfter) {
       const sp = ctx.doc.createElementNS(W, "w:spacing");
-      sp.setAttributeNS(W, "w:line", String(Math.round(lineHeight * 240)));
-      sp.setAttributeNS(W, "w:lineRule", "auto");
+      if (hasBefore) sp.setAttributeNS(W, "w:before", String(Math.round(beforePx * 15)));
+      if (hasAfter) sp.setAttributeNS(W, "w:after", String(Math.round(afterPx * 15)));
+      if (lineHeight > 0) {
+        sp.setAttributeNS(W, "w:line", String(Math.round(lineHeight * 240)));
+        sp.setAttributeNS(W, "w:lineRule", "auto");
+      }
       pPr.appendChild(sp);
     }
     if (indentPx > 0) {

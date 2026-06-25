@@ -76,6 +76,7 @@
 .docxedit-menu-item { font: 13px/1 system-ui, sans-serif; text-align: left; padding: 6px 10px; border: 0; border-radius: 5px; background: transparent; color: #e6e8ec; cursor: pointer; }
 .docxedit-menu-item:hover { background: #3a3f47; }
 .docxedit-menu-item.is-on { background: #6e7bff; color: #fff; }
+.docxedit-menu-sep { height: 1px; margin: 4px 2px; background: #4a4f57; }
 /* Cell-border preset grid inside the cell menu. */
 .docxedit-border-grid { display: grid; grid-template-columns: repeat(3, 1fr); gap: 2px; margin-top: 4px; padding-top: 4px; border-top: 1px solid #4a4f57; }
 .docxedit-border-btn { display: inline-flex; align-items: center; justify-content: center; width: 30px; height: 30px; border: 1px solid #4a4f57; border-radius: 4px; background: #3a3f47; color: #e6e8ec; cursor: pointer; }

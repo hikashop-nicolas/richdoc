@@ -3,7 +3,7 @@
 The DOCX_CAPABILITIES_PLAN workstreams W1-W7 are all shipped (page sizes,
 orientation, vertical/RTL writing with paginated tategaki + header/footer + rulers,
 editable tables with borders/resize/merge/indent, run formatting, paragraph indent +
-line spacing, and nested ordered/unordered lists), plus extras the plan did not list
+line spacing, paragraph space before/after, and nested ordered/unordered lists), plus extras the plan did not list
 (cell border colour/style/width, table column/row/indent resize with graduated rulers
 + magnet, and fields: page number / count / table of contents). What is left:
 
@@ -12,9 +12,6 @@ line spacing, and nested ordered/unordered lists), plus extras the plan did not 
   round-trip (w:numPr/w:ilvl/w:numId, odt per-level list styles), and the indent /
   outdent buttons create real nesting. Restart-at-N and continue-previous-list are
   still not modelled; every ordered list restarts at 1.
-- **Paragraph spacing before/after**: `w:spacing @w:before/@w:after` (odt
-  `fo:margin-top/bottom`) is normalised away when a paragraph is regenerated. Line
-  spacing and indent are modelled; before/after spacing is not.
 - **Tab stops**: custom tab stops (`w:tabs`) are dropped on paragraph regen.
 - **Named styles**: only direct formatting is editable; paragraph/character styles
   (`w:pStyle`/`w:rStyle`) are preserved on untouched runs but not as an editable

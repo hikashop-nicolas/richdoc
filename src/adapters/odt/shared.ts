@@ -35,6 +35,8 @@ export interface PFmt {
   align?: string; // left | right | center | justify
   indentPx?: number; // fo:margin-left, in px
   lineHeight?: number; // fo:line-height (% form), as a multiple
+  spaceBeforePx?: number; // fo:margin-top, in px
+  spaceAfterPx?: number; // fo:margin-bottom, in px
 }
 export const ODF_ALIGN: Record<string, string> = { start: "left", left: "left", end: "right", right: "right", center: "center", justify: "justify" };
 
