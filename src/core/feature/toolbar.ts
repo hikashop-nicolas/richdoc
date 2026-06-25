@@ -1160,19 +1160,59 @@ export function setupToolbar(deps: ToolbarDeps) {
   };
   document.addEventListener("selectionchange", scheduleSync);
 
+  // The paragraph + character style pickers live in the bottom bar's left slot.
+  styleBar.append(block, cstyleSel);
+
+  // Two clusters collapse into a single dropdown button when the toolbar runs out of room:
+  // the character-formatting controls ("style"), and the insert controls.
+  const styleSrc: (HTMLElement | null)[] = [boldBtn, italicBtn, underlineBtn, strikeBtn, supBtn, subBtn, caps.textColor ? colorInput : null, caps.textColor ? bgWrap : null, caps.fontControls ? fontSel : null, caps.fontControls ? sizeSel : null];
+  const insertSrc: (HTMLElement | null)[] = [caps.images ? iconBtn(imgIcon, t("insertImage"), insertImage) : null, caps.tables ? tableBtn : null, caps.fields ? fieldsBtn : null, caps.comments ? iconBtn(cmtIcon, t("addComment"), addComment) : null, caps.pageBreak ? iconBtn(pbIcon, t("insertPageBreak"), insertPageBreak) : null, linkBtn];
+  const styleControls = styleSrc.filter((n): n is HTMLElement => n != null);
+  const insertControls = insertSrc.filter((n): n is HTMLElement => n != null);
+  const caret = '<svg width="8" height="8" viewBox="0 0 8 8" fill="currentColor" aria-hidden="true"><path d="M1 2.5 4 5.5 7 2.5z"/></svg>';
+  const styleGroupSvg = '<svg width="14" height="14" viewBox="0 0 16 16" fill="currentColor" aria-hidden="true"><path d="M4 13 7 3h2l3 10h-2l-.66-2.4H6.66L6 13H4zm3.1-4.2h1.8L8 5.4 7.1 8.8z"/></svg>';
+  const insertGroupSvg = '<svg width="14" height="14" viewBox="0 0 16 16" fill="currentColor" aria-hidden="true"><path d="M7 2h2v5h5v2H9v5H7V9H2V7h5z"/></svg>';
+  // A collapsible cluster: a slot that holds the controls inline or a group button + a popover.
+  const makeGroup = (controls: HTMLElement[], svg: string, title: string) => {
+    const slot = document.createElement("span");
+    slot.className = "docxedit-tb-slot";
+    const btn = iconBtn(svg + caret, title, () => {});
+    btn.classList.add("docxedit-tb-group");
+    const menu = document.createElement("div");
+    menu.className = "docxedit-toolbar docxedit-tb-overflow docxedit-tb-groupmenu";
+    menu.hidden = true;
+    let collapsed = false;
+    btn.addEventListener("mousedown", (e) => e.preventDefault());
+    btn.addEventListener("click", (e) => {
+      e.stopPropagation();
+      const r = btn.getBoundingClientRect();
+      const wr = wrap.getBoundingClientRect();
+      menu.style.top = `${r.bottom - wr.top + 2}px`;
+      menu.style.left = `${r.left - wr.left}px`;
+      menu.style.right = "auto";
+      menu.hidden = !menu.hidden;
+    });
+    slot.replaceChildren(...controls); // start expanded
+    const expand = () => {
+      if (!collapsed) return;
+      slot.replaceChildren(...controls);
+      menu.hidden = true;
+      collapsed = false;
+    };
+    const collapse = () => {
+      if (collapsed || !controls.length) return;
+      menu.replaceChildren(...controls);
+      slot.replaceChildren(btn);
+      collapsed = true;
+    };
+    return { slot, btn, menu, expand, collapse, has: controls.length > 0 };
+  };
+  const styleGroup = makeGroup(styleControls, styleGroupSvg, t("formatting"));
+  const insertGroup = makeGroup(insertControls, insertGroupSvg, t("insertMenu"));
+
   const items: (Node | null)[] = [
-    boldBtn,
-    italicBtn,
-    underlineBtn,
-    strikeBtn,
-    supBtn,
-    subBtn,
-    caps.textColor ? colorInput : null,
-    caps.textColor ? bgWrap : null,
-    sep(),
-    caps.fontControls ? fontSel : null,
-    caps.fontControls ? sizeSel : null,
-    sep(),
+    styleGroup.has ? styleGroup.slot : null,
+    styleGroup.has ? sep() : null,
     iconBtn(bulletIcon, t("bulleted"), () => exec("insertUnorderedList")),
     iconBtn(numberIcon, t("numbered"), () => exec("insertOrderedList")),
     caps.alignment ? sep() : null,
@@ -1183,23 +1223,15 @@ export function setupToolbar(deps: ToolbarDeps) {
     outdentBtn,
     indentBtn,
     lineSpacingBtn,
-    sep(),
-    caps.images ? iconBtn(imgIcon, t("insertImage"), insertImage) : null,
-    caps.tables ? tableBtn : null,
-    caps.fields ? fieldsBtn : null,
-    caps.comments ? iconBtn(cmtIcon, t("addComment"), addComment) : null,
-    caps.pageBreak ? iconBtn(pbIcon, t("insertPageBreak"), insertPageBreak) : null,
-    linkBtn,
+    insertGroup.has ? sep() : null,
+    insertGroup.has ? insertGroup.slot : null,
     caps.trackChanges ? sep() : null,
     caps.trackChanges ? suggestBtn : null,
     caps.trackChanges ? acceptAllBtn : null,
     caps.trackChanges ? rejectAllBtn : null,
   ];
-  // The paragraph + character style pickers live in the bottom bar's left slot.
-  styleBar.append(block, cstyleSel);
-  // Overflow menu: the toolbar is a single row; items that do not fit move into a "…"
-  // popover so nothing is lost on narrow widths. The popover lives inside the toolbar so
-  // the toolbar's button/sep styling (descendant selectors) still applies to pocketed items.
+  // Overflow menu: anything that still does not fit after the groups collapse moves into a "…"
+  // popover so nothing is lost on very narrow widths.
   const toolbarItems = items.filter((n): n is HTMLElement => n != null);
   const moreBtn = document.createElement("button");
   moreBtn.type = "button";
@@ -1207,8 +1239,6 @@ export function setupToolbar(deps: ToolbarDeps) {
   moreBtn.textContent = "⋯";
   moreBtn.title = t("moreTools");
   moreBtn.setAttribute("aria-label", t("moreTools"));
-  // The popover carries the toolbar class so pocketed items keep their styling, and lives
-  // in wrap (not the toolbar) so the toolbar's overflow:hidden does not clip it.
   const overflow = document.createElement("div");
   overflow.className = "docxedit-toolbar docxedit-tb-overflow";
   overflow.hidden = true;
@@ -1220,26 +1250,32 @@ export function setupToolbar(deps: ToolbarDeps) {
   });
   const closeOverflow = (e: MouseEvent) => {
     if (!overflow.hidden && !overflow.contains(e.target as Node) && e.target !== moreBtn) overflow.hidden = true;
+    if (!styleGroup.menu.hidden && !styleGroup.menu.contains(e.target as Node) && !styleGroup.btn.contains(e.target as Node)) styleGroup.menu.hidden = true;
+    if (!insertGroup.menu.hidden && !insertGroup.menu.contains(e.target as Node) && !insertGroup.btn.contains(e.target as Node)) insertGroup.menu.hidden = true;
     if (!tablePicker.hidden && !tablePicker.contains(e.target as Node) && !tableBtn.contains(e.target as Node)) tablePicker.hidden = true;
     if (!lineSpacingMenu.hidden && !lineSpacingMenu.contains(e.target as Node) && !lineSpacingBtn.contains(e.target as Node)) lineSpacingMenu.hidden = true;
     if (!fieldsMenu.hidden && !fieldsMenu.contains(e.target as Node) && !fieldsBtn.contains(e.target as Node)) fieldsMenu.hidden = true;
   };
   document.addEventListener("click", closeOverflow);
   toolbar.append(...toolbarItems, moreBtn);
-  wrap.appendChild(overflow);
-  wrap.appendChild(tablePicker);
-  wrap.appendChild(lineSpacingMenu);
-  wrap.appendChild(fieldsMenu);
+  wrap.append(overflow, styleGroup.menu, insertGroup.menu, tablePicker, lineSpacingMenu, fieldsMenu);
 
+  const fits = () => toolbar.scrollWidth <= toolbar.clientWidth + 1;
   const layoutToolbar = () => {
     overflow.hidden = true;
     for (const it of toolbarItems) toolbar.insertBefore(it, moreBtn); // pull everything back in
     moreBtn.style.display = "none";
-    if (toolbar.scrollWidth <= toolbar.clientWidth + 1) return; // it all fits
-    moreBtn.style.display = "";
+    insertGroup.expand();
+    styleGroup.expand();
+    if (fits()) return;
+    insertGroup.collapse(); // first collapse the insert cluster
+    if (fits()) return;
+    styleGroup.collapse(); // then the formatting cluster
+    if (fits()) return;
+    moreBtn.style.display = ""; // final fallback: pocket trailing items
     for (let i = toolbarItems.length - 1; i >= 0; i--) {
-      if (toolbar.scrollWidth <= toolbar.clientWidth + 1) break;
-      overflow.insertBefore(toolbarItems[i], overflow.firstChild); // pocket trailing items, in order
+      if (fits()) break;
+      overflow.insertBefore(toolbarItems[i], overflow.firstChild);
     }
   };
   layoutToolbar();

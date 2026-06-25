@@ -21,6 +21,9 @@
   background: #2b2f36; border-bottom: 1px solid #1c1f24; color: #e6e6e6; font: 13px system-ui, sans-serif;
 }
 .docxedit-tb-more { flex: 0 0 auto; font-weight: 700; }
+/* A collapsible cluster slot: its children participate in the toolbar flex directly. */
+.docxedit-tb-slot { display: contents; }
+.docxedit-tb-groupmenu { gap: 6px; padding: 6px; align-items: center; }
 .docxedit-tb-overflow {
   position: absolute; right: 6px; z-index: 30; flex-wrap: wrap; overflow: visible;
   max-width: min(340px, 90vw); border: 1px solid #1c1f24; border-radius: 8px; box-shadow: 0 8px 20px rgba(0, 0, 0, .5);
