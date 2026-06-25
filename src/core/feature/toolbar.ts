@@ -63,6 +63,13 @@ export function setupToolbar(deps: ToolbarDeps) {
     mark();
     syncToolbarState();
   };
+  // Format a keyboard shortcut for tooltips, platform-aware (⌘ on Mac, Ctrl elsewhere).
+  const isMac = /Mac|iPhone|iPad/.test((typeof navigator !== "undefined" && (navigator.platform || navigator.userAgent)) || "");
+  const sc = (key: string, opts: { shift?: boolean; alt?: boolean } = {}): string =>
+    isMac
+      ? `${opts.alt ? "⌥" : ""}${opts.shift ? "⇧" : ""}⌘${key.toUpperCase()}`
+      : `Ctrl+${opts.alt ? "Alt+" : ""}${opts.shift ? "Shift+" : ""}${key.toUpperCase()}`;
+  const withSc = (title: string, key: string, opts?: { shift?: boolean; alt?: boolean }): string => `${title} (${sc(key, opts)})`;
   // Wrap the current selection in a span carrying one CSS property (for font size, which
   // has no execCommand equivalent in CSS mode). No-op on a collapsed selection.
   const styleSel = (prop: string, val: string) => {
@@ -128,8 +135,9 @@ export function setupToolbar(deps: ToolbarDeps) {
   block.title = t("paragraphStyle");
   block.setAttribute("aria-label", t("paragraphStyle"));
   const BUILTIN_BLOCKS = new Set(["P", "H1", "H2", "H3"]);
+  const blockSc: Record<string, string> = { P: sc("0", { alt: true }), H1: sc("1", { alt: true }), H2: sc("2", { alt: true }), H3: sc("3", { alt: true }) };
   for (const [v, key] of [["P", "styleParagraph"], ["H1", "styleH1"], ["H2", "styleH2"], ["H3", "styleH3"]] as const) {
-    block.add(new Option(t(key), v));
+    block.add(new Option(`${t(key)}  (${blockSc[v]})`, v));
   }
   // The document's own named paragraph styles (Title, Quote, ...), value = style id with a
   // "s:" prefix so it never collides with the built-in block tags. The list is mutable so a
@@ -749,7 +757,7 @@ export function setupToolbar(deps: ToolbarDeps) {
     if (url === "") exec("unlink");
     else exec("createLink", url);
   };
-  const linkBtn = iconBtn(linkIcon, t("linkAria"), insertLink);
+  const linkBtn = iconBtn(linkIcon, withSc(t("linkAria"), "K"), insertLink);
   const supIcon =
     '<svg width="14" height="14" viewBox="0 0 16 16" fill="currentColor" aria-hidden="true">' +
     '<text x="0" y="14" font-size="11" font-family="serif">x</text><text x="8" y="7" font-size="7" font-family="serif">2</text></svg>';
@@ -757,16 +765,16 @@ export function setupToolbar(deps: ToolbarDeps) {
     '<svg width="14" height="14" viewBox="0 0 16 16" fill="currentColor" aria-hidden="true">' +
     '<text x="0" y="11" font-size="11" font-family="serif">x</text><text x="8" y="16" font-size="7" font-family="serif">2</text></svg>';
   // Named so their pressed state can be reflected from the caret (see syncToolbarState).
-  const boldBtn = btn("B", t("bold"), () => { beginFormatChange(); exec("bold"); }, "docxedit-tb-bold");
-  const italicBtn = btn("I", t("italic"), () => { beginFormatChange(); exec("italic"); }, "docxedit-tb-italic");
-  const underlineBtn = btn("U", t("underline"), () => { beginFormatChange(); exec("underline"); }, "docxedit-tb-underline");
+  const boldBtn = btn("B", withSc(t("bold"), "B"), () => { beginFormatChange(); exec("bold"); }, "docxedit-tb-bold");
+  const italicBtn = btn("I", withSc(t("italic"), "I"), () => { beginFormatChange(); exec("italic"); }, "docxedit-tb-italic");
+  const underlineBtn = btn("U", withSc(t("underline"), "U"), () => { beginFormatChange(); exec("underline"); }, "docxedit-tb-underline");
   const strikeBtn = btn("S", t("strikethrough"), () => { beginFormatChange(); exec("strikeThrough"); }, "docxedit-tb-strike");
   const supBtn = iconBtn(supIcon, t("superscript"), () => { beginFormatChange(); exec("superscript"); });
   const subBtn = iconBtn(subIcon, t("subscript"), () => { beginFormatChange(); exec("subscript"); });
-  const alignLeftBtn = caps.alignment ? iconBtn(alignIcon([[2, 12], [2, 8], [2, 11]]), t("alignLeft"), () => exec("justifyLeft")) : null;
-  const alignCenterBtn = caps.alignment ? iconBtn(alignIcon([[2, 12], [4, 8], [3, 10]]), t("alignCenter"), () => exec("justifyCenter")) : null;
-  const alignRightBtn = caps.alignment ? iconBtn(alignIcon([[2, 12], [6, 8], [3, 11]]), t("alignRight"), () => exec("justifyRight")) : null;
-  const alignJustifyBtn = caps.alignment ? iconBtn(alignIcon([[2, 12], [2, 12], [2, 12]]), t("alignJustify"), () => exec("justifyFull")) : null;
+  const alignLeftBtn = caps.alignment ? iconBtn(alignIcon([[2, 12], [2, 8], [2, 11]]), withSc(t("alignLeft"), "L"), () => exec("justifyLeft")) : null;
+  const alignCenterBtn = caps.alignment ? iconBtn(alignIcon([[2, 12], [4, 8], [3, 10]]), withSc(t("alignCenter"), "E"), () => exec("justifyCenter")) : null;
+  const alignRightBtn = caps.alignment ? iconBtn(alignIcon([[2, 12], [6, 8], [3, 11]]), withSc(t("alignRight"), "R"), () => exec("justifyRight")) : null;
+  const alignJustifyBtn = caps.alignment ? iconBtn(alignIcon([[2, 12], [2, 12], [2, 12]]), withSc(t("alignJustify"), "J"), () => exec("justifyFull")) : null;
 
   // Paragraph indent + line spacing operate on the block(s) intersecting the selection.
   const BLOCK_SEL = "p,h1,h2,h3,h4,h5,h6,li,blockquote,div";
@@ -1214,8 +1222,8 @@ export function setupToolbar(deps: ToolbarDeps) {
   const items: (Node | null)[] = [
     styleGroup.has ? styleGroup.slot : null,
     styleGroup.has ? sep() : null,
-    iconBtn(bulletIcon, t("bulleted"), () => exec("insertUnorderedList")),
-    iconBtn(numberIcon, t("numbered"), () => exec("insertOrderedList")),
+    iconBtn(bulletIcon, withSc(t("bulleted"), "L", { shift: true }), () => exec("insertUnorderedList")),
+    iconBtn(numberIcon, withSc(t("numbered"), "7", { shift: true }), () => exec("insertOrderedList")),
     caps.alignment ? sep() : null,
     alignLeftBtn,
     alignCenterBtn,
@@ -1329,9 +1337,9 @@ export function setupToolbar(deps: ToolbarDeps) {
     });
     return c;
   };
-  const fBold = fbtn("B", t("bold"), "bold", "docxedit-tb-bold");
-  const fItalic = fbtn("I", t("italic"), "italic", "docxedit-tb-italic");
-  const fUnderline = fbtn("U", t("underline"), "underline", "docxedit-tb-underline");
+  const fBold = fbtn("B", withSc(t("bold"), "B"), "bold", "docxedit-tb-bold");
+  const fItalic = fbtn("I", withSc(t("italic"), "I"), "italic", "docxedit-tb-italic");
+  const fUnderline = fbtn("U", withSc(t("underline"), "U"), "underline", "docxedit-tb-underline");
   const fStrike = fbtn("S", t("strikethrough"), "strikeThrough", "docxedit-tb-strike");
   const fSup = fbtn("x²", t("superscript"), "superscript", "");
   const fSub = fbtn("x₂", t("subscript"), "subscript", "");
