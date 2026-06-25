@@ -172,11 +172,13 @@ export function setupPageView(deps: PageViewDeps) {
     if (el && page.contains(el)) {
       const box = el.closest<HTMLElement>(".docxedit-secpage");
       if (box) return box;
+      // single-section / columns: the caret is in the one flow, so map its vertical position to
+      // a page card. A collapsed caret (e.g. in an empty paragraph) can report a zero rect, so
+      // fall back to its element's rect.
       const cr = sel!.getRangeAt(0).getBoundingClientRect();
-      if (cr.top || cr.bottom) {
-        const hit = all.find((c) => { const r = c.getBoundingClientRect(); return cr.top >= r.top - 2 && cr.top <= r.bottom + 2; });
-        if (hit) return hit;
-      }
+      const cy = cr.top || cr.bottom || el.getBoundingClientRect().top;
+      const hit = all.find((c) => { const r = c.getBoundingClientRect(); return cy >= r.top - 2 && cy <= r.bottom + 2; });
+      if (hit) return hit;
     }
     return all[0]!;
   };
