@@ -60,17 +60,20 @@ function styleFor(doc: Document, auto: Element, created: Map<string, string>, f:
   return name;
 }
 
-/** Create (once) a paragraph style for an alignment and return its name. */
-function paraStyleFor(doc: Document, auto: Element, created: Map<string, string>, p: { align?: string; indentPx?: number; lineHeight?: number; spaceBeforePx?: number; spaceAfterPx?: number; parent?: string }): string | null {
+/** Create (once) a paragraph style for an alignment and return its name. The breakBefore /
+    breakAfter / masterPage fields carry a section break (a new page, optionally with a
+    different page master) so editing a paragraph does not drop it. */
+function paraStyleFor(doc: Document, auto: Element, created: Map<string, string>, p: { align?: string; indentPx?: number; lineHeight?: number; spaceBeforePx?: number; spaceAfterPx?: number; parent?: string; breakBefore?: string; breakAfter?: string; masterPage?: string }): string | null {
   const a = p.align ? ODF_ALIGN[p.align] : undefined;
   const align = a && a !== "left" ? a : undefined;
   const indentPx = p.indentPx && p.indentPx > 0 ? Math.round(p.indentPx) : undefined;
   const lineHeight = p.lineHeight && p.lineHeight > 0 ? p.lineHeight : undefined;
   const before = p.spaceBeforePx; // may be 0 (explicit "no space"); undefined = not set
   const after = p.spaceAfterPx;
-  // With no direct formatting, the caller references the named (parent) style directly.
-  if (!align && !indentPx && !lineHeight && before === undefined && after === undefined) return null;
-  const key = `p_${align ?? ""}_${indentPx ?? ""}_${lineHeight ?? ""}_${before ?? ""}_${after ?? ""}_${p.parent ?? ""}`;
+  const { breakBefore, breakAfter, masterPage } = p;
+  // With no direct formatting and no section break, the caller references the named style directly.
+  if (!align && !indentPx && !lineHeight && before === undefined && after === undefined && !breakBefore && !breakAfter && !masterPage) return null;
+  const key = `p_${align ?? ""}_${indentPx ?? ""}_${lineHeight ?? ""}_${before ?? ""}_${after ?? ""}_${p.parent ?? ""}_${breakBefore ?? ""}_${breakAfter ?? ""}_${masterPage ?? ""}`;
   const existing = created.get(key);
   if (existing) return existing;
   const name = `OT_p${created.size}`;
@@ -78,12 +81,15 @@ function paraStyleFor(doc: Document, auto: Element, created: Map<string, string>
   st.setAttributeNS(NS.style, "style:name", name);
   st.setAttributeNS(NS.style, "style:family", "paragraph");
   if (p.parent) st.setAttributeNS(NS.style, "style:parent-style-name", p.parent); // direct formatting over a named style
+  if (masterPage) st.setAttributeNS(NS.style, "style:master-page-name", masterPage); // a section break to a new page master
   const pp = doc.createElementNS(NS.style, "style:paragraph-properties");
   if (align) pp.setAttributeNS(NS.fo, "fo:text-align", align === "right" ? "end" : align === "center" ? "center" : "justify");
   if (indentPx) pp.setAttributeNS(NS.fo, "fo:margin-left", `${Math.round((indentPx / (96 / 2.54)) * 1000) / 1000}cm`);
   if (lineHeight) pp.setAttributeNS(NS.fo, "fo:line-height", `${Math.round(lineHeight * 100)}%`);
   if (before !== undefined) pp.setAttributeNS(NS.fo, "fo:margin-top", pxToCm(before));
   if (after !== undefined) pp.setAttributeNS(NS.fo, "fo:margin-bottom", pxToCm(after));
+  if (breakBefore) pp.setAttributeNS(NS.fo, "fo:break-before", breakBefore);
+  if (breakAfter) pp.setAttributeNS(NS.fo, "fo:break-after", breakAfter);
   st.appendChild(pp);
   auto.appendChild(st);
   created.set(key, name);
@@ -649,6 +655,8 @@ function htmlBlockToOdf(node: Node, ctx: OdfCtx): Element | null {
     return skel ? rebuildOdtTable(el, skel, ctx) : buildNewOdtTable(el, ctx);
   }
   if (el.classList.contains("docx-field-toc")) return buildOdtToc(el, ctx);
+  // A section-break page boundary is display-only; the real break rides the paragraph's style.
+  if (el.getAttribute("data-docx-pagebreak")) return null;
   const stash = el.getAttribute("data-odt-xml");
   if (stash) return importPassthrough(ctx.doc, stash);
   if (tag === "ul" || tag === "ol") return htmlListToOdf(el, ctx);
@@ -661,6 +669,9 @@ function htmlBlockToOdf(node: Node, ctx: OdfCtx): Element | null {
       spaceBeforePx: el.style.marginTop !== "" ? parseFloat(el.style.marginTop) || 0 : undefined,
       spaceAfterPx: el.style.marginBottom !== "" ? parseFloat(el.style.marginBottom) || 0 : undefined,
       parent: base,
+      breakBefore: el.getAttribute("data-odt-break-before") || undefined,
+      breakAfter: el.getAttribute("data-odt-break-after") || undefined,
+      masterPage: el.getAttribute("data-odt-masterpage") || undefined,
     });
     // direct formatting -> an automatic style (parented to the named one); otherwise the named style itself
     if (name) block.setAttributeNS(NS.text, "text:style-name", name);

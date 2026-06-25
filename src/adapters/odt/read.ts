@@ -2,6 +2,7 @@
 // XML -> HTML; the write half lives in ./write.
 import { strFromU8, unzipSync } from "fflate";
 import { bytesToBase64 } from "../../core/util";
+import { t } from "../../core/i18n";
 import type { CommentThread, PageGeometry } from "../../core/types";
 import { ODF_ALIGN, escapeHtml, escapeAttr, inlinePass, blockPass, passthroughAttr, FMT0, IMG_MIME } from "./shared";
 import type { Fmt, PFmt } from "./shared";
@@ -59,6 +60,30 @@ interface RCtx {
   changes: Map<string, ChangeInfo>; // tracked-change id -> metadata
   openIns: Set<string>; // insertion ranges currently open (reopened per paragraph)
   graphicStyles: Map<string, GraphicStyleInfo>; // graphic style-name -> wrap properties
+  paraBreaks: Map<string, ParaBreak>; // paragraph style-name -> section break (the odt sectPr equivalent)
+}
+
+/** A paragraph style's section break: a page break before/after and/or a new page master. */
+interface ParaBreak {
+  before?: string; // fo:break-before
+  after?: string; // fo:break-after
+  master?: string; // style:master-page-name (a new page sequence, i.e. a section)
+}
+
+/** Index paragraph-family styles whose break / master-page makes them a section boundary. */
+function collectParaBreaks(doc: Document): Map<string, ParaBreak> {
+  const map = new Map<string, ParaBreak>();
+  for (const st of Array.from(doc.getElementsByTagName("style:style"))) {
+    if (st.getAttribute("style:family") !== "paragraph") continue;
+    const name = st.getAttribute("style:name");
+    if (!name) continue;
+    const pp = st.getElementsByTagName("style:paragraph-properties")[0];
+    const before = pp?.getAttribute("fo:break-before") ?? undefined;
+    const after = pp?.getAttribute("fo:break-after") ?? undefined;
+    const master = st.getAttribute("style:master-page-name") ?? undefined;
+    if (before || after || master) map.set(name, { before, after, master });
+  }
+  return map;
 }
 
 /** Parse text:tracked-changes into a map of change id -> metadata. */
@@ -548,11 +573,26 @@ function blockToHtml(el: Element, ctx: RCtx): string {
     const eff = ctx.namedStyles.has(sn) ? sn : ctx.namedStyles.has(ctx.autoParent.get(sn) ?? "") ? ctx.autoParent.get(sn)! : "";
     return eff ? ` data-rdoc-style="${escapeAttr(eff)}"` : "";
   };
+  // A section break: fo:break-before/after or a new page master on this paragraph's style (the
+  // odt equivalent of a docx w:sectPr). Stash the break carried by the paragraph's *own*
+  // (automatic) style so an edit re-emits it; a break on a named style rides data-rdoc-style.
+  const sn = el.getAttribute("text:style-name") ?? "";
+  const own = ctx.paraBreaks.get(sn) ?? {};
+  const par = ctx.paraBreaks.get(ctx.autoParent.get(sn) ?? "") ?? {};
+  const beforePage = own.before === "page" || !!own.master || par.before === "page" || !!par.master;
+  const afterPage = own.after === "page" || par.after === "page";
+  let breakAttr = "";
+  if (own.before === "page") breakAttr += ` data-odt-break-before="page"`;
+  if (own.after === "page") breakAttr += ` data-odt-break-after="page"`;
+  if (own.master) breakAttr += ` data-odt-masterpage="${escapeAttr(own.master)}"`;
+  const odtPageBreak = `<span class="docx-pagebreak docx-pagebreak-auto" contenteditable="false" data-docx-pagebreak="auto" data-label="${escapeAttr(t("pageBreak"))}"></span>`;
+  const before = beforePage ? odtPageBreak : "";
+  const after = afterPage ? odtPageBreak : "";
   switch (el.tagName) {
     case "text:h": {
       const lvl = Math.min(3, Math.max(1, parseInt(el.getAttribute("text:outline-level") ?? "1", 10) || 1));
       const inner = inlineToHtml(el, ctx);
-      return `<h${lvl}${alignAttr()}>${inner || "<br>"}</h${lvl}>`;
+      return `${before}<h${lvl}${alignAttr()}${breakAttr}>${inner || "<br>"}</h${lvl}>${after}`;
     }
     case "text:list":
       return listToHtml(el, ctx);
@@ -560,7 +600,7 @@ function blockToHtml(el: Element, ctx: RCtx): string {
       return odtTableHtml(el, ctx);
     case "text:p": {
       const inner = inlineToHtml(el, ctx);
-      return `<p${alignAttr()}${namedAttr()}>${inner || "<br>"}</p>`;
+      return `${before}<p${alignAttr()}${namedAttr()}${breakAttr}>${inner || "<br>"}</p>${after}`;
     }
     default:
       // Tables, tracked-changes, sequence-decls, sections, ... preserved verbatim.
@@ -575,7 +615,7 @@ function readHeaderFooter(files: Record<string, Uint8Array>): { header: string; 
   const doc = new DOMParser().parseFromString(strFromU8(raw), "application/xml");
   const master = doc.getElementsByTagName("style:master-page")[0];
   if (!master) return { header: "", footer: "" };
-  const ctx: RCtx = { files, styles: collectTextStyles(doc), paras: collectParaStyles(doc), cellStyles: collectCellStyles(doc), tableMargins: collectTableMargins(doc), listStyles: collectListStyles(doc), namedStyles: new Set(), autoParent: new Map(), namedCharStyles: new Set(), textAutoParent: new Map(), threads: [], rangedNames: new Set(), openComment: new Set(), changes: new Map(), openIns: new Set(), graphicStyles: collectGraphicStyles(doc) };
+  const ctx: RCtx = { files, styles: collectTextStyles(doc), paras: collectParaStyles(doc), cellStyles: collectCellStyles(doc), tableMargins: collectTableMargins(doc), listStyles: collectListStyles(doc), namedStyles: new Set(), autoParent: new Map(), namedCharStyles: new Set(), textAutoParent: new Map(), threads: [], rangedNames: new Set(), openComment: new Set(), changes: new Map(), openIns: new Set(), graphicStyles: collectGraphicStyles(doc), paraBreaks: collectParaBreaks(doc) };
   const render = (tag: string): string => {
     const el = master.getElementsByTagName(tag)[0];
     if (!el) return "";
@@ -620,14 +660,17 @@ export function odtToParts(bytes: Uint8Array): { body: string; comments: Comment
       .map((e) => e.getAttribute("office:name"))
       .filter((n): n is string => !!n),
   );
-  // Graphic styles (for image wrap) can live in content.xml's automatic styles or styles.xml.
+  // Graphic styles (for image wrap) and paragraph breaks (for sections) can live in content.xml's
+  // automatic styles or styles.xml; merge both, preferring content.xml.
   const graphicStyles = collectGraphicStyles(doc);
+  const paraBreaks = collectParaBreaks(doc);
   const stylesRaw = files["styles.xml"];
   if (stylesRaw) {
     const sdoc = new DOMParser().parseFromString(strFromU8(stylesRaw), "application/xml");
     for (const [k, v] of collectGraphicStyles(sdoc)) if (!graphicStyles.has(k)) graphicStyles.set(k, v);
+    for (const [k, v] of collectParaBreaks(sdoc)) if (!paraBreaks.has(k)) paraBreaks.set(k, v);
   }
-  const ctx: RCtx = { files, styles: collectTextStyles(doc), paras: collectParaStyles(doc), cellStyles: collectCellStyles(doc), tableMargins: collectTableMargins(doc), listStyles: collectListStyles(doc), namedStyles: ps.namedPara, autoParent: collectAutoParents(doc, "paragraph"), namedCharStyles: ps.namedChar, textAutoParent: collectAutoParents(doc, "text"), threads: [], rangedNames, openComment: new Set(), changes: readChanges(body), openIns: new Set(), graphicStyles };
+  const ctx: RCtx = { files, styles: collectTextStyles(doc), paras: collectParaStyles(doc), cellStyles: collectCellStyles(doc), tableMargins: collectTableMargins(doc), listStyles: collectListStyles(doc), namedStyles: ps.namedPara, autoParent: collectAutoParents(doc, "paragraph"), namedCharStyles: ps.namedChar, textAutoParent: collectAutoParents(doc, "text"), threads: [], rangedNames, openComment: new Set(), changes: readChanges(body), openIns: new Set(), graphicStyles, paraBreaks };
   let html = "";
   for (const block of Array.from(body.children)) {
     if (block.tagName === "text:tracked-changes") continue; // metadata, parsed into ctx.changes

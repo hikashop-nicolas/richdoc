@@ -290,6 +290,49 @@ describe("odt images (draw:frame)", () => {
   });
 });
 
+describe("odt sections (master page / page break)", () => {
+  const ROOT =
+    'xmlns:office="urn:oasis:names:tc:opendocument:xmlns:office:1.0" ' +
+    'xmlns:text="urn:oasis:names:tc:opendocument:xmlns:text:1.0" ' +
+    'xmlns:style="urn:oasis:names:tc:opendocument:xmlns:style:1.0" ' +
+    'xmlns:fo="urn:oasis:names:tc:opendocument:xmlns:xsl-fo-compatible:1.0"';
+
+  it("preserves a master-page section break through an edit", () => {
+    // An automatic paragraph style carrying a new page master + a page break (LibreOffice's
+    // way of starting a new section), referenced by the second paragraph.
+    const content = `<?xml version="1.0"?><office:document-content ${ROOT}>` +
+      "<office:automatic-styles>" +
+      '<style:style style:name="P2" style:family="paragraph" style:master-page-name="Landscape"><style:paragraph-properties fo:break-before="page"/></style:style>' +
+      "</office:automatic-styles><office:body><office:text>" +
+      "<text:p>one</text:p><text:p text:style-name=\"P2\">two</text:p>" +
+      "</office:text></office:body></office:document-content>";
+    const odt = makeOdt(content);
+    const html = odtToHtml(odt);
+    expect(html).toContain('data-odt-masterpage="Landscape"'); // section surfaced on the paragraph
+    expect(html).toContain('data-odt-break-before="page"');
+    expect(html).toContain("docx-pagebreak"); // shown as a page boundary
+    const xml = strFromU8(unzipSync(htmlToOdt(html.replace(">two<", ">TWO<"), odt))["content.xml"]);
+    expect(xml).toContain("TWO");
+    expect(xml).toContain('style:master-page-name="Landscape"'); // the section survives the edit
+    expect(xml).toContain('fo:break-before="page"');
+  });
+
+  it("preserves a plain page break (fo:break-before) through an edit", () => {
+    const content = `<?xml version="1.0"?><office:document-content ${ROOT}>` +
+      "<office:automatic-styles>" +
+      '<style:style style:name="P3" style:family="paragraph"><style:paragraph-properties fo:break-before="page"/></style:style>' +
+      "</office:automatic-styles><office:body><office:text>" +
+      "<text:p>a</text:p><text:p text:style-name=\"P3\">b</text:p>" +
+      "</office:text></office:body></office:document-content>";
+    const odt = makeOdt(content);
+    const html = odtToHtml(odt);
+    expect(html).toContain('data-odt-break-before="page"');
+    const xml = strFromU8(unzipSync(htmlToOdt(html.replace(">b<", ">B<"), odt))["content.xml"]);
+    expect(xml).toContain('fo:break-before="page"');
+    expect(xml).toContain("B");
+  });
+});
+
 describe("odt comments (office:annotation)", () => {
   const ROOT =
     'xmlns:office="urn:oasis:names:tc:opendocument:xmlns:office:1.0" ' +
