@@ -2,6 +2,19 @@
 
 .docxedit-wrap { display: flex; flex-direction: column; height: 100%; background: #525659; position: relative; }
 
+/* Bottom bar: style pickers (left) + zoom (right). */
+.docxedit-bottombar {
+  display: flex; align-items: center; justify-content: space-between; gap: 8px; padding: 5px 10px;
+  background: #2b2f36; border-top: 1px solid #1c1f24; color: #e6e6e6; font: 13px system-ui, sans-serif;
+}
+.docxedit-bottombar-left, .docxedit-bottombar-right { display: flex; align-items: center; gap: 6px; }
+.docxedit-bottombar select {
+  font: inherit; background: #3a3f47; color: #e6e6e6; border: 1px solid #4a4f57; border-radius: 5px;
+  padding: 3px 8px; cursor: pointer; height: 28px; box-sizing: border-box; min-width: 30px;
+}
+.docxedit-bottombar select:hover { border-color: #6e7bff; }
+.docxedit-bottombar select:focus-visible { outline: 2px solid #fff; outline-offset: 1px; }
+
 .docxedit-toolbar {
   display: flex; flex-wrap: nowrap; overflow: hidden; position: relative;
   align-items: center; gap: 6px; padding: 6px 10px;

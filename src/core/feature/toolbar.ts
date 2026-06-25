@@ -25,8 +25,7 @@ export interface ToolbarDeps {
   allocId: () => string;
   freshParaId: () => string;
   insertImage: () => void;
-  zoomSlider: HTMLElement;
-  zoomLabel: HTMLElement;
+  styleBar: HTMLElement; // the bottom-bar left slot for the style pickers
   newStyles: NewStyle[]; // styles authored in-session, collected for save
   newStyleCss: HTMLStyleElement; // live <style> for the appearance of in-session styles
 }
@@ -34,7 +33,7 @@ export interface ToolbarDeps {
 export function setupToolbar(deps: ToolbarDeps) {
   const {
     toolbar, wrap, doc, regions, caps, options, parts, adapter, getActiveEl, mark, positionCards,
-    addThreadCard, setActiveComment, allocId, freshParaId, insertImage, zoomSlider, zoomLabel,
+    addThreadCard, setActiveComment, allocId, freshParaId, insertImage, styleBar,
     newStyles, newStyleCss,
   } = deps;
 
@@ -1171,8 +1170,6 @@ export function setupToolbar(deps: ToolbarDeps) {
     caps.textColor ? colorInput : null,
     caps.textColor ? bgWrap : null,
     sep(),
-    block,
-    cstyleSel,
     caps.fontControls ? fontSel : null,
     caps.fontControls ? sizeSel : null,
     sep(),
@@ -1197,10 +1194,9 @@ export function setupToolbar(deps: ToolbarDeps) {
     caps.trackChanges ? suggestBtn : null,
     caps.trackChanges ? acceptAllBtn : null,
     caps.trackChanges ? rejectAllBtn : null,
-    sep(),
-    zoomSlider,
-    zoomLabel,
   ];
+  // The paragraph + character style pickers live in the bottom bar's left slot.
+  styleBar.append(block, cstyleSel);
   // Overflow menu: the toolbar is a single row; items that do not fit move into a "…"
   // popover so nothing is lost on narrow widths. The popover lives inside the toolbar so
   // the toolbar's button/sep styling (descendant selectors) still applies to pocketed items.

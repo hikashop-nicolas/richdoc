@@ -166,7 +166,17 @@ export function createRichEditor(container: HTMLElement, adapter: Adapter, optio
     vertical: !!(geometry.vertical && caps.verticalText),
     applyGeometry, mark, positionCards, reflow: () => reflow(), scheduleReflow: () => scheduleReflow(),
   });
-  wrap.append(toolbar, scroll);
+  // Bottom bar: paragraph/character style pickers on the left, zoom on the right. Keeps the
+  // top toolbar focused on formatting/insert controls.
+  const bottomBar = document.createElement("div");
+  bottomBar.className = "docxedit-bottombar";
+  const bottomLeft = document.createElement("div");
+  bottomLeft.className = "docxedit-bottombar-left";
+  const bottomRight = document.createElement("div");
+  bottomRight.className = "docxedit-bottombar-right";
+  bottomRight.append(zoomSlider, zoomLabel);
+  bottomBar.append(bottomLeft, bottomRight);
+  wrap.append(toolbar, scroll, bottomBar);
   container.appendChild(wrap);
 
   // --- Pagination -----------------------------------------------------------
@@ -542,7 +552,7 @@ export function createRichEditor(container: HTMLElement, adapter: Adapter, optio
   // its own module; it returns the change-button toggle to hook into the reflow cycle.
   const { updateChangeButtons, teardown: teardownToolbar } = setupToolbar({
     toolbar, wrap, doc, regions, caps, options, parts, adapter, getActiveEl: () => activeEl, mark,
-    positionCards, addThreadCard, setActiveComment, allocId, freshParaId, insertImage, zoomSlider, zoomLabel,
+    positionCards, addThreadCard, setActiveComment, allocId, freshParaId, insertImage, styleBar: bottomLeft,
     newStyles, newStyleCss,
   });
   afterReflow = updateChangeButtons;
