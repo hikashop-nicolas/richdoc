@@ -337,11 +337,11 @@ function htmlInlineToOdf(node: Node, parent: Element, f: Fmt, ctx: OdfCtx): void
 
 /** A 10-level list style, all-number or all-bullet, cached on the context. Each text:list
     element carries the style matching its own tag, so nesting ol/ul in any order round-trips. */
-function listStyleFor(ctx: OdfCtx, ordered: boolean): string {
-  const key = ordered ? "list:ordered" : "list:bullet";
+function listStyleFor(ctx: OdfCtx, ordered: boolean, start = 1): string {
+  const key = ordered ? `list:ordered:${start}` : "list:bullet";
   const cached = ctx.created.get(key);
   if (cached) return cached;
-  const name = ordered ? "OT_LO" : "OT_LB";
+  const name = `OT_L${ordered ? "O" : "B"}${start > 1 ? start : ""}`;
   const ls = ctx.doc.createElementNS(NS.text, "text:list-style");
   ls.setAttributeNS(NS.style, "style:name", name);
   for (let l = 1; l <= 10; l++) {
@@ -350,6 +350,7 @@ function listStyleFor(ctx: OdfCtx, ordered: boolean): string {
     if (ordered) {
       lvl.setAttributeNS(NS.style, "style:num-format", "1");
       lvl.setAttributeNS(NS.style, "style:num-suffix", ".");
+      if (l === 1 && start > 1) lvl.setAttributeNS(NS.text, "text:start-value", String(start)); // restart/continue at N
     } else {
       lvl.setAttributeNS(NS.text, "text:bullet-char", ["•", "◦", "▪"][(l - 1) % 3]);
     }
@@ -370,8 +371,9 @@ function listStyleFor(ctx: OdfCtx, ordered: boolean): string {
 
 function htmlListToOdf(el: HTMLElement, ctx: OdfCtx): Element {
   const ordered = el.tagName.toLowerCase() === "ol";
+  const start = ordered ? Math.max(1, parseInt(el.getAttribute("start") || "1", 10) || 1) : 1;
   const list = ctx.doc.createElementNS(NS.text, "text:list");
-  list.setAttributeNS(NS.text, "text:style-name", listStyleFor(ctx, ordered));
+  list.setAttributeNS(NS.text, "text:style-name", listStyleFor(ctx, ordered, start));
   for (const li of Array.from(el.children)) {
     if (li.tagName.toLowerCase() !== "li") continue;
     const item = ctx.doc.createElementNS(NS.text, "text:list-item");

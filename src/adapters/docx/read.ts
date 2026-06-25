@@ -50,6 +50,7 @@ interface RenderCtx {
   files: Record<string, Uint8Array>;
   rels: Map<string, string>;
   numbering: Map<string, boolean>;
+  numStart: Map<string, number>; // numId -> level-0 starting number (for <ol start>)
   comments: Map<string, Comment>;
   openComments: Set<string>; // comment ids whose range spans across paragraphs (render state)
   commentOrder: string[]; // ids in document order, for the side panel
@@ -359,23 +360,35 @@ function readRels(file: Uint8Array | undefined): Map<string, string> {
   return map;
 }
 
-/** numId -> true if ordered (decimal-ish), best-effort from numbering.xml. */
-function readNumbering(file: Uint8Array | undefined): Map<string, boolean> {
+/** numId -> ordered flag + the level-0 starting number, best-effort from numbering.xml. The
+    start is the numId's lvlOverride/startOverride for level 0, else the abstractNum's level-0
+    w:start, else 1 (so a file that begins a list at N round-trips). */
+function readNumbering(file: Uint8Array | undefined): { ordered: Map<string, boolean>; start: Map<string, number> } {
   const ordered = new Map<string, boolean>();
-  if (!file) return ordered;
+  const start = new Map<string, number>();
+  if (!file) return { ordered, start };
   const doc = new DOMParser().parseFromString(strFromU8(file), "application/xml");
   const absFmt = new Map<string, boolean>(); // abstractNumId -> ordered
+  const absStart = new Map<string, number>(); // abstractNumId -> level-0 start
   for (const an of Array.from(doc.getElementsByTagName("w:abstractNum"))) {
     const id = an.getAttributeNS(W, "abstractNumId") ?? an.getAttribute("w:abstractNumId");
     const fmt = an.getElementsByTagName("w:numFmt")[0]?.getAttribute("w:val") ?? "";
-    if (id) absFmt.set(id, fmt !== "bullet" && fmt !== "none" && fmt !== "");
+    if (!id) continue;
+    absFmt.set(id, fmt !== "bullet" && fmt !== "none" && fmt !== "");
+    const lvl0 = Array.from(an.getElementsByTagName("w:lvl")).find((l) => (l.getAttribute("w:ilvl") ?? "0") === "0");
+    const s = Number(lvl0?.getElementsByTagName("w:start")[0]?.getAttribute("w:val"));
+    absStart.set(id, Number.isFinite(s) ? s : 1);
   }
   for (const num of Array.from(doc.getElementsByTagName("w:num"))) {
     const numId = num.getAttributeNS(W, "numId") ?? num.getAttribute("w:numId");
     const abs = num.getElementsByTagName("w:abstractNumId")[0]?.getAttribute("w:val") ?? "";
-    if (numId) ordered.set(numId, absFmt.get(abs) ?? false);
+    if (!numId) continue;
+    ordered.set(numId, absFmt.get(abs) ?? false);
+    const ov = Array.from(num.getElementsByTagName("w:lvlOverride")).find((o) => (o.getAttribute("w:ilvl") ?? "0") === "0");
+    const so = Number(ov?.getElementsByTagName("w:startOverride")[0]?.getAttribute("w:val"));
+    start.set(numId, Number.isFinite(so) ? so : absStart.get(abs) ?? 1);
   }
-  return ordered;
+  return { ordered, start };
 }
 
 const onFlag = (rPr: Element | undefined, tag: string): boolean => {
@@ -556,6 +569,7 @@ interface PInfo {
   heading: number; // 0 = not a heading
   isList: boolean;
   ordered: boolean;
+  numId?: string; // the list's numId (to track restart/continue across lists)
   level: number; // list nesting level (w:ilvl), 0 = top
   align?: string; // CSS text-align
   indentPx?: number; // w:ind left indent, in px
@@ -601,6 +615,7 @@ function paragraphInfo(p: Element, numbering: Map<string, boolean>): PInfo {
     heading,
     isList: !!numPr,
     ordered: numbering.get(numId) ?? false,
+    numId: numId || undefined,
     level,
     align: JC_TO_ALIGN[jc],
     indentPx: indentPx && indentPx > 0 ? Math.round(indentPx) : undefined,
@@ -634,7 +649,7 @@ function blockStyleAttr(info: PInfo): string {
 
 /** Build nested <ul>/<ol> from a flat list of items carrying their nesting level (w:ilvl).
     A deeper item opens new lists inside the current <li>; a shallower one closes them. */
-function buildNestedList(items: { level: number; ordered: boolean; li: string }[]): string {
+function buildNestedList(items: { level: number; ordered: boolean; li: string }[], rootStart = 1): string {
   let html = "";
   const open: string[] = []; // stack of open list tags
   for (const it of items) {
@@ -643,7 +658,8 @@ function buildNestedList(items: { level: number; ordered: boolean; li: string }[
     if (open.length === depth) html += "</li>"; // sibling at the same level
     while (open.length < depth) {
       const tag = it.ordered ? "ol" : "ul";
-      html += `<${tag}>`;
+      const startAttr = open.length === 0 && tag === "ol" && rootStart > 1 ? ` start="${rootStart}"` : ""; // restart/continue
+      html += `<${tag}${startAttr}>`;
       open.push(tag);
     }
     html += `<li${it.li}`;
@@ -655,10 +671,22 @@ function buildNestedList(items: { level: number; ordered: boolean; li: string }[
 /** Render a block container (w:body or a header/footer root) to HTML. */
 function renderBlocks(container: Element, ctx: RenderCtx): string {
   let html = "";
-  let listBuf: { level: number; ordered: boolean; li: string }[] = [];
+  let listBuf: { level: number; ordered: boolean; li: string; numId?: string }[] = [];
+  // Running count of level-0 items per ordered numId across the document, so a list that
+  // continues an earlier one (same numId) gets the right <ol start>, not a fresh 1.
+  const numRun = new Map<string, number>();
   const flushList = () => {
     if (!listBuf.length) return;
-    html += buildNestedList(listBuf);
+    let rootStart = 1;
+    const first = listBuf[0]!;
+    if (first.ordered && first.numId) {
+      const explicit = ctx.numStart.get(first.numId) ?? 1;
+      const prev = numRun.get(first.numId);
+      rootStart = prev !== undefined ? prev + 1 : explicit;
+      const count0 = listBuf.filter((i) => i.level === 0 && i.numId === first.numId).length;
+      numRun.set(first.numId, rootStart - 1 + count0);
+    }
+    html += buildNestedList(listBuf, rootStart);
     listBuf = [];
   };
   for (const node of Array.from(container.children)) {
@@ -679,7 +707,7 @@ function renderBlocks(container: Element, ctx: RenderCtx): string {
     const info = paragraphInfo(node, ctx.numbering);
     const inner = inlineToHtml(node, ctx);
     if (info.isList) {
-      listBuf.push({ level: info.level, ordered: info.ordered, li: `${blockStyleAttr(info)}>${inner || "<br>"}` });
+      listBuf.push({ level: info.level, ordered: info.ordered, numId: info.numId, li: `${blockStyleAttr(info)}>${inner || "<br>"}` });
       continue;
     }
     flushList();
@@ -711,6 +739,7 @@ function renderRefPart(files: Record<string, Uint8Array>, target: string | undef
     files,
     rels: readRels(files[`word/_rels/${name}.xml.rels`]),
     numbering: new Map(),
+    numStart: new Map(),
     comments: new Map(),
     openComments: new Set(),
     commentOrder: [],
@@ -882,10 +911,12 @@ export function docxToParts(bytes: Uint8Array): DocxParts {
   if (!body) return empty;
   const rels = readRels(files["word/_rels/document.xml.rels"]);
   const comments = readComments(files["word/comments.xml"]);
+  const num = readNumbering(files["word/numbering.xml"]);
   const ctx: RenderCtx = {
     files,
     rels,
-    numbering: readNumbering(files["word/numbering.xml"]),
+    numbering: num.ordered,
+    numStart: num.start,
     comments,
     openComments: new Set(),
     commentOrder: [],

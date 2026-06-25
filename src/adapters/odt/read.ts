@@ -61,6 +61,8 @@ interface RCtx {
   openIns: Set<string>; // insertion ranges currently open (reopened per paragraph)
   graphicStyles: Map<string, GraphicStyleInfo>; // graphic style-name -> wrap properties
   paraBreaks: Map<string, ParaBreak>; // paragraph style-name -> section break (the odt sectPr equivalent)
+  listStarts: Map<string, number>; // list style-name -> level-1 start number
+  listRun: { last: number }; // running end-count of the last level-1 ordered list (for continue-numbering)
 }
 
 /** A paragraph style's section break: a page break before/after and/or a new page master. */
@@ -276,6 +278,20 @@ function collectListStyles(doc: Document): Map<string, boolean[]> {
       levels[n - 1] = lvl.tagName === "text:list-level-style-number";
     }
     map.set(name, levels);
+  }
+  return map;
+}
+
+/** Map list-style-name -> its level-1 start-value (when > 1), so a list that begins at N
+    round-trips as <ol start="N">. */
+function collectListStarts(doc: Document): Map<string, number> {
+  const map = new Map<string, number>();
+  for (const ls of Array.from(doc.getElementsByTagName("text:list-style"))) {
+    const name = ls.getAttribute("style:name");
+    if (!name) continue;
+    const lvl1 = Array.from(ls.children).find((l) => l.tagName === "text:list-level-style-number" && (l.getAttribute("text:level") ?? "1") === "1");
+    const s = Number(lvl1?.getAttribute("text:start-value"));
+    if (Number.isFinite(s) && s > 1) map.set(name, s);
   }
   return map;
 }
@@ -503,6 +519,17 @@ function listToHtml(el: Element, ctx: RCtx, level = 1, styleName = ""): string {
   // A nested text:list usually omits the style-name; inherit the outer one to resolve the level.
   const style = el.getAttribute("text:style-name") || styleName;
   const ordered = ctx.listStyles.get(style)?.[level - 1] ?? false;
+  // A top-level ordered list starts at its style's start-value, or continues the previous list
+  // when text:continue-numbering / continue-list is set (the odt equivalent of restart/continue).
+  let startAttr = "";
+  if (level === 1 && ordered) {
+    const cont = el.getAttribute("text:continue-numbering") === "true" || el.hasAttribute("text:continue-list");
+    const explicit = ctx.listStarts.get(style) ?? 1;
+    const start = cont ? ctx.listRun.last + 1 : explicit;
+    const count = Array.from(el.children).filter((c) => c.tagName === "text:list-item").length;
+    ctx.listRun.last = start - 1 + count;
+    if (start > 1) startAttr = ` start="${start}"`;
+  }
   let items = "";
   for (const li of Array.from(el.children)) {
     if (li.tagName !== "text:list-item") continue;
@@ -514,7 +541,7 @@ function listToHtml(el: Element, ctx: RCtx, level = 1, styleName = ""): string {
     items += `<li>${inner || "<br>"}</li>`;
   }
   const tag = ordered ? "ol" : "ul";
-  return `<${tag}>${items}</${tag}>`;
+  return `<${tag}${startAttr}>${items}</${tag}>`;
 }
 
 /** Render a table:table to an editable HTML table (cells editable, structure locked and
@@ -615,7 +642,7 @@ function readHeaderFooter(files: Record<string, Uint8Array>): { header: string; 
   const doc = new DOMParser().parseFromString(strFromU8(raw), "application/xml");
   const master = doc.getElementsByTagName("style:master-page")[0];
   if (!master) return { header: "", footer: "" };
-  const ctx: RCtx = { files, styles: collectTextStyles(doc), paras: collectParaStyles(doc), cellStyles: collectCellStyles(doc), tableMargins: collectTableMargins(doc), listStyles: collectListStyles(doc), namedStyles: new Set(), autoParent: new Map(), namedCharStyles: new Set(), textAutoParent: new Map(), threads: [], rangedNames: new Set(), openComment: new Set(), changes: new Map(), openIns: new Set(), graphicStyles: collectGraphicStyles(doc), paraBreaks: collectParaBreaks(doc) };
+  const ctx: RCtx = { files, styles: collectTextStyles(doc), paras: collectParaStyles(doc), cellStyles: collectCellStyles(doc), tableMargins: collectTableMargins(doc), listStyles: collectListStyles(doc), namedStyles: new Set(), autoParent: new Map(), namedCharStyles: new Set(), textAutoParent: new Map(), threads: [], rangedNames: new Set(), openComment: new Set(), changes: new Map(), openIns: new Set(), graphicStyles: collectGraphicStyles(doc), paraBreaks: collectParaBreaks(doc), listStarts: collectListStarts(doc), listRun: { last: 0 } };
   const render = (tag: string): string => {
     const el = master.getElementsByTagName(tag)[0];
     if (!el) return "";
@@ -664,13 +691,15 @@ export function odtToParts(bytes: Uint8Array): { body: string; comments: Comment
   // automatic styles or styles.xml; merge both, preferring content.xml.
   const graphicStyles = collectGraphicStyles(doc);
   const paraBreaks = collectParaBreaks(doc);
+  const listStarts = collectListStarts(doc);
   const stylesRaw = files["styles.xml"];
   if (stylesRaw) {
     const sdoc = new DOMParser().parseFromString(strFromU8(stylesRaw), "application/xml");
     for (const [k, v] of collectGraphicStyles(sdoc)) if (!graphicStyles.has(k)) graphicStyles.set(k, v);
     for (const [k, v] of collectParaBreaks(sdoc)) if (!paraBreaks.has(k)) paraBreaks.set(k, v);
+    for (const [k, v] of collectListStarts(sdoc)) if (!listStarts.has(k)) listStarts.set(k, v);
   }
-  const ctx: RCtx = { files, styles: collectTextStyles(doc), paras: collectParaStyles(doc), cellStyles: collectCellStyles(doc), tableMargins: collectTableMargins(doc), listStyles: collectListStyles(doc), namedStyles: ps.namedPara, autoParent: collectAutoParents(doc, "paragraph"), namedCharStyles: ps.namedChar, textAutoParent: collectAutoParents(doc, "text"), threads: [], rangedNames, openComment: new Set(), changes: readChanges(body), openIns: new Set(), graphicStyles, paraBreaks };
+  const ctx: RCtx = { files, styles: collectTextStyles(doc), paras: collectParaStyles(doc), cellStyles: collectCellStyles(doc), tableMargins: collectTableMargins(doc), listStyles: collectListStyles(doc), namedStyles: ps.namedPara, autoParent: collectAutoParents(doc, "paragraph"), namedCharStyles: ps.namedChar, textAutoParent: collectAutoParents(doc, "text"), threads: [], rangedNames, openComment: new Set(), changes: readChanges(body), openIns: new Set(), graphicStyles, paraBreaks, listStarts, listRun: { last: 0 } };
   let html = "";
   for (const block of Array.from(body.children)) {
     if (block.tagName === "text:tracked-changes") continue; // metadata, parsed into ctx.changes

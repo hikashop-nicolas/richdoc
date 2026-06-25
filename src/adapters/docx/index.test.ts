@@ -334,6 +334,47 @@ describe("docx <-> html", () => {
     expect(xml).toContain('w:orient="landscape"'); // section-two trailing sectPr preserved
   });
 
+  it("writes <ol start> as a startOverride and restarts separate ordered lists", () => {
+    // An explicit start.
+    const started = strFromU8(unzipSync(htmlToDocx('<ol start="5"><li>a</li><li>b</li></ol>', makeDocx()))["word/numbering.xml"]);
+    expect(started).toContain("w:startOverride");
+    expect(started).toContain('w:val="5"');
+    // Two separate ordered lists must use different numIds so each restarts at 1.
+    const xml = strFromU8(unzipSync(htmlToDocx("<ol><li>a</li></ol><p>x</p><ol><li>b</li></ol>", makeDocx()))["word/document.xml"]);
+    const numIds = [...xml.matchAll(/<w:numId w:val="(\d+)"/g)].map((m) => m[1]);
+    expect(numIds).toHaveLength(2);
+    expect(numIds[0]).not.toBe(numIds[1]);
+  });
+
+  it("reads an ordered list's start number, and continuation across lists", () => {
+    const numbering = `<?xml version="1.0"?><w:numbering xmlns:w="http://schemas.openxmlformats.org/wordprocessingml/2006/main">` +
+      '<w:abstractNum w:abstractNumId="0"><w:lvl w:ilvl="0"><w:start w:val="3"/><w:numFmt w:val="decimal"/></w:lvl></w:abstractNum>' +
+      '<w:abstractNum w:abstractNumId="1"><w:lvl w:ilvl="0"><w:start w:val="1"/><w:numFmt w:val="decimal"/></w:lvl></w:abstractNum>' +
+      '<w:num w:numId="1"><w:abstractNumId w:val="0"/></w:num>' +
+      '<w:num w:numId="2"><w:abstractNumId w:val="1"/></w:num></w:numbering>';
+    const li = (numId: string, text: string) =>
+      `<w:p><w:pPr><w:numPr><w:ilvl w:val="0"/><w:numId w:val="${numId}"/></w:numPr></w:pPr><w:r><w:t>${text}</w:t></w:r></w:p>`;
+    // numId 1 starts at 3; numId 2 is used by two lists separated by a paragraph (continues).
+    const doc = `<?xml version="1.0"?><w:document xmlns:w="http://schemas.openxmlformats.org/wordprocessingml/2006/main"><w:body>
+ ${li("1", "three")}
+ <w:p><w:r><w:t>gap</w:t></w:r></w:p>
+ ${li("2", "one")}${li("2", "two")}
+ <w:p><w:r><w:t>gap</w:t></w:r></w:p>
+ ${li("2", "cont")}
+</w:body></w:document>`;
+    const files = {
+      "[Content_Types].xml": strToU8("<Types/>"),
+      "_rels/.rels": strToU8("<Relationships/>"),
+      "word/document.xml": strToU8(doc),
+      "word/_rels/document.xml.rels": strToU8(RELS),
+      "word/numbering.xml": strToU8(numbering),
+    };
+    const html = docxToHtml(zipSync(files));
+    expect(html).toContain('<ol start="3"><li>three</li></ol>'); // explicit start of 3
+    expect(html).toContain("<ol><li>one</li><li>two</li></ol>"); // first list of numId 2 starts at 1
+    expect(html).toContain('<ol start="3"><li>cont</li></ol>'); // third list continues numId 2 (1,2 -> 3)
+  });
+
   it("shows manual page breaks (and Word's auto breaks) and round-trips the manual one", () => {
     const doc = `<?xml version="1.0"?>
 <w:document xmlns:w="http://schemas.openxmlformats.org/wordprocessingml/2006/main"><w:body>

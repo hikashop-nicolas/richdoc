@@ -12,7 +12,11 @@ context (a paragraph, or the document body) is regenerated from the edited HTML.
 
 ## A. Editable (modelled, round-trips)
 
-- Paragraphs, headings (H1-H3), nested ordered/unordered lists.
+- Paragraphs, headings (H1-H3), nested ordered/unordered lists, with ordered-list
+  numbering preserved: each list restarts independently, an explicit start number
+  round-trips, and a list that continues an earlier one keeps its running count
+  (docx per-list `numId` + `startOverride`; odt list-style `start-value` /
+  `continue-numbering`).
 - Run formatting: bold, italic, underline, strike, super/subscript, text colour,
   highlight, shading, font family, size.
 - Paragraph: alignment, left indent, line spacing, space before/after.
@@ -55,8 +59,9 @@ because their context is regenerated. This is the work for "feature complete".
 3. **Tab stops (`w:tabs`).** Dropped from any paragraph that is edited. Needs a
    model + ruler tab markers (browsers do not render custom tab stops natively, so
    this is real work).
-4. **List restart-at-N / continue-previous numbering.** Nesting and ordered/bullet
-   kind round-trip; every ordered list currently restarts at 1.
+4. **List numbering authoring.** Start / restart / continue now round-trip (see
+   bucket A), but there is no UI yet to *set* them: a control to restart an ordered
+   list at 1, continue the previous one, or set an explicit start value.
 5. **Style editing depth.** The style dialog covers the common properties;
    `w:basedOn` inheritance is flattened when a style is edited, and tab stops,
    borders and the long tail of style properties are not exposed.

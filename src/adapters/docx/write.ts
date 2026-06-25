@@ -19,6 +19,7 @@ interface DocxCtx {
   nextRid: number;
   nextRevId: number; // next w:ins/w:del revision id
   listIds: { bullet: string; ordered: string } | null; // resolved/created list numbering ids (lazy)
+  orderedBaseUsed?: boolean; // the base ordered numId has been claimed by the first plain list
   files: Record<string, Uint8Array>; // the archive, so new media/content-types can be added
 }
 
@@ -361,7 +362,7 @@ function appendInline(ctx: DocxCtx, node: Node, parent: Element, f: Fmt, del = f
   }
 }
 
-function makeParagraph(ctx: DocxCtx, src: HTMLElement, opts: { heading?: number; list?: boolean; listLevel?: number; listOrdered?: boolean }): Element {
+function makeParagraph(ctx: DocxCtx, src: HTMLElement, opts: { heading?: number; listLevel?: number; listNumId?: string }): Element {
   const p = ctx.doc.createElementNS(W, "w:p");
   const jc = JC_BY_ALIGN[src.style.textAlign || ""];
   const indentPx = parseFloat(src.style.marginLeft) || 0;
@@ -374,20 +375,19 @@ function makeParagraph(ctx: DocxCtx, src: HTMLElement, opts: { heading?: number;
   const revPara = src.getAttribute("data-rev-para"); // "ins" | "del" paragraph-mark revision
   const namedStyle = !opts.heading ? src.getAttribute("data-rdoc-style") : null; // a non-heading named style
   const sectXml = src.getAttribute("data-docx-sectpr"); // a mid-document section break to re-emit
-  const listIds = opts.list ? ensureListNumbering(ctx) : null;
-  if (opts.heading || namedStyle || listIds || jc || revPara || sectXml || indentPx > 0 || lineHeight > 0 || hasBefore || hasAfter) {
+  if (opts.heading || namedStyle || opts.listNumId || jc || revPara || sectXml || indentPx > 0 || lineHeight > 0 || hasBefore || hasAfter) {
     const pPr = ctx.doc.createElementNS(W, "w:pPr");
     if (opts.heading || namedStyle) {
       const st = ctx.doc.createElementNS(W, "w:pStyle");
       st.setAttributeNS(W, "w:val", opts.heading ? `Heading${opts.heading}` : namedStyle!);
       pPr.appendChild(st);
     }
-    if (listIds) {
+    if (opts.listNumId) {
       const numPr = ctx.doc.createElementNS(W, "w:numPr");
       const ilvl = ctx.doc.createElementNS(W, "w:ilvl");
       ilvl.setAttributeNS(W, "w:val", String(opts.listLevel ?? 0));
       const numId = ctx.doc.createElementNS(W, "w:numId");
-      numId.setAttributeNS(W, "w:val", opts.listOrdered ? listIds.ordered : listIds.bullet);
+      numId.setAttributeNS(W, "w:val", opts.listNumId);
       numPr.append(ilvl, numId);
       pPr.appendChild(numPr);
     }
@@ -665,16 +665,45 @@ function buildNewTable(ctx: DocxCtx, tableEl: HTMLElement): Element {
   return tbl;
 }
 
+/** An <ol>'s requested first number (the `start` attribute), or 1. */
+const listStartOf = (listEl: Element): number => {
+  const n = parseInt(listEl.getAttribute("start") || "1", 10);
+  return Number.isFinite(n) && n > 1 ? n : 1;
+};
+
+/** A numId for an ordered list that restarts at `start`. The first plain (start 1) list reuses
+    the base ordered numId; every other ordered list gets its own w:num (with a startOverride
+    when start > 1) so separate lists number independently instead of sharing one sequence. */
+function newOrderedNumId(ctx: DocxCtx, start: number): string {
+  const ids = ensureListNumbering(ctx);
+  if (start <= 1 && !ctx.orderedBaseUsed) {
+    ctx.orderedBaseUsed = true;
+    return ids.ordered;
+  }
+  const numDoc = new DOMParser().parseFromString(strFromU8(ctx.files["word/numbering.xml"]!), "application/xml");
+  const numIdOf = (n: Element) => n.getAttributeNS(W, "numId") ?? n.getAttribute("w:numId");
+  const nums = Array.from(numDoc.getElementsByTagName("w:num"));
+  const abs = nums.find((n) => numIdOf(n) === ids.ordered)?.getElementsByTagName("w:abstractNumId")[0]?.getAttribute("w:val") ?? "0";
+  const next = Math.max(0, ...nums.map((n) => Number(numIdOf(n))).filter((n) => Number.isFinite(n))) + 1;
+  const override = start > 1 ? `<w:lvlOverride w:ilvl="0"><w:startOverride w:val="${start}"/></w:lvlOverride>` : "";
+  const frag = new DOMParser().parseFromString(`<w:num xmlns:w="${W}" w:numId="${next}"><w:abstractNumId w:val="${abs}"/>${override}</w:num>`, "application/xml").documentElement!;
+  numDoc.documentElement!.appendChild(numDoc.importNode(frag, true));
+  ctx.files["word/numbering.xml"] = strToU8(new XMLSerializer().serializeToString(numDoc));
+  return String(next);
+}
+
 /** Flatten a (possibly nested) <ul>/<ol> into list paragraphs, carrying the nesting depth as
-    w:ilvl and the list type as the numId; recurses into nested lists inside each <li>. */
-function appendList(ctx: DocxCtx, body: Element, listEl: Element, depth: number): void {
+    w:ilvl and a numId per ordered list (so separate lists restart); recurses into nested lists.
+    A nested ordered list under an ordered ancestor reuses its numId (one sequence across levels). */
+function appendList(ctx: DocxCtx, body: Element, listEl: Element, depth: number, orderedNumId: string | null): void {
   const ordered = listEl.tagName.toLowerCase() === "ol";
+  const numId = ordered ? (orderedNumId ?? newOrderedNumId(ctx, listStartOf(listEl))) : ensureListNumbering(ctx).bullet;
   for (const li of Array.from(listEl.children)) {
     if (li.tagName.toLowerCase() !== "li") continue;
-    body.appendChild(makeParagraph(ctx, li as HTMLElement, { list: true, listLevel: Math.min(8, depth), listOrdered: ordered }));
+    body.appendChild(makeParagraph(ctx, li as HTMLElement, { listLevel: Math.min(8, depth), listNumId: numId }));
     for (const child of Array.from(li.children)) {
       const ct = child.tagName.toLowerCase();
-      if (ct === "ul" || ct === "ol") appendList(ctx, body, child, depth + 1);
+      if (ct === "ul" || ct === "ol") appendList(ctx, body, child, depth + 1, ordered ? numId : null);
     }
   }
 }
@@ -719,7 +748,7 @@ function appendBlock(ctx: DocxCtx, body: Element, node: Node): void {
     return;
   }
   if (tag === "ul" || tag === "ol") {
-    appendList(ctx, body, el, 0);
+    appendList(ctx, body, el, 0, null);
     return;
   }
   const hm = /^h([1-6])$/.exec(tag);

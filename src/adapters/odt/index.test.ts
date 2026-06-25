@@ -333,6 +333,41 @@ describe("odt sections (master page / page break)", () => {
   });
 });
 
+describe("odt ordered-list numbering", () => {
+  const ROOT =
+    'xmlns:office="urn:oasis:names:tc:opendocument:xmlns:office:1.0" ' +
+    'xmlns:text="urn:oasis:names:tc:opendocument:xmlns:text:1.0" ' +
+    'xmlns:style="urn:oasis:names:tc:opendocument:xmlns:style:1.0"';
+  const numStyle = (name: string, start?: number) =>
+    `<text:list-style style:name="${name}"><text:list-level-style-number text:level="1" style:num-format="1"${start ? ` text:start-value="${start}"` : ""}/></text:list-style>`;
+  const item = (text: string) => `<text:list-item><text:p>${text}</text:p></text:list-item>`;
+
+  it("reads a list's start-value as <ol start>", () => {
+    const content = `<?xml version="1.0"?><office:document-content ${ROOT}>` +
+      `<office:automatic-styles>${numStyle("L1", 4)}</office:automatic-styles><office:body><office:text>` +
+      `<text:list text:style-name="L1">${item("a")}${item("b")}</text:list>` +
+      "</office:text></office:body></office:document-content>";
+    expect(odtToHtml(makeOdt(content))).toContain('<ol start="4"><li>a</li><li>b</li></ol>');
+  });
+
+  it("reads continue-numbering as a continued <ol start>", () => {
+    const content = `<?xml version="1.0"?><office:document-content ${ROOT}>` +
+      `<office:automatic-styles>${numStyle("L1")}</office:automatic-styles><office:body><office:text>` +
+      `<text:list text:style-name="L1">${item("a")}${item("b")}</text:list>` +
+      "<text:p>gap</text:p>" +
+      `<text:list text:style-name="L1" text:continue-numbering="true">${item("c")}</text:list>` +
+      "</office:text></office:body></office:document-content>";
+    const html = odtToHtml(makeOdt(content));
+    expect(html).toContain("<ol><li>a</li><li>b</li></ol>"); // first list starts at 1
+    expect(html).toContain('<ol start="3"><li>c</li></ol>'); // continues after two items
+  });
+
+  it("writes <ol start> as a list style start-value", () => {
+    const xml = strFromU8(unzipSync(htmlToOdt('<ol start="4"><li>a</li></ol>', makeOdt()))["content.xml"]);
+    expect(xml).toContain('text:start-value="4"');
+  });
+});
+
 describe("odt comments (office:annotation)", () => {
   const ROOT =
     'xmlns:office="urn:oasis:names:tc:opendocument:xmlns:office:1.0" ' +
