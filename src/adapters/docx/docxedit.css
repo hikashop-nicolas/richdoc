@@ -246,7 +246,7 @@
 /* Multi-column sections. Paginated: one balanced multi-column box per page (.docxedit-colpage,
    built in editor.ts). Pageless: the body flows continuously into N columns. Tables and floating
    images span all columns so they are not sliced. */
-.docxedit-colpage { column-count: var(--rdoc-columns, 1); column-gap: var(--rdoc-column-gap, 36px); overflow: hidden; }
+.docxedit-colpage { column-count: var(--rdoc-columns, 1); column-gap: var(--rdoc-column-gap, 36px); overflow: clip; }
 .docxedit-page:not(.is-paginated).is-columns .docxedit-doc { column-count: var(--rdoc-columns, 1); column-gap: var(--rdoc-column-gap, 36px); }
 .docxedit-colpage > .docx-table, .docxedit-colpage > [data-rdoc-wrap],
 .docxedit-page.is-columns .docx-table, .docxedit-page.is-columns img[data-rdoc-wrap] { column-span: all; }

@@ -441,8 +441,16 @@ export function createRichEditor(container: HTMLElement, adapter: Adapter, optio
       w.style.height = `${contentHeight}px`;
       w.style.width = `${contentWidth}px`;
       w.style.columnFill = "auto"; // column-by-column during bucketing; balanced when finalized
+      w.style.overflow = "hidden"; // a scroll container, so scrollWidth reveals the (N+1)th column
       if (!first) w.style.marginTop = `${interPage}px`;
       return w;
+    };
+    // Finalize a page: balance its columns and switch to overflow:clip. clip clips without being
+    // a scroll container, so the browser stops scrolling the wrapper to chase the caret between
+    // columns (the bug overflow:hidden caused); caret scrolling then uses the real viewport.
+    const finalize = (w: HTMLElement): void => {
+      w.style.columnFill = "balance";
+      w.style.overflow = "clip";
     };
     const isManual = (el: Element) => el.classList.contains("docx-pagebreak") && el.getAttribute("data-docx-pagebreak") === "manual";
 
@@ -458,7 +466,7 @@ export function createRichEditor(container: HTMLElement, adapter: Adapter, optio
     const EPS = 2;
     for (const block of blocks) {
       if (isManual(block) && wrap.children.length) {
-        wrap.style.columnFill = "balance";
+        finalize(wrap);
         wrap = newWrapper(false);
         doc.appendChild(wrap);
         wrappers.push(wrap);
@@ -469,14 +477,14 @@ export function createRichEditor(container: HTMLElement, adapter: Adapter, optio
       // scrollWidth grows when content spills into an (N+1)th column: this page is full.
       if (wrap.scrollWidth > wrap.clientWidth + EPS && wrap.children.length > 1) {
         wrap.removeChild(block);
-        wrap.style.columnFill = "balance";
+        finalize(wrap);
         wrap = newWrapper(false);
         doc.appendChild(wrap);
         wrappers.push(wrap);
         wrap.appendChild(block); // a lone oversized block stays even if it still overflows
       }
     }
-    wrap.style.columnFill = "balance";
+    finalize(wrap);
     for (const old of stale) old.remove(); // now-empty previous wrappers + spacers
 
     pagelayer.replaceChildren();
