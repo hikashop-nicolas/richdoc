@@ -172,15 +172,15 @@
 /* Margin rulers (Google-Docs style). The wrapper reserves a strip above and left of the
    page for the rulers; both align with, and are sized to, the scaled page footprint. */
 .docxedit-pagewrap { position: relative; flex: 0 0 auto; padding: 22px 0 0 22px; }
-.docxedit-ruler { position: absolute; background: #d7dde4; box-shadow: inset 0 0 0 1px #c2cad3; }
+/* Per-page ruler overlay: one set per page, positioned/sized inline from each page's rect. */
+.docxedit-rulerlayer { position: absolute; inset: 0; pointer-events: none; z-index: 6; }
+.docxedit-ruler { position: absolute; background: #d7dde4; box-shadow: inset 0 0 0 1px #c2cad3; pointer-events: auto; }
 .docxedit-ruler-tip {
   position: fixed; z-index: 70; pointer-events: none; white-space: nowrap;
   background: #1c1f24; color: #fff; font: 11px system-ui, sans-serif; padding: 2px 6px; border-radius: 4px;
   box-shadow: 0 2px 8px rgba(0,0,0,.4);
 }
 .docxedit-ruler-tip[hidden] { display: none; }
-.docxedit-ruler-h { top: 0; left: 22px; height: 16px; }
-.docxedit-ruler-v { left: 0; top: 22px; width: 16px; }
 .docxedit-ruler-fill { position: absolute; background: #fff; }
 .docxedit-ruler-h .docxedit-ruler-fill { top: 2px; bottom: 2px; }
 .docxedit-ruler-v .docxedit-ruler-fill { left: 2px; right: 2px; }

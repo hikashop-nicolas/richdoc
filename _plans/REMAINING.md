@@ -29,7 +29,10 @@ context (a paragraph, or the document body) is regenerated from the edited HTML.
 - Tables: editable cells, cell borders (colour/style/width), column/row/indent
   resize, merge, in-cell formatting.
 - Page size, margins, orientation; vertical (tategaki) + RTL writing with
-  paginated layout, header/footer, and graduated rulers + magnet.
+  paginated layout, header/footer, and a graduated ruler (horizontal + vertical)
+  on the page holding the caret, sized to that page and following the caret between
+  pages, with a drag-to-set-margin magnet (margin handles on document-geometry
+  pages; per-section pages show a sized, display-only ruler).
 - **Multi-column sections**: a section's `w:cols` (docx) / page-layout
   `style:columns` (odt) is read and rendered with **true per-page balanced columns**:
   the body is bucketed into one multi-column box per page (the browser's own column
@@ -71,10 +74,12 @@ These are the only things that do not round-trip once the document is edited,
 because their context is regenerated. This is the work for "feature complete".
 
 1. **Sections: headers + authoring.** Both formats render mixed per-section page setup
-   (bucket A); what remains: (a) per-section header/footer in the section page boxes,
-   and (b) a UI to *insert* a break and edit a section's page setup (the ruler editing
-   the section at the caret, with per-section margin persistence). See
-   `_plans/SECTIONS_PLAN.md`.
+   with a per-page ruler (bucket A); what remains: (a) per-section header/footer in the
+   section page boxes, and (b) authoring: the per-section ruler is display-only, so a
+   section's margins are not yet draggable (needs per-section margin persistence:
+   docx update the section's `w:sectPr` pgMar, odt a per-section page-layout), plus a
+   control to insert a break and set a section's page setup. Vertical (tategaki) pages
+   currently show no ruler. See `_plans/SECTIONS_PLAN.md`.
 2. **Columns authoring.** Columns now read, render with true per-page balancing, and
    round-trip (see bucket A). What remains is only a control to *set* the column count
    on a document (the rendering already updates live on a geometry change, since

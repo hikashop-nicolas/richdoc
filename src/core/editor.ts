@@ -167,7 +167,7 @@ export function createRichEditor(container: HTMLElement, adapter: Adapter, optio
     setupComments({ wrap, cmtPanel, pagebox, options, caps, mark });
 
   // Page view: rulers (margin handles) + zoom + the centred canvas around the page box.
-  const { applyZoom, effectiveZoom, zoomSlider, zoomLabel, isGeometryDirty } = setupPageView({
+  const { applyZoom, effectiveZoom, zoomSlider, zoomLabel, isGeometryDirty, teardown: teardownPageView } = setupPageView({
     page, pagebox, canvas, leftSpacer, rightArea, scroll, geometry, options,
     vertical: !!(geometry.vertical && caps.verticalText),
     applyGeometry, mark, positionCards, reflow: () => reflow(), scheduleReflow: () => scheduleReflow(),
@@ -582,6 +582,7 @@ export function createRichEditor(container: HTMLElement, adapter: Adapter, optio
       b.style.height = `${g.h}px`;
       b.style.boxSizing = "border-box";
       b.style.padding = `${g.mt}px ${g.mr}px ${g.mb}px ${g.ml}px`;
+      b.setAttribute("data-rdoc-secgeom", JSON.stringify(g)); // for the per-page ruler
       b.style.overflow = "hidden"; // a scroll container during bucketing; clipped on finalize
       if (g.cols && g.cols > 1) {
         b.style.columnCount = String(g.cols);
@@ -855,6 +856,7 @@ export function createRichEditor(container: HTMLElement, adapter: Adapter, optio
       teardownToolbar();
       tableEdit?.teardown();
       imageLayout?.teardown();
+      teardownPageView();
       wrap.remove();
     },
   };
