@@ -82,11 +82,17 @@
 .docxedit-dialog { min-width: 280px; max-width: 360px; background: #2b2f36; color: #e6e8ec; border: 1px solid #4a4f57; border-radius: 10px; padding: 16px; box-shadow: 0 12px 40px rgba(0,0,0,.55); display: flex; flex-direction: column; gap: 10px; font: 13px/1.3 system-ui, sans-serif; }
 .docxedit-dialog-title { font-size: 15px; font-weight: 600; }
 .docxedit-dialog-row { display: flex; align-items: center; gap: 6px; flex-wrap: wrap; }
+.docxedit-dialog-row[hidden] { display: none; }
 .docxedit-dialog-actions { justify-content: flex-end; margin-top: 4px; }
 .docxedit-name-input { font: 13px/1.2 system-ui, sans-serif; padding: 7px 9px; border: 1px solid #4a4f57; border-radius: 6px; background: #1f2329; color: #e6e8ec; }
 .docxedit-name-input:focus { outline: none; border-color: #6e7bff; }
 .docxedit-dialog-toggle { min-width: 30px; height: 28px; border: 1px solid #4a4f57; border-radius: 6px; background: #1f2329; color: #e6e8ec; cursor: pointer; font-size: 14px; }
 .docxedit-dialog-toggle.is-on { background: #6e7bff; border-color: #6e7bff; color: #fff; }
+.docxedit-dialog-toggle svg { display: block; margin: 0 auto; }
+.docxedit-dlg-bold { font-weight: bold; }
+.docxedit-dlg-italic { font-style: italic; }
+.docxedit-dlg-underline { text-decoration: underline; }
+.docxedit-dlg-strike { text-decoration: line-through; }
 .docxedit-dialog-size { width: 64px; padding: 6px 8px; border: 1px solid #4a4f57; border-radius: 6px; background: #1f2329; color: #e6e8ec; }
 .docxedit-dialog-font { flex: 1; min-width: 120px; padding: 6px 8px; border: 1px solid #4a4f57; border-radius: 6px; background: #1f2329; color: #e6e8ec; }
 .docxedit-dialog-color { display: inline-flex; align-items: center; gap: 5px; }

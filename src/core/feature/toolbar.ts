@@ -38,6 +38,26 @@ export function setupToolbar(deps: ToolbarDeps) {
     newStyles, newStyleCss,
   } = deps;
 
+  // Clicking a toolbar <select> can drop the editor's selection (especially a non-collapsed
+  // one). Capture it on mousedown, restore it before a style action reads it.
+  let savedSel: Range | null = null;
+  const captureSel = (): void => {
+    const s = window.getSelection();
+    if (!s || !s.rangeCount) return;
+    const r = s.getRangeAt(0);
+    const n = r.startContainer;
+    const el = n.nodeType === 3 ? n.parentElement : (n as HTMLElement);
+    if (el && regions.some((reg) => reg.contains(el))) savedSel = r.cloneRange();
+  };
+  const restoreSel = (): void => {
+    if (!savedSel) return;
+    const s = window.getSelection();
+    if (s) {
+      s.removeAllRanges();
+      s.addRange(savedSel);
+    }
+  };
+
   const exec = (cmd: string, val?: string) => {
     getActiveEl().focus();
     document.execCommand(cmd, false, val);
@@ -122,7 +142,10 @@ export function setupToolbar(deps: ToolbarDeps) {
   if (namedStyles.length) block.appendChild(paraGroup);
   block.add(new Option(t("newParagraphStyle"), "__newpara__"));
   block.add(new Option(t("editCurrentStyle"), "__editpara__"));
-  block.addEventListener("mousedown", () => getActiveEl().focus());
+  block.addEventListener("mousedown", () => {
+    captureSel();
+    getActiveEl().focus();
+  });
   block.addEventListener("change", () => {
     const v = block.value;
     if (v === "__newpara__") {
@@ -189,7 +212,10 @@ export function setupToolbar(deps: ToolbarDeps) {
   cstyleSel.add(cstyleNewOpt);
   const cstyleEditOpt = new Option(t("editCurrentStyle"), "__editchar__");
   cstyleSel.add(cstyleEditOpt);
-  cstyleSel.addEventListener("mousedown", () => getActiveEl().focus());
+  cstyleSel.addEventListener("mousedown", () => {
+    captureSel();
+    getActiveEl().focus();
+  });
   cstyleSel.addEventListener("change", () => {
     const v = cstyleSel.value;
     if (v === "__newchar__") createCharacterStyle();
@@ -299,30 +325,34 @@ export function setupToolbar(deps: ToolbarDeps) {
   dlgName.type = "text";
   dlgName.className = "docxedit-name-input";
   dlgName.placeholder = t("styleName");
-  const toggleBtn = (label: string, title: string): HTMLButtonElement => {
+  // Same look as the main toolbar: styled letters for B/I/U/S, the shared SVG for alignment.
+  const toggleBtn = (label: string, title: string, styleClass: string): HTMLButtonElement => {
     const b = document.createElement("button");
     b.type = "button";
-    b.className = "docxedit-dialog-toggle";
+    b.className = `docxedit-dialog-toggle ${styleClass}`;
     b.textContent = label;
     b.title = title;
     b.addEventListener("click", () => b.classList.toggle("is-on"));
     return b;
   };
-  const dB = toggleBtn("B", t("bold"));
-  const dI = toggleBtn("I", t("italic"));
-  const dU = toggleBtn("U", t("underline"));
-  const dS = toggleBtn("S", t("strikethrough"));
+  const dB = toggleBtn("B", t("bold"), "docxedit-dlg-bold");
+  const dI = toggleBtn("I", t("italic"), "docxedit-dlg-italic");
+  const dU = toggleBtn("U", t("underline"), "docxedit-dlg-underline");
+  const dS = toggleBtn("S", t("strikethrough"), "docxedit-dlg-strike");
   const fmtRow = document.createElement("div");
   fmtRow.className = "docxedit-dialog-row";
   fmtRow.append(dB, dI, dU, dS);
   const alignBtns: Record<string, HTMLButtonElement> = {};
   const alignRow = document.createElement("div");
   alignRow.className = "docxedit-dialog-row";
-  for (const [val, key, lab] of [["left", "alignLeft", "←"], ["center", "alignCenter", "≡"], ["right", "alignRight", "→"], ["justify", "alignJustify", "☰"]] as const) {
+  const alignSvg: Record<string, [number, number][]> = {
+    left: [[2, 12], [2, 8], [2, 11]], center: [[2, 12], [4, 8], [3, 10]], right: [[2, 12], [6, 8], [3, 11]], justify: [[2, 12], [2, 12], [2, 12]],
+  };
+  for (const [val, key] of [["left", "alignLeft"], ["center", "alignCenter"], ["right", "alignRight"], ["justify", "alignJustify"]] as const) {
     const b = document.createElement("button");
     b.type = "button";
     b.className = "docxedit-dialog-toggle";
-    b.textContent = lab;
+    b.innerHTML = alignIcon(alignSvg[val]!);
     b.title = t(key);
     b.addEventListener("click", () => {
       const on = b.classList.contains("is-on");
@@ -438,22 +468,20 @@ export function setupToolbar(deps: ToolbarDeps) {
     for (const p of ["margin-left", "margin-top", "margin-bottom", "line-height"]) if (pre[p]) dlgPassthrough[p] = pre[p]!;
   };
   const openStyleDialog = (kind: "paragraph" | "character"): void => {
+    restoreSel(); // the <select> click may have dropped the editor selection
     dlgKind = kind;
     dlgEditId = null;
     if (kind === "paragraph") {
       dlgBlocks = selectedBlocks();
       if (!dlgBlocks.length) {
         syncToolbarState();
-        return;
+        return; // no paragraph to apply the style to
       }
       dlgRange = null;
     } else {
+      // A character style applies to a selection; with none, still open to define one for later.
       const sel = window.getSelection();
-      if (!sel || !sel.rangeCount || sel.getRangeAt(0).collapsed) {
-        syncToolbarState();
-        return; // a character style needs selected text
-      }
-      dlgRange = sel.getRangeAt(0).cloneRange();
+      dlgRange = sel && sel.rangeCount && !sel.getRangeAt(0).collapsed ? sel.getRangeAt(0).cloneRange() : null;
       dlgBlocks = [];
     }
     const pre = kind === "paragraph" ? { ...captureCharCss(), ...captureParaCss(dlgBlocks[0]!) } : captureCharCss();
@@ -502,14 +530,18 @@ export function setupToolbar(deps: ToolbarDeps) {
         for (const p of ["textAlign", "marginLeft", "lineHeight", "marginTop", "marginBottom"] as const) b.style[p] = "";
       }
       mark();
-    } else if (dlgRange) {
+    } else {
       const id = registerStyle("character", name, css);
-      const s = window.getSelection();
-      if (s) {
-        s.removeAllRanges();
-        s.addRange(dlgRange);
+      if (dlgRange) {
+        const s = window.getSelection();
+        if (s) {
+          s.removeAllRanges();
+          s.addRange(dlgRange);
+        }
+        applyCStyle(id); // wrap the selection in the new style
+      } else {
+        mark(); // defined but not applied (no selection); available in the dropdown to apply later
       }
-      applyCStyle(id); // wraps the selection in the new style
     }
     closeStyleDialog();
   };
@@ -535,11 +567,13 @@ export function setupToolbar(deps: ToolbarDeps) {
     return (el?.closest?.(`[${attr}]`) as HTMLElement | null) ?? null;
   };
   const editCurrentParagraphStyle = (): void => {
+    restoreSel();
     const id = styledAncestor("data-rdoc-style")?.getAttribute("data-rdoc-style");
     if (id && styleDefMap.get(id)?.kind === "paragraph") editStyle("paragraph", id);
     else syncToolbarState();
   };
   const editCurrentCharacterStyle = (): void => {
+    restoreSel();
     const id = styledAncestor("data-rdoc-cstyle")?.getAttribute("data-rdoc-cstyle");
     if (id && styleDefMap.get(id)?.kind === "character") editStyle("character", id);
     else syncToolbarState();
