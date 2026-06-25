@@ -1,43 +1,103 @@
-# richdoc - remaining gaps
+# richdoc - capability status and remaining gaps
 
-The DOCX_CAPABILITIES_PLAN workstreams W1-W7 are all shipped (page sizes,
-orientation, vertical/RTL writing with paginated tategaki + header/footer + rulers,
-editable tables with borders/resize/merge/indent, run formatting, paragraph indent +
-line spacing, paragraph space before/after, and nested ordered/unordered lists), plus extras the plan did not list
-(cell border colour/style/width, table column/row/indent resize with graduated rulers
-+ magnet, and fields: page number / count / table of contents). What is left:
+This is the accurate, audited picture (docx-centric; odt mirrors it unless noted).
 
-Named paragraph and character styles are fully editable: the block dropdown and a
-character-style dropdown list the document's styles, apply them (w:pStyle / w:rStyle,
-odt text:style-name), render each via injected CSS, and round-trip. A style settings
-dialog (name, bold/italic/underline/strike, alignment, size, text colour, background
-colour, font) authors new styles and edits an existing style's definition in place
-(updating every paragraph/run that uses it); both are persisted to the stylesheet on
-save (add-or-update by id).
+**The passthrough guarantee.** Any element the reader does not model is preserved
+byte-for-byte: it is stashed in `data-docx-xml` (block / run / table / image
+level) and re-emitted on save. So an unmodelled feature is *preserved untouched*,
+not lost. The only things lost are in section C below, where the surrounding
+context (a paragraph, or the document body) is regenerated from the edited HTML.
 
-## Modelled-but-incomplete
-- **List restart/continue numbering**: nesting levels and ordered/bullet kind now
-  round-trip (w:numPr/w:ilvl/w:numId, odt per-level list styles), and the indent /
-  outdent buttons create real nesting. Restart-at-N and continue-previous-list are
-  still not modelled; every ordered list restarts at 1.
-- **Tab stops**: custom tab stops (`w:tabs`) are dropped on paragraph regen.
-- **Style editing depth**: the style dialog covers the common run/paragraph properties
-  (align, indent + spacing via passthrough, weight/italic/underline/strike, colour,
-  background, size, font). basedOn inheritance is flattened when a style is edited, and
-  tab stops, borders and the long tail of style properties are not exposed.
+---
 
-## Preserved-but-not-editable (round-trip via passthrough; no insert/edit UI)
-These survive a save untouched but cannot be created or modified in the editor:
-- Footnotes / endnotes (`w:footnoteReference` / `w:endnoteReference`).
-- Symbols (`w:sym`).
-- Equations / math (OMML `m:oMath`, odt formula objects).
-- Content controls / structured document tags (`w:sdt`).
-- Multi-column section layouts (`w:cols`) and multiple sections.
-- Text boxes / shapes / charts / SmartArt (drawing objects beyond inline images).
-- Bookmarks and cross-references as an editable concept (insert UI); existing ones
-  pass through. Inserted fields cover PAGE / NUMPAGES / TOC only.
+## A. Editable (modelled, round-trips)
+
+- Paragraphs, headings (H1-H3), nested ordered/unordered lists.
+- Run formatting: bold, italic, underline, strike, super/subscript, text colour,
+  highlight, shading, font family, size.
+- Paragraph: alignment, left indent, line spacing, space before/after.
+- Named **paragraph + character styles**: apply, author new, edit existing (name,
+  weight/italic/underline/strike, alignment, size, text + background colour, font).
+- Tables: editable cells, cell borders (colour/style/width), column/row/indent
+  resize, merge, in-cell formatting.
+- Page size, margins, orientation; vertical (tategaki) + RTL writing with
+  paginated layout, header/footer, and graduated rulers + magnet.
+- Header / footer (the default one), with live page-number / page-count / TOC
+  fields.
+- Inline images, hyperlinks.
+- Comments (+ replies, reactions, resolve) and tracked changes (insert / delete /
+  formatting change).
+
+---
+
+## C. Lost when you edit (the real gaps to close, priority order)
+
+These are the only things that do not round-trip once the document is edited,
+because their context is regenerated. This is the work for "feature complete".
+
+1. **Floating / anchored images + text wrap.** Only inline images are modelled.
+   Existing floating images round-trip if untouched, but wrap modes (square /
+   tight / top-and-bottom / behind / in-front) cannot be authored, and
+   moving/resizing one flattens it to inline. Needs: read/write `wp:anchor` +
+   wrap, CSS float/positioned rendering, and a floating image toolbar on select
+   (wrap mode, position, size, alt text).
+2. **Multiple sections / mid-document section breaks.** Only the final section's
+   `w:sectPr` is kept; mid-document section breaks are dropped, collapsing a
+   multi-section document to one section on save. (A single-section document keeps
+   its section richness fine.) Needs: model section breaks + per-section page
+   setup.
+3. **Columns (`w:cols`).** Preserved for a single section (it rides the trailing
+   sectPr) but not authorable, and lost together with multi-section flattening.
+4. **Tab stops (`w:tabs`).** Dropped from any paragraph that is edited. Needs a
+   model + ruler tab markers (browsers do not render custom tab stops natively, so
+   this is real work).
+5. **List restart-at-N / continue-previous numbering.** Nesting and ordered/bullet
+   kind round-trip; every ordered list currently restarts at 1.
+6. **Style editing depth.** The style dialog covers the common properties;
+   `w:basedOn` inheritance is flattened when a style is edited, and tab stops,
+   borders and the long tail of style properties are not exposed.
+
+---
+
+## B. Preserved losslessly but not editable (passthrough; add insert UI to "do" them)
+
+These round-trip untouched today. Adding an insert/edit UI would make them
+authorable; they are realistic to do, just not yet built.
+
+- Footnotes / endnotes (`w:footnoteReference`; footnotes.xml/endnotes.xml parts
+  preserved) - no insert/edit.
+- Symbols / special characters (`w:sym`) - no insert picker.
+- Bookmarks (`w:bookmarkStart/End`) and cross-references - no insert UI.
+- Complex fields - only PAGE / NUMPAGES / TOC are authored; date, file name,
+  author, etc. are preserved but not insertable.
+- First-page / even-odd header & footer parts - preserved as files; only the
+  default header/footer is editable.
+- Page borders, page-number restart - preserved on the trailing section, not
+  authorable.
+
+---
+
+## Out of scope (passthrough-only; not realistically authorable client-side)
+
+Left as the lossless passthrough they already are. Authoring these in a browser
+is not realistic / not worth it; "complete" for them means they survive a save,
+which they do.
+
+- Charts, SmartArt, text boxes, shapes, drawing groups (anything beyond inline
+  images).
+- Embedded OLE objects.
+- Content controls / structured document tags (`w:sdt`) authoring.
+- Equations / math (OMML) authoring - would require an embedded equation editor
+  component (e.g. MathLive). Preserved as-is unless we decide to add one.
+- VML legacy markup (beyond image extraction).
+
+---
 
 ## Notes
-- The passthrough guarantee holds for all of the above: untouched content round-trips
-  byte-for-byte; only regenerated paragraphs lose the unmodelled direct properties.
-- None of these are blocking for the common word-processing use cases now covered.
+
+- Single-section documents keep their full section properties (columns, borders,
+  page-number restart, etc.); multi-section flattening (C2) is the real risk.
+- First/even/odd and per-section header/footer *parts* are not regenerated, so
+  they survive a save; only the default header/footer is shown for editing.
+- The same gaps apply to the odt adapter; section model, anchored frames
+  (`draw:frame` anchoring/wrap) and tab stops are the odt equivalents of C1-C4.
