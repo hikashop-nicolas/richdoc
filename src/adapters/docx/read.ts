@@ -834,13 +834,15 @@ function readStyles(stylesXml: Uint8Array | undefined): {
     const v = wv(e, "val");
     return v === null || (v !== "0" && v !== "false");
   };
-  // Resolve a style's effective CSS by walking basedOn from root to leaf (leaf overrides).
-  const cssFor = (byId: Map<string, Element>, id: string, withPara: boolean, seen: Set<string>): Record<string, string> => {
+  // A style's CSS. `own` = only this style's direct properties (for the edit dialog, so saving
+  // does not flatten inherited props into the style); otherwise the effective CSS, walking the
+  // w:basedOn chain root-to-leaf (leaf overrides), for the rendered appearance.
+  const cssFor = (byId: Map<string, Element>, id: string, withPara: boolean, seen: Set<string>, own = false): Record<string, string> => {
     const st = byId.get(id);
     if (!st || seen.has(id)) return {};
     seen.add(id);
     const based = wv(st, "basedOn");
-    const out: Record<string, string> = based ? cssFor(byId, based, withPara, seen) : {};
+    const out: Record<string, string> = !own && based ? cssFor(byId, based, withPara, seen, false) : {};
     const rPr = Array.from(st.children).find((c) => c.tagName === "w:rPr");
     if (withPara) {
       const pPr = Array.from(st.children).find((c) => c.tagName === "w:pPr");
@@ -887,8 +889,8 @@ function readStyles(stylesXml: Uint8Array | undefined): {
       if (Array.from(st.children).some((c) => c.tagName === "w:semiHidden")) continue; // Word's hidden built-ins
       const name = wv(st.getElementsByTagName("w:name")[0] ?? undefined, "val") || id;
       list.push({ id, name });
-      const decls = cssFor(byId, id, kind === "paragraph", new Set());
-      styleDefs.push({ id, kind, css: decls });
+      styleDefs.push({ id, kind, css: cssFor(byId, id, kind === "paragraph", new Set(), true) }); // own props, for editing
+      const decls = cssFor(byId, id, kind === "paragraph", new Set()); // resolved, for the rendered appearance
       const body = Object.entries(decls).map(([k, v]) => `${k}:${v}`).join(";");
       if (body) css += `.docxedit-doc [${attr}="${cssAttrValue(id)}"]{${body}}\n`;
     }

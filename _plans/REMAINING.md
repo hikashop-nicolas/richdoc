@@ -23,6 +23,9 @@ context (a paragraph, or the document body) is regenerated from the edited HTML.
 - Paragraph: alignment, left indent, line spacing, space before/after.
 - Named **paragraph + character styles**: apply, author new, edit existing (name,
   weight/italic/underline/strike, alignment, size, text + background colour, font).
+  Editing reconciles only the dialog's own properties, so the style's other
+  properties (tabs, keep-with-next, ...) and its `w:basedOn` / parent inheritance
+  are preserved, and inherited props are not flattened into the edited style.
 - Tables: editable cells, cell borders (colour/style/width), column/row/indent
   resize, merge, in-cell formatting.
 - Page size, margins, orientation; vertical (tategaki) + RTL writing with
@@ -60,9 +63,10 @@ because their context is regenerated. This is the work for "feature complete".
 3. **Tab stops (`w:tabs`).** Dropped from any paragraph that is edited. Needs a
    model + ruler tab markers (browsers do not render custom tab stops natively, so
    this is real work).
-4. **Style editing depth.** The style dialog covers the common properties;
-   `w:basedOn` inheritance is flattened when a style is edited, and tab stops,
-   borders and the long tail of style properties are not exposed.
+4. **Style authoring depth.** Editing now preserves a style's other properties and
+   its inheritance (see bucket A), but the dialog still only *authors* the common
+   properties; tab stops, borders and the long tail cannot yet be set from the UI
+   (tab stops overlap with C3).
 5. **Image layout fine detail.** Wrap + alignment + behind/front offset round-trip,
    but the offset is approximate (mapped to a CSS-positioned element, not a Word
    layout engine), the toolbar exposes "wrap" as square (a file's `wrapTight` is

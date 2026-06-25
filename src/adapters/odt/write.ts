@@ -830,6 +830,12 @@ function addOdtStyles(files: Record<string, Uint8Array>, styles: NewStyle[]): vo
     const id = st.getAttribute("style:name");
     if (id) existingById.set(id, st);
   }
+  // ODF keeps style properties as attributes on these elements, so on edit only the dialog's
+  // own attributes are re-derived; the long tail (fo:keep-with-next, text-indent, ...) is kept.
+  const directChild = (parent: Element, tag: string): Element | undefined => Array.from(parent.children).find((c) => c.tagName === tag);
+  const PARA_FO = ["text-align", "margin-left", "margin-top", "margin-bottom", "line-height", "background-color"];
+  const RUN_FO = ["font-weight", "font-style", "color", "font-size", "background-color", "font-family"];
+  const RUN_STYLE = ["text-underline-style", "text-underline-width", "text-underline-color", "text-line-through-style", "text-line-through-type", "font-name"];
   for (const s of styles) {
     const c = s.css;
     const prev = existingById.get(s.id);
@@ -838,42 +844,50 @@ function addOdtStyles(files: Record<string, Uint8Array>, styles: NewStyle[]): vo
       st.setAttributeNS(NS.style, "style:name", s.id);
       st.setAttributeNS(NS.style, "style:display-name", s.name);
       st.setAttributeNS(NS.style, "style:family", s.kind === "paragraph" ? "paragraph" : "text");
-    } else {
-      // editing: drop old property children, keep the style element + parent-style-name
-      for (const ch of Array.from(st.children)) if (ch.tagName === "style:paragraph-properties" || ch.tagName === "style:text-properties") st.removeChild(ch);
     }
     if (s.kind === "paragraph") {
-      const pp = doc.createElementNS(NS.style, "style:paragraph-properties");
       const a = ODF_ALIGN[c["text-align"] ?? ""];
-      if (a && a !== "left") pp.setAttributeNS(NS.fo, "fo:text-align", a === "right" ? "end" : a === "center" ? "center" : "justify");
-      if (c["margin-left"]) pp.setAttributeNS(NS.fo, "fo:margin-left", pxToCm(parseFloat(c["margin-left"])));
-      if (c["margin-top"]) pp.setAttributeNS(NS.fo, "fo:margin-top", pxToCm(parseFloat(c["margin-top"])));
-      if (c["margin-bottom"]) pp.setAttributeNS(NS.fo, "fo:margin-bottom", pxToCm(parseFloat(c["margin-bottom"])));
-      if (c["line-height"]) pp.setAttributeNS(NS.fo, "fo:line-height", `${Math.round(parseFloat(c["line-height"]) * 100)}%`);
-      if (c["background-color"]) pp.setAttributeNS(NS.fo, "fo:background-color", c["background-color"]);
-      if (pp.attributes.length) st.insertBefore(pp, st.firstChild);
+      const align = a && a !== "left" ? (a === "right" ? "end" : a === "center" ? "center" : "justify") : undefined;
+      const hasPara = !!(align || c["margin-left"] || c["margin-top"] || c["margin-bottom"] || c["line-height"] || c["background-color"]);
+      let pp = directChild(st, "style:paragraph-properties");
+      if (pp || hasPara) {
+        if (!pp) { pp = doc.createElementNS(NS.style, "style:paragraph-properties"); st.insertBefore(pp, st.firstChild); }
+        for (const attr of PARA_FO) pp.removeAttributeNS(NS.fo, attr); // re-derive only the modeled attrs
+        if (align) pp.setAttributeNS(NS.fo, "fo:text-align", align);
+        if (c["margin-left"]) pp.setAttributeNS(NS.fo, "fo:margin-left", pxToCm(parseFloat(c["margin-left"])));
+        if (c["margin-top"]) pp.setAttributeNS(NS.fo, "fo:margin-top", pxToCm(parseFloat(c["margin-top"])));
+        if (c["margin-bottom"]) pp.setAttributeNS(NS.fo, "fo:margin-bottom", pxToCm(parseFloat(c["margin-bottom"])));
+        if (c["line-height"]) pp.setAttributeNS(NS.fo, "fo:line-height", `${Math.round(parseFloat(c["line-height"]) * 100)}%`);
+        if (c["background-color"]) pp.setAttributeNS(NS.fo, "fo:background-color", c["background-color"]);
+        if (!pp.attributes.length) st.removeChild(pp);
+      }
     }
-    const tp = doc.createElementNS(NS.style, "style:text-properties");
-    if (/bold|[6-9]00/.test(c["font-weight"] ?? "")) tp.setAttributeNS(NS.fo, "fo:font-weight", "bold");
-    if (c["font-style"] === "italic") tp.setAttributeNS(NS.fo, "fo:font-style", "italic");
-    if (/underline/.test(c["text-decoration"] ?? "")) {
-      tp.setAttributeNS(NS.style, "style:text-underline-style", "solid");
-      tp.setAttributeNS(NS.style, "style:text-underline-width", "auto");
-      tp.setAttributeNS(NS.style, "style:text-underline-color", "font-color");
+    {
+      let tp = directChild(st, "style:text-properties");
+      if (!tp) { tp = doc.createElementNS(NS.style, "style:text-properties"); st.appendChild(tp); }
+      for (const attr of RUN_FO) tp.removeAttributeNS(NS.fo, attr);
+      for (const attr of RUN_STYLE) tp.removeAttributeNS(NS.style, attr);
+      if (/bold|[6-9]00/.test(c["font-weight"] ?? "")) tp.setAttributeNS(NS.fo, "fo:font-weight", "bold");
+      if (c["font-style"] === "italic") tp.setAttributeNS(NS.fo, "fo:font-style", "italic");
+      if (/underline/.test(c["text-decoration"] ?? "")) {
+        tp.setAttributeNS(NS.style, "style:text-underline-style", "solid");
+        tp.setAttributeNS(NS.style, "style:text-underline-width", "auto");
+        tp.setAttributeNS(NS.style, "style:text-underline-color", "font-color");
+      }
+      if (/line-through/.test(c["text-decoration"] ?? "")) {
+        tp.setAttributeNS(NS.style, "style:text-line-through-style", "solid");
+        tp.setAttributeNS(NS.style, "style:text-line-through-type", "single");
+      }
+      if (c["color"]) tp.setAttributeNS(NS.fo, "fo:color", c["color"]);
+      if (c["font-size"]) tp.setAttributeNS(NS.fo, "fo:font-size", c["font-size"]);
+      if (s.kind === "character" && c["background-color"]) tp.setAttributeNS(NS.fo, "fo:background-color", c["background-color"]);
+      const font = (c["font-family"] ?? "").replace(/['"]/g, "").split(",")[0]?.trim();
+      if (font) {
+        tp.setAttributeNS(NS.fo, "fo:font-family", font);
+        tp.setAttributeNS(NS.style, "style:font-name", font);
+      }
+      if (!tp.attributes.length) st.removeChild(tp);
     }
-    if (/line-through/.test(c["text-decoration"] ?? "")) {
-      tp.setAttributeNS(NS.style, "style:text-line-through-style", "solid");
-      tp.setAttributeNS(NS.style, "style:text-line-through-type", "single");
-    }
-    if (c["color"]) tp.setAttributeNS(NS.fo, "fo:color", c["color"]);
-    if (c["font-size"]) tp.setAttributeNS(NS.fo, "fo:font-size", c["font-size"]);
-    if (s.kind === "character" && c["background-color"]) tp.setAttributeNS(NS.fo, "fo:background-color", c["background-color"]);
-    const font = (c["font-family"] ?? "").replace(/['"]/g, "").split(",")[0]?.trim();
-    if (font) {
-      tp.setAttributeNS(NS.fo, "fo:font-family", font);
-      tp.setAttributeNS(NS.style, "style:font-name", font);
-    }
-    if (tp.attributes.length) st.appendChild(tp);
     if (!prev) officeStyles.appendChild(st);
   }
   files[key] = strToU8(new XMLSerializer().serializeToString(doc));

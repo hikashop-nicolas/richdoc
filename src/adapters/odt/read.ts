@@ -322,12 +322,14 @@ function readOdtStyles(stylesXml: Uint8Array | undefined): {
     }
     return m;
   };
-  const cssFor = (byId: Map<string, Element>, id: string, withPara: boolean, seen: Set<string>): Record<string, string> => {
+  // `own` = only this style's direct properties (for the edit dialog, so saving does not flatten
+  // inherited props in); otherwise the effective CSS, walking style:parent-style-name.
+  const cssFor = (byId: Map<string, Element>, id: string, withPara: boolean, seen: Set<string>, own = false): Record<string, string> => {
     const s = byId.get(id);
     if (!s || seen.has(id)) return {};
     seen.add(id);
     const parent = s.getAttribute("style:parent-style-name");
-    const out: Record<string, string> = parent ? cssFor(byId, parent, withPara, seen) : {};
+    const out: Record<string, string> = !own && parent ? cssFor(byId, parent, withPara, seen, false) : {};
     const tp = s.getElementsByTagName("style:text-properties")[0];
     if (withPara) {
       const pp = s.getElementsByTagName("style:paragraph-properties")[0];
@@ -372,8 +374,8 @@ function readOdtStyles(stylesXml: Uint8Array | undefined): {
       named.add(id);
       const name = (s.getAttribute("style:display-name") || id).replace(/_20_/g, " ");
       list.push({ id, name });
-      const decls = cssFor(byId, id, kind === "paragraph", new Set());
-      styleDefs.push({ id, kind, css: decls });
+      styleDefs.push({ id, kind, css: cssFor(byId, id, kind === "paragraph", new Set(), true) }); // own props, for editing
+      const decls = cssFor(byId, id, kind === "paragraph", new Set()); // resolved, for the rendered appearance
       const body = Object.entries(decls).map(([k, v]) => `${k}:${v}`).join(";");
       if (body) css += `.docxedit-doc [${attr}="${cssAttrValue(id)}"]{${body}}\n`;
     }

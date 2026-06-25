@@ -964,6 +964,35 @@ describe("authoring new styles", () => {
     expect(stylesXml).toMatch(/w:jc[^>]*w:val="center"/);
     expect(stylesXml).not.toContain("<w:i"); // old prop replaced
   });
+
+  it("editing a style keeps its unmodelled properties, basedOn, and does not flatten inherited props", () => {
+    const STYLES = `<?xml version="1.0"?><w:styles xmlns:w="http://schemas.openxmlformats.org/wordprocessingml/2006/main">
+ <w:style w:type="paragraph" w:default="1" w:styleId="Normal"><w:name w:val="Normal"/><w:rPr><w:sz w:val="44"/></w:rPr></w:style>
+ <w:style w:type="paragraph" w:styleId="Fancy"><w:name w:val="Fancy"/><w:basedOn w:val="Normal"/><w:pPr><w:keepNext/></w:pPr><w:rPr><w:smallCaps/><w:b/></w:rPr></w:style></w:styles>`;
+    const docx = zipSync({
+      "[Content_Types].xml": strToU8("<Types/>"),
+      "_rels/.rels": strToU8("<Relationships/>"),
+      "word/document.xml": strToU8(P('<w:p><w:pPr><w:pStyle w:val="Fancy"/></w:pPr><w:r><w:t>x</w:t></w:r></w:p>')),
+      "word/_rels/document.xml.rels": strToU8(RELS),
+      "word/styles.xml": strToU8(STYLES),
+    });
+    // The edit dialog sees Fancy's OWN props only (bold), not the inherited size.
+    const def = (docxToParts(docx).styleDefs ?? []).find((d) => d.id === "Fancy");
+    expect(def?.css["font-weight"]).toBe("bold");
+    expect(def?.css["font-size"]).toBeUndefined(); // inherited from Normal, not flattened in
+    // Edit Fancy: add italic, keep bold.
+    const out = htmlToDocx('<p data-rdoc-style="Fancy">x</p>', docx, undefined, {
+      newStyles: [{ id: "Fancy", name: "Fancy", kind: "paragraph", css: { "font-weight": "bold", "font-style": "italic" } }],
+    });
+    const xml = strFromU8(unzipSync(out)["word/styles.xml"]!);
+    expect(xml).toContain("<w:keepNext"); // unmodelled paragraph prop preserved
+    expect(xml).toContain("<w:smallCaps"); // unmodelled run prop preserved
+    expect(xml).toMatch(/w:basedOn[^>]*w:val="Normal"/); // inheritance preserved
+    expect(xml).toContain("<w:b");
+    expect(xml).toContain("<w:i");
+    const fancyEl = xml.slice(xml.indexOf('w:styleId="Fancy"')).split("</w:style>")[0]!;
+    expect(fancyEl).not.toContain("w:sz"); // the inherited size is not copied into Fancy
+  });
 });
 
 describe("named character styles", () => {

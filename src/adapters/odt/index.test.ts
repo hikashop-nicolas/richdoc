@@ -772,6 +772,34 @@ describe("odt authoring new styles", () => {
     expect(stylesXml).toMatch(/fo:font-style="italic"/);
     expect(odtToParts(out).characterStyles?.some((s) => s.id === "Em")).toBe(true);
   });
+
+  it("editing a style keeps its unmodelled attributes, parent, and does not flatten inherited props", () => {
+    const STYLES = `<?xml version="1.0"?>` +
+      `<office:document-styles xmlns:office="urn:oasis:names:tc:opendocument:xmlns:office:1.0" xmlns:style="urn:oasis:names:tc:opendocument:xmlns:style:1.0" xmlns:fo="urn:oasis:names:tc:opendocument:xmlns:xsl-fo-compatible:1.0"><office:styles>` +
+      `<style:style style:name="Normal" style:family="paragraph"><style:text-properties fo:font-size="22pt"/></style:style>` +
+      `<style:style style:name="Fancy" style:family="paragraph" style:parent-style-name="Normal"><style:paragraph-properties fo:keep-with-next="always"/><style:text-properties fo:font-weight="bold"/></style:style>` +
+      `</office:styles></office:document-styles>`;
+    const odt = zipSync({
+      mimetype: [strToU8("application/vnd.oasis.opendocument.text"), { level: 0 }],
+      "content.xml": strToU8(`<?xml version="1.0"?><office:document-content xmlns:office="urn:oasis:names:tc:opendocument:xmlns:office:1.0" xmlns:text="urn:oasis:names:tc:opendocument:xmlns:text:1.0"><office:body><office:text><text:p text:style-name="Fancy">x</text:p></office:text></office:body></office:document-content>`),
+      "styles.xml": strToU8(STYLES),
+      "META-INF/manifest.xml": strToU8("<m/>"),
+    });
+    // The edit dialog sees Fancy's OWN props only (bold), not the inherited font size.
+    const def = (odtToParts(odt).styleDefs ?? []).find((d) => d.id === "Fancy");
+    expect(def?.css["font-weight"]).toBe("bold");
+    expect(def?.css["font-size"]).toBeUndefined();
+    const out = htmlToOdt('<p data-rdoc-style="Fancy">x</p>', odt, {
+      newStyles: [{ id: "Fancy", name: "Fancy", kind: "paragraph", css: { "font-weight": "bold", "font-style": "italic" } }],
+    });
+    const xml = strFromU8(unzipSync(out)["styles.xml"]);
+    const fancyEl = xml.slice(xml.indexOf('style:name="Fancy"')).split("</style:style>")[0]!;
+    expect(fancyEl).toContain('fo:keep-with-next="always"'); // unmodelled attr preserved
+    expect(fancyEl).toMatch(/style:parent-style-name="Normal"/); // inheritance preserved
+    expect(fancyEl).toContain('fo:font-weight="bold"');
+    expect(fancyEl).toContain('fo:font-style="italic"');
+    expect(fancyEl).not.toContain("fo:font-size"); // inherited size not flattened in
+  });
 });
 
 describe("odt named character styles", () => {

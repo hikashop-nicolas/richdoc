@@ -1305,6 +1305,11 @@ function addNewStyles(files: Record<string, Uint8Array>, styles: NewStyle[]): vo
     const id = st.getAttributeNS(W, "styleId") ?? st.getAttribute("w:styleId");
     if (id) existingById.set(id, st);
   }
+  // The style properties the dialog owns; on edit only these are re-derived, so the long tail
+  // (tabs, keepNext, outline level, small caps, ...) the dialog does not model is preserved.
+  const PPR_MODELED = new Set(["w:spacing", "w:ind", "w:jc", "w:shd"]);
+  const RPR_MODELED = new Set(["w:rFonts", "w:b", "w:i", "w:u", "w:strike", "w:color", "w:sz", "w:shd"]);
+  const directChild = (parent: Element, tag: string): Element | undefined => Array.from(parent.children).find((c) => c.tagName === tag);
   for (const s of styles) {
     const c = s.css;
     const prev = existingById.get(s.id);
@@ -1313,53 +1318,59 @@ function addNewStyles(files: Record<string, Uint8Array>, styles: NewStyle[]): vo
       st.setAttributeNS(W, "w:type", s.kind === "paragraph" ? "paragraph" : "character");
       st.setAttributeNS(W, "w:styleId", s.id);
       valEl(st, "w:name", s.name);
-    } else {
-      // editing: drop the old formatting children, keep name / basedOn / others
-      for (const ch of Array.from(st.children)) if (ch.tagName === "w:pPr" || ch.tagName === "w:rPr") st.removeChild(ch);
     }
     if (s.kind === "paragraph") {
-      const pPr = el("w:pPr");
-      if (c["margin-top"] || c["margin-bottom"] || c["line-height"]) {
-        const sp = el("w:spacing");
-        if (c["margin-top"]) sp.setAttributeNS(W, "w:before", String(Math.round(parseFloat(c["margin-top"]) * 15)));
-        if (c["margin-bottom"]) sp.setAttributeNS(W, "w:after", String(Math.round(parseFloat(c["margin-bottom"]) * 15)));
-        if (c["line-height"]) {
-          sp.setAttributeNS(W, "w:line", String(Math.round(parseFloat(c["line-height"]) * 240)));
-          sp.setAttributeNS(W, "w:lineRule", "auto");
+      const hasPara = !!(c["margin-top"] || c["margin-bottom"] || c["line-height"] || c["margin-left"] || JC_BY_ALIGN[c["text-align"] ?? ""] || /^[0-9a-f]{6}$/i.test((c["background-color"] ?? "").replace(/^#/, "")));
+      let pPr = directChild(st, "w:pPr");
+      if (pPr || hasPara) {
+        if (!pPr) { pPr = el("w:pPr"); st.insertBefore(pPr, st.firstChild); }
+        for (const ch of Array.from(pPr.children)) if (PPR_MODELED.has(ch.tagName)) pPr.removeChild(ch); // re-derive only the modeled props
+        if (c["margin-top"] || c["margin-bottom"] || c["line-height"]) {
+          const sp = el("w:spacing");
+          if (c["margin-top"]) sp.setAttributeNS(W, "w:before", String(Math.round(parseFloat(c["margin-top"]) * 15)));
+          if (c["margin-bottom"]) sp.setAttributeNS(W, "w:after", String(Math.round(parseFloat(c["margin-bottom"]) * 15)));
+          if (c["line-height"]) {
+            sp.setAttributeNS(W, "w:line", String(Math.round(parseFloat(c["line-height"]) * 240)));
+            sp.setAttributeNS(W, "w:lineRule", "auto");
+          }
+          pPr.appendChild(sp);
         }
-        pPr.appendChild(sp);
+        if (c["margin-left"]) {
+          const ind = el("w:ind");
+          ind.setAttributeNS(W, "w:left", String(Math.round(parseFloat(c["margin-left"]) * 15)));
+          pPr.appendChild(ind);
+        }
+        const jc = JC_BY_ALIGN[c["text-align"] ?? ""];
+        if (jc) valEl(pPr, "w:jc", jc);
+        const pbg = (c["background-color"] ?? "").replace(/^#/, "");
+        if (/^[0-9a-f]{6}$/i.test(pbg)) shd(pPr, pbg); // paragraph shading
+        if (!pPr.childNodes.length) st.removeChild(pPr); // edited down to nothing
       }
-      if (c["margin-left"]) {
-        const ind = el("w:ind");
-        ind.setAttributeNS(W, "w:left", String(Math.round(parseFloat(c["margin-left"]) * 15)));
-        pPr.appendChild(ind);
+    }
+    {
+      let rPr = directChild(st, "w:rPr");
+      if (!rPr) { rPr = el("w:rPr"); st.appendChild(rPr); }
+      for (const ch of Array.from(rPr.children)) if (RPR_MODELED.has(ch.tagName)) rPr.removeChild(ch); // re-derive only the modeled props
+      const font = (c["font-family"] ?? "").replace(/['"]/g, "").split(",")[0]?.trim();
+      if (font) {
+        const rf = el("w:rFonts");
+        rf.setAttributeNS(W, "w:ascii", font);
+        rf.setAttributeNS(W, "w:hAnsi", font);
+        rPr.appendChild(rf);
       }
-      const jc = JC_BY_ALIGN[c["text-align"] ?? ""];
-      if (jc) valEl(pPr, "w:jc", jc);
-      const pbg = (c["background-color"] ?? "").replace(/^#/, "");
-      if (/^[0-9a-f]{6}$/i.test(pbg)) shd(pPr, pbg); // paragraph shading
-      if (pPr.childNodes.length) st.insertBefore(pPr, st.firstChild);
+      if (/bold|[6-9]00/.test(c["font-weight"] ?? "")) rPr.appendChild(el("w:b"));
+      if (c["font-style"] === "italic") rPr.appendChild(el("w:i"));
+      if (/underline/.test(c["text-decoration"] ?? "")) valEl(rPr, "w:u", "single");
+      if (/line-through/.test(c["text-decoration"] ?? "")) rPr.appendChild(el("w:strike"));
+      const color = (c["color"] ?? "").replace(/^#/, "");
+      if (/^[0-9a-f]{6}$/i.test(color)) valEl(rPr, "w:color", color);
+      if (c["font-size"]) valEl(rPr, "w:sz", String(Math.round(parseFloat(c["font-size"]) * 2)));
+      if (s.kind === "character") {
+        const cbg = (c["background-color"] ?? "").replace(/^#/, "");
+        if (/^[0-9a-f]{6}$/i.test(cbg)) shd(rPr, cbg); // run shading (text background)
+      }
+      if (!rPr.childNodes.length) st.removeChild(rPr);
     }
-    const rPr = el("w:rPr");
-    const font = (c["font-family"] ?? "").replace(/['"]/g, "").split(",")[0]?.trim();
-    if (font) {
-      const rf = el("w:rFonts");
-      rf.setAttributeNS(W, "w:ascii", font);
-      rf.setAttributeNS(W, "w:hAnsi", font);
-      rPr.appendChild(rf);
-    }
-    if (/bold|[6-9]00/.test(c["font-weight"] ?? "")) rPr.appendChild(el("w:b"));
-    if (c["font-style"] === "italic") rPr.appendChild(el("w:i"));
-    if (/underline/.test(c["text-decoration"] ?? "")) valEl(rPr, "w:u", "single");
-    if (/line-through/.test(c["text-decoration"] ?? "")) rPr.appendChild(el("w:strike"));
-    const color = (c["color"] ?? "").replace(/^#/, "");
-    if (/^[0-9a-f]{6}$/i.test(color)) valEl(rPr, "w:color", color);
-    if (c["font-size"]) valEl(rPr, "w:sz", String(Math.round(parseFloat(c["font-size"]) * 2)));
-    if (s.kind === "character") {
-      const cbg = (c["background-color"] ?? "").replace(/^#/, "");
-      if (/^[0-9a-f]{6}$/i.test(cbg)) shd(rPr, cbg); // run shading (text background)
-    }
-    if (rPr.childNodes.length) st.appendChild(rPr);
     if (!prev) root.appendChild(st);
   }
   files[key] = strToU8(new XMLSerializer().serializeToString(doc));
