@@ -112,7 +112,6 @@ export function createRichEditor(container: HTMLElement, adapter: Adapter, optio
   // decorations, with inert spacer gaps inserted at page boundaries. Pageless view keeps
   // the body and header/footer stacked in one card (the previous behaviour).
   const paginated = options.paginated ?? true;
-  const columnCount = geometry.columns && geometry.columns > 1 ? geometry.columns : 1;
   const pagelayer = document.createElement("div"); // page cards, behind the body
   pagelayer.className = "docxedit-pagelayer";
   pagelayer.setAttribute("aria-hidden", "true");
@@ -167,7 +166,7 @@ export function createRichEditor(container: HTMLElement, adapter: Adapter, optio
     setupComments({ wrap, cmtPanel, pagebox, options, caps, mark });
 
   // Page view: rulers (margin handles) + zoom + the centred canvas around the page box.
-  const { applyZoom, effectiveZoom, zoomSlider, zoomLabel, isGeometryDirty, teardown: teardownPageView } = setupPageView({
+  const { applyZoom, effectiveZoom, zoomSlider, zoomLabel, pageSetupBtn, isGeometryDirty, teardown: teardownPageView } = setupPageView({
     page, pagebox, canvas, leftSpacer, rightArea, scroll, geometry, options,
     vertical: !!(geometry.vertical && caps.verticalText),
     applyGeometry, mark, positionCards, reflow: () => reflow(), scheduleReflow: () => scheduleReflow(),
@@ -180,7 +179,7 @@ export function createRichEditor(container: HTMLElement, adapter: Adapter, optio
   bottomLeft.className = "docxedit-bottombar-left";
   const bottomRight = document.createElement("div");
   bottomRight.className = "docxedit-bottombar-right";
-  bottomRight.append(zoomSlider, zoomLabel);
+  bottomRight.append(pageSetupBtn, zoomSlider, zoomLabel);
   bottomBar.append(bottomLeft, bottomRight);
   wrap.append(toolbar, scroll, bottomBar);
   container.appendChild(wrap);
@@ -623,7 +622,13 @@ export function createRichEditor(container: HTMLElement, adapter: Adapter, optio
     if (!paginated || editingBand) return;
     if (isVertical) return repaginateVertical();
     if (doc.querySelector("[data-rdoc-secbreak], [data-rdoc-secstart]")) return repaginateSections();
-    if (columnCount > 1) return repaginateColumns();
+    if ((geometry.columns ?? 0) > 1) return repaginateColumns();
+    // Single column: unwrap any column/section wrappers left by a previous layout (e.g. after a
+    // page-setup change drops the column count back to 1) so the blocks are flat again.
+    for (const w of Array.from(doc.querySelectorAll<HTMLElement>(`.${COLPAGE}, .${SECPAGE}`))) {
+      while (w.firstChild) doc.insertBefore(w.firstChild, w);
+      w.remove();
+    }
     for (const s of Array.from(doc.querySelectorAll(":scope > .docxedit-pagespacer"))) s.remove();
     pagelayer.replaceChildren();
     hflayer.replaceChildren();

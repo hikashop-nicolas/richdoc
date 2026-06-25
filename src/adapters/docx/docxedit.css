@@ -33,6 +33,19 @@
 }
 .docxedit-bottombar select:hover { border-color: #6e7bff; }
 .docxedit-bottombar select:focus-visible { outline: 2px solid #fff; outline-offset: 1px; }
+.docxedit-pagesetup-btn {
+  display: inline-flex; align-items: center; justify-content: center; width: 28px; height: 28px;
+  background: #3a3f47; color: #e6e6e6; border: 1px solid #4a4f57; border-radius: 5px; cursor: pointer; box-sizing: border-box;
+}
+.docxedit-pagesetup-btn:hover { border-color: #6e7bff; }
+.docxedit-pagesetup-row { justify-content: space-between; }
+.docxedit-pagesetup-label { color: #c7cbd1; }
+.docxedit-pagesetup select, .docxedit-pagesetup input {
+  font: inherit; background: #3a3f47; color: #e6e6e6; border: 1px solid #4a4f57; border-radius: 5px;
+  padding: 3px 8px; height: 28px; box-sizing: border-box;
+}
+.docxedit-pagesetup-custom { gap: 8px; }
+.docxedit-pagesetup-custom input { flex: 1; min-width: 0; }
 
 .docxedit-toolbar {
   display: flex; flex-wrap: nowrap; overflow: hidden; position: relative;

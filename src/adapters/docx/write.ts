@@ -1280,23 +1280,39 @@ function applyDeletedComments(files: Record<string, Uint8Array>, ids: string[]):
  * Rebuild a .docx from edited HTML, preserving every other part of the archive. Pass
  * `parts` to also write back edited header/footer parts, and `opts` for comment edits.
  */
-/** Update the body section's w:pgMar from edited margins (px -> twips). */
+/** Update the body section's page geometry (size, orientation, margins, columns) from the edited
+    geometry. px -> twips. Only the trailing (body-level) sectPr is touched; in-paragraph section
+    breaks keep their own sectPr. */
 function applyPageMargins(files: Record<string, Uint8Array>, geometry: PageGeometry): void {
   const raw = files["word/document.xml"];
   if (!raw) return;
   const doc = new DOMParser().parseFromString(strFromU8(raw), "application/xml");
   const sectPr = Array.from(doc.getElementsByTagName("w:sectPr")).pop();
   if (!sectPr) return;
-  let pgMar = sectPr.getElementsByTagName("w:pgMar")[0];
-  if (!pgMar) {
-    pgMar = doc.createElementNS(W, "w:pgMar");
-    sectPr.appendChild(pgMar);
-  }
   const tw = (px: number): string => String(Math.round(px * 15));
+  const child = (tag: string): Element => {
+    let e = sectPr.getElementsByTagName(tag)[0];
+    if (!e) { e = doc.createElementNS(W, tag); sectPr.appendChild(e); }
+    return e;
+  };
+  // Page size + orientation (Word marks landscape explicitly when width > height).
+  const pgSz = child("w:pgSz");
+  pgSz.setAttributeNS(W, "w:w", tw(geometry.widthPx));
+  pgSz.setAttributeNS(W, "w:h", tw(geometry.heightPx));
+  if (geometry.widthPx > geometry.heightPx) pgSz.setAttributeNS(W, "w:orient", "landscape");
+  else { pgSz.removeAttributeNS(W, "orient"); pgSz.removeAttribute("w:orient"); }
+  // Margins.
+  const pgMar = child("w:pgMar");
   pgMar.setAttributeNS(W, "w:top", tw(geometry.margin.top));
   pgMar.setAttributeNS(W, "w:right", tw(geometry.margin.right));
   pgMar.setAttributeNS(W, "w:bottom", tw(geometry.margin.bottom));
   pgMar.setAttributeNS(W, "w:left", tw(geometry.margin.left));
+  // Columns: write w:cols @num + equal-width @space; drop to single column when columns <= 1.
+  const n = geometry.columns && geometry.columns > 1 ? geometry.columns : 1;
+  const cols = child("w:cols");
+  cols.setAttributeNS(W, "w:num", String(n));
+  cols.setAttributeNS(W, "w:space", tw(geometry.columnGapPx ?? 36));
+  cols.setAttributeNS(W, "w:equalWidth", "1");
   files["word/document.xml"] = strToU8(new XMLSerializer().serializeToString(doc));
 }
 

@@ -827,7 +827,8 @@ function buildTrackedChanges(ctx: OdfCtx): Element | null {
   return tc;
 }
 
-/** Update the page-layout margins in styles.xml from edited margins (px -> cm). */
+/** Update the first page-layout in styles.xml from the edited geometry (size, orientation,
+    margins, columns). px -> cm. */
 function applyPageMargins(files: Record<string, Uint8Array>, geometry: PageGeometry): void {
   if (!files["styles.xml"]) return;
   const doc = new DOMParser().parseFromString(strFromU8(files["styles.xml"]), "application/xml");
@@ -838,10 +839,24 @@ function applyPageMargins(files: Record<string, Uint8Array>, geometry: PageGeome
     props = doc.createElementNS(NS.style, "style:page-layout-properties");
     pl.insertBefore(props, pl.firstChild);
   }
+  // Size + orientation (page-width/height are stored already swapped for landscape).
+  props.setAttributeNS(NS.fo, "fo:page-width", pxToCm(geometry.widthPx));
+  props.setAttributeNS(NS.fo, "fo:page-height", pxToCm(geometry.heightPx));
+  props.setAttributeNS(NS.style, "style:print-orientation", geometry.widthPx > geometry.heightPx ? "landscape" : "portrait");
+  // Margins.
   props.setAttributeNS(NS.fo, "fo:margin-top", pxToCm(geometry.margin.top));
   props.setAttributeNS(NS.fo, "fo:margin-right", pxToCm(geometry.margin.right));
   props.setAttributeNS(NS.fo, "fo:margin-bottom", pxToCm(geometry.margin.bottom));
   props.setAttributeNS(NS.fo, "fo:margin-left", pxToCm(geometry.margin.left));
+  // Columns: a style:columns child with the count + gap; remove it when down to one column.
+  const old = props.getElementsByTagName("style:columns")[0];
+  if (old) old.parentNode!.removeChild(old);
+  if (geometry.columns && geometry.columns > 1) {
+    const colsEl = doc.createElementNS(NS.style, "style:columns");
+    colsEl.setAttributeNS(NS.fo, "fo:column-count", String(geometry.columns));
+    colsEl.setAttributeNS(NS.fo, "fo:column-gap", pxToCm(geometry.columnGapPx ?? 36));
+    props.appendChild(colsEl);
+  }
   files["styles.xml"] = strToU8(new XMLSerializer().serializeToString(doc));
 }
 

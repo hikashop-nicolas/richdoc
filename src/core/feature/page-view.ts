@@ -282,9 +282,125 @@ export function setupPageView(deps: PageViewDeps) {
     positionCards();
   };
 
+  // --- Page setup -----------------------------------------------------------
+  // A dialog to set the document's page size, orientation, margins and column count. It edits the
+  // document geometry (= the trailing section); per-section authoring comes later.
+  const PAGE_SIZES: Record<string, [number, number]> = {
+    a4: [794, 1123], a5: [559, 794], a3: [1123, 1587], letter: [816, 1056], legal: [816, 1344], tabloid: [1056, 1632],
+  };
+  const SIZE_LABELS: Record<string, string> = { a4: "A4", a5: "A5", a3: "A3", letter: "Letter", legal: "Legal", tabloid: "Tabloid" };
+  const MARGIN_PRESETS: Record<string, { top: number; right: number; bottom: number; left: number }> = {
+    normal: { top: 96, right: 96, bottom: 96, left: 96 },
+    narrow: { top: 48, right: 48, bottom: 48, left: 48 },
+    moderate: { top: 96, right: 72, bottom: 96, left: 72 },
+    wide: { top: 96, right: 192, bottom: 96, left: 192 },
+  };
+  const near = (a: number, b: number, tol = 2) => Math.abs(a - b) <= tol;
+  const matchSize = (): { key: string; landscape: boolean } => {
+    const w = geometry.widthPx, h = geometry.heightPx;
+    for (const [key, [pw, ph]] of Object.entries(PAGE_SIZES)) {
+      if (near(w, pw) && near(h, ph)) return { key, landscape: false };
+      if (near(w, ph) && near(h, pw)) return { key, landscape: true };
+    }
+    return { key: "custom", landscape: w > h };
+  };
+  const matchMargins = (): string => {
+    const m = geometry.margin;
+    for (const [key, p] of Object.entries(MARGIN_PRESETS))
+      if (near(m.top, p.top, 1) && near(m.right, p.right, 1) && near(m.bottom, p.bottom, 1) && near(m.left, p.left, 1)) return key;
+    return "custom";
+  };
+  const psOverlay = document.createElement("div");
+  psOverlay.className = "docxedit-dialog-overlay";
+  psOverlay.hidden = true;
+  const psPanel = document.createElement("div");
+  psPanel.className = "docxedit-dialog docxedit-pagesetup";
+  psOverlay.appendChild(psPanel);
+  const psTitle = document.createElement("div");
+  psTitle.className = "docxedit-dialog-title";
+  psTitle.textContent = t("pageSetup");
+  const mkSelectRow = (labelText: string, opts: [string, string][]): { row: HTMLElement; sel: HTMLSelectElement } => {
+    const row = document.createElement("label");
+    row.className = "docxedit-dialog-row docxedit-pagesetup-row";
+    const span = document.createElement("span");
+    span.className = "docxedit-pagesetup-label";
+    span.textContent = labelText;
+    const sel = document.createElement("select");
+    for (const [v, lbl] of opts) sel.add(new Option(lbl, v));
+    row.append(span, sel);
+    return { row, sel };
+  };
+  const { row: sizeRow, sel: sizeSel } = mkSelectRow(t("pageSize"), [...Object.keys(PAGE_SIZES).map((k) => [k, SIZE_LABELS[k]!] as [string, string]), ["custom", t("custom")]]);
+  const { row: orientRow, sel: orientSel } = mkSelectRow(t("orientation"), [["portrait", t("portrait")], ["landscape", t("landscape")]]);
+  const customRow = document.createElement("div");
+  customRow.className = "docxedit-dialog-row docxedit-pagesetup-custom";
+  const wIn = document.createElement("input");
+  wIn.type = "number"; wIn.min = "1"; wIn.step = "0.1"; wIn.className = "docxedit-dialog-size"; wIn.placeholder = t("pageWidthCm"); wIn.title = t("pageWidthCm");
+  const hIn = document.createElement("input");
+  hIn.type = "number"; hIn.min = "1"; hIn.step = "0.1"; hIn.className = "docxedit-dialog-size"; hIn.placeholder = t("pageHeightCm"); hIn.title = t("pageHeightCm");
+  customRow.append(wIn, hIn);
+  const { row: marginRow, sel: marginSel } = mkSelectRow(t("margins"), [["normal", t("marginNormal")], ["narrow", t("marginNarrow")], ["moderate", t("marginModerate")], ["wide", t("marginWide")], ["custom", t("custom")]]);
+  const { row: colRow, sel: colSel } = mkSelectRow(t("columns"), [["1", "1"], ["2", "2"], ["3", "3"]]);
+  const syncCustom = () => { customRow.hidden = sizeSel.value !== "custom"; };
+  sizeSel.addEventListener("change", syncCustom);
+  const psCancel = document.createElement("button");
+  psCancel.type = "button"; psCancel.className = "docxedit-menu-item"; psCancel.textContent = t("cancel");
+  const psApply = document.createElement("button");
+  psApply.type = "button"; psApply.className = "docxedit-menu-item docxedit-dialog-primary"; psApply.textContent = t("apply");
+  const psActions = document.createElement("div");
+  psActions.className = "docxedit-dialog-row docxedit-dialog-actions";
+  psActions.append(psCancel, psApply);
+  psPanel.append(psTitle, sizeRow, customRow, orientRow, marginRow, colRow, psActions);
+  scroll.appendChild(psOverlay);
+  const closePageSetup = () => { psOverlay.hidden = true; };
+  const openPageSetup = () => {
+    const m = matchSize();
+    sizeSel.value = m.key;
+    orientSel.value = m.landscape ? "landscape" : "portrait";
+    wIn.value = (geometry.widthPx / CM).toFixed(2);
+    hIn.value = (geometry.heightPx / CM).toFixed(2);
+    marginSel.value = matchMargins();
+    colSel.value = String(geometry.columns && geometry.columns > 1 ? geometry.columns : 1);
+    syncCustom();
+    psOverlay.hidden = false;
+  };
+  const applyPageSetup = () => {
+    let w = geometry.widthPx, h = geometry.heightPx;
+    if (sizeSel.value === "custom") {
+      const cw = parseFloat(wIn.value), ch = parseFloat(hIn.value);
+      if (cw > 0) w = Math.round(cw * CM);
+      if (ch > 0) h = Math.round(ch * CM);
+    } else {
+      [w, h] = PAGE_SIZES[sizeSel.value]!;
+    }
+    if ((orientSel.value === "landscape") !== w > h) [w, h] = [h, w];
+    geometry.widthPx = w;
+    geometry.heightPx = h;
+    if (marginSel.value !== "custom") geometry.margin = { ...MARGIN_PRESETS[marginSel.value]! };
+    const c = parseInt(colSel.value, 10) || 1;
+    geometry.columns = c > 1 ? c : undefined;
+    if (geometry.columns && !geometry.columnGapPx) geometry.columnGapPx = 36;
+    geometryDirty = true;
+    applyGeometry();
+    reflow();
+    applyZoom();
+    mark();
+    closePageSetup();
+  };
+  psApply.addEventListener("click", applyPageSetup);
+  psCancel.addEventListener("click", closePageSetup);
+  psOverlay.addEventListener("click", (e) => { if (e.target === psOverlay) closePageSetup(); });
+  const pageSetupBtn = document.createElement("button");
+  pageSetupBtn.type = "button";
+  pageSetupBtn.className = "docxedit-pagesetup-btn";
+  pageSetupBtn.title = t("pageSetup");
+  pageSetupBtn.setAttribute("aria-label", t("pageSetup"));
+  pageSetupBtn.innerHTML = `<svg width="16" height="16" viewBox="0 0 16 16" fill="none" stroke="currentColor" stroke-width="1.3"><rect x="3" y="1.5" width="10" height="13" rx="1"/><path d="M5 5h6M5 8h6M5 11h4"/></svg>`;
+  pageSetupBtn.addEventListener("click", openPageSetup);
+
   const teardown = () => {
     document.removeEventListener("selectionchange", onSelForRuler);
     window.clearTimeout(rulerSyncTimer);
   };
-  return { applyZoom, effectiveZoom, setZoom, zoomSlider, zoomLabel, isGeometryDirty: () => geometryDirty, teardown };
+  return { applyZoom, effectiveZoom, setZoom, zoomSlider, zoomLabel, pageSetupBtn, isGeometryDirty: () => geometryDirty, teardown };
 }

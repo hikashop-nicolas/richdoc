@@ -32,7 +32,10 @@ context (a paragraph, or the document body) is regenerated from the edited HTML.
   paginated layout, header/footer, and a graduated ruler (horizontal + vertical)
   on the page holding the caret, sized to that page and following the caret between
   pages, with a drag-to-set-margin magnet (margin handles on document-geometry
-  pages; per-section pages show a sized, display-only ruler).
+  pages; per-section pages show a sized, display-only ruler). A **Page setup dialog**
+  (bottom bar) sets the page size, orientation, margin preset and column count; it
+  re-renders live and writes back to the trailing `w:sectPr` (docx) / page-layout
+  (odt). It edits the document geometry; per-section authoring is pending (see C1).
 - **Multi-column sections**: a section's `w:cols` (docx) / page-layout
   `style:columns` (odt) is read and rendered with **true per-page balanced columns**:
   the body is bucketed into one multi-column box per page (the browser's own column
@@ -73,27 +76,26 @@ context (a paragraph, or the document body) is regenerated from the edited HTML.
 These are the only things that do not round-trip once the document is edited,
 because their context is regenerated. This is the work for "feature complete".
 
-1. **Sections: headers + authoring.** Both formats render mixed per-section page setup
-   with a per-page ruler (bucket A); what remains: (a) per-section header/footer in the
-   section page boxes, and (b) authoring: the per-section ruler is display-only, so a
-   section's margins are not yet draggable (needs per-section margin persistence:
-   docx update the section's `w:sectPr` pgMar, odt a per-section page-layout), plus a
-   control to insert a break and set a section's page setup. Vertical (tategaki) pages
-   currently show no ruler. See `_plans/SECTIONS_PLAN.md`.
-2. **Columns authoring.** Columns now read, render with true per-page balancing, and
-   round-trip (see bucket A). What remains is only a control to *set* the column count
-   on a document (the rendering already updates live on a geometry change, since
-   columns are paginated, not a separate mode).
-3. **Tab-stop positioning + authoring.** Tabs and a paragraph's custom stops now
+1. **Sections: headers + per-section authoring.** Both formats render mixed per-section
+   page setup with a per-page ruler (bucket A), and a **Page setup dialog** authors the
+   *document* geometry (size / orientation / margins / columns) for both formats (bucket A).
+   What remains: (a) per-section header/footer in the section page boxes; (b) a control to
+   *insert* a section break at the caret; and (c) per-section authoring (the Page setup
+   dialog and the per-section ruler edit the document/trailing section only, so a
+   mid-document section's geometry is not yet settable: needs the writer to regenerate that
+   section's `w:sectPr` (docx) / a per-section page-layout + master-page (odt) from its
+   `data-rdoc-secbreak` / `data-rdoc-secstart`). Vertical (tategaki) pages show no ruler.
+   See `_plans/SECTIONS_PLAN.md`.
+2. **Tab-stop positioning + authoring.** Tabs and a paragraph's custom stops now
    round-trip (see bucket A), but custom stop *positions* render at the default 0.5in
    grid (preserved on save, not shown at their real x), and right / center / decimal
    alignment is approximated as left. A ruler to add/move stops and honour their
    alignment is the remaining work (browsers don't render arbitrary stops natively).
-4. **Style authoring depth.** Editing now preserves a style's other properties and
+3. **Style authoring depth.** Editing now preserves a style's other properties and
    its inheritance (see bucket A), but the dialog still only *authors* the common
    properties; tab stops, borders and the long tail cannot yet be set from the UI
-   (tab stops overlap with C3).
-5. **Image layout fine detail.** Wrap mode (incl. tight), alignment, behind/front
+   (tab stops overlap with C2).
+4. **Image layout fine detail.** Wrap mode (incl. tight), alignment, behind/front
    offset and wrap padding now round-trip and are authorable. What remains is minor:
    square/tight use alignment only (a file's exact `posOffset` for a wrapped image is
    not honored), and behind/front offsets map to a CSS-positioned element rather than
@@ -138,10 +140,10 @@ which they do.
 ## Notes
 
 - Single-section documents keep their full section properties (columns, borders,
-  page-number restart, etc.); multi-section flattening (C2) is the real risk.
+  page-number restart, etc.); per-section authoring (C1) is the real risk.
 - First/even/odd and per-section header/footer *parts* are not regenerated, so
   they survive a save; only the default header/footer is shown for editing.
 - The odt adapter mirrors docx for floating images (`draw:frame` anchor-type +
   a graphic style carrying `style:wrap` / `style:run-through` / `style:horizontal-pos`,
   and `svg:x`/`svg:y` for behind/front). The remaining gaps still shared with docx
-  are the section model and tab stops (C1, C3).
+  are the section model and tab stops (C1, C2).

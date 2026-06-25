@@ -141,6 +141,20 @@ const en: Dict = {
   listContinue: "Continue previous list",
   listStartAt: "Start at number…",
   listStartPrompt: "Start numbering at:",
+  pageSetup: "Page setup",
+  pageSize: "Page size",
+  orientation: "Orientation",
+  portrait: "Portrait",
+  landscape: "Landscape",
+  marginNormal: "Normal",
+  marginNarrow: "Narrow",
+  marginModerate: "Moderate",
+  marginWide: "Wide",
+  custom: "Custom",
+  columns: "Columns",
+  pageWidthCm: "Width (cm)",
+  pageHeightCm: "Height (cm)",
+  apply: "Apply",
 };
 
 const fr: Dict = {
@@ -279,6 +293,20 @@ const fr: Dict = {
   listContinue: "Continuer la liste précédente",
   listStartAt: "Commencer au numéro…",
   listStartPrompt: "Commencer la numérotation à :",
+  pageSetup: "Mise en page",
+  pageSize: "Format",
+  orientation: "Orientation",
+  portrait: "Portrait",
+  landscape: "Paysage",
+  marginNormal: "Normales",
+  marginNarrow: "Étroites",
+  marginModerate: "Modérées",
+  marginWide: "Larges",
+  custom: "Personnalisé",
+  columns: "Colonnes",
+  pageWidthCm: "Largeur (cm)",
+  pageHeightCm: "Hauteur (cm)",
+  apply: "Appliquer",
 };
 
 const LOCALES: Record<string, Dict> = { en, fr };

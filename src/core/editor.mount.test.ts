@@ -248,4 +248,60 @@ describe("shared engine mount", () => {
     ed.destroy();
     host.remove();
   });
+
+  it("authors page setup: size + columns write back to the trailing sectPr (docx)", async () => {
+    const { strFromU8, unzipSync } = await import("fflate");
+    const doc = `<?xml version="1.0"?><w:document xmlns:w="http://schemas.openxmlformats.org/wordprocessingml/2006/main"><w:body>` +
+      "<w:p><w:r><w:t>Hello</w:t></w:r></w:p>" +
+      '<w:sectPr><w:pgSz w:w="11906" w:h="16838"/><w:pgMar w:top="1440" w:right="1440" w:bottom="1440" w:left="1440"/></w:sectPr></w:body></w:document>';
+    const docx = zipSync({
+      "[Content_Types].xml": strToU8("<Types/>"),
+      "_rels/.rels": strToU8("<Relationships/>"),
+      "word/document.xml": strToU8(doc),
+      "word/_rels/document.xml.rels": strToU8(`<Relationships xmlns="http://schemas.openxmlformats.org/package/2006/relationships"></Relationships>`),
+    });
+    const host = document.createElement("div");
+    document.body.appendChild(host);
+    const ed = createDocxEditor(host, docx);
+    (host.querySelector(".docxedit-pagesetup-btn") as HTMLElement).click();
+    const sels = [...host.querySelectorAll(".docxedit-pagesetup select")] as HTMLSelectElement[];
+    sels[0]!.value = "a3"; // page size
+    sels[3]!.value = "2"; // columns
+    (host.querySelector(".docxedit-pagesetup .docxedit-dialog-primary") as HTMLElement).click();
+    const xml = strFromU8(unzipSync(await ed.getBytes())["word/document.xml"]!);
+    expect(xml).toContain('w:w="16845"'); // A3 width in twips (1123px * 15)
+    expect(xml).toContain('w:num="2"'); // two columns
+    expect(xml).not.toContain('w:w="11906"'); // old A4 size replaced
+    ed.destroy();
+    host.remove();
+  });
+
+  it("authors page setup: columns write back to the page-layout (odt)", async () => {
+    const { strFromU8, unzipSync } = await import("fflate");
+    const styles =
+      '<?xml version="1.0"?><office:document-styles xmlns:office="urn:oasis:names:tc:opendocument:xmlns:office:1.0" ' +
+      'xmlns:style="urn:oasis:names:tc:opendocument:xmlns:style:1.0" xmlns:fo="urn:oasis:names:tc:opendocument:xmlns:xsl-fo-compatible:1.0"><office:automatic-styles>' +
+      '<style:page-layout style:name="pm1"><style:page-layout-properties fo:page-width="21cm" fo:page-height="29.7cm" fo:margin-top="2cm" fo:margin-right="2cm" fo:margin-bottom="2cm" fo:margin-left="2cm"/></style:page-layout>' +
+      '</office:automatic-styles><office:master-styles><style:master-page style:name="Standard" style:page-layout-name="pm1"/></office:master-styles></office:document-styles>';
+    const content =
+      '<?xml version="1.0"?><office:document-content xmlns:office="urn:oasis:names:tc:opendocument:xmlns:office:1.0" ' +
+      'xmlns:text="urn:oasis:names:tc:opendocument:xmlns:text:1.0"><office:body><office:text><text:p>Hello</text:p></office:text></office:body></office:document-content>';
+    const odt = zipSync({
+      mimetype: [strToU8("application/vnd.oasis.opendocument.text"), { level: 0 }],
+      "content.xml": strToU8(content),
+      "styles.xml": strToU8(styles),
+      "META-INF/manifest.xml": strToU8("<m/>"),
+    });
+    const host = document.createElement("div");
+    document.body.appendChild(host);
+    const ed = createOdtEditor(host, odt);
+    (host.querySelector(".docxedit-pagesetup-btn") as HTMLElement).click();
+    const sels = [...host.querySelectorAll(".docxedit-pagesetup select")] as HTMLSelectElement[];
+    sels[3]!.value = "2"; // columns
+    (host.querySelector(".docxedit-pagesetup .docxedit-dialog-primary") as HTMLElement).click();
+    const xml = strFromU8(unzipSync(await ed.getBytes())["styles.xml"]!);
+    expect(xml).toContain('fo:column-count="2"');
+    ed.destroy();
+    host.remove();
+  });
 });
