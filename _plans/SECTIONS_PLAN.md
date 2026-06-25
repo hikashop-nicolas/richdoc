@@ -1,10 +1,22 @@
 # Per-section page setup (mixed page size / orientation / margins / columns)
 
-Status: Phases 1-2 DONE (docx + odt). A document with section breaks renders each
+Status: Phases 1-2 + 4 DONE (docx + odt). A document with section breaks renders each
 section at its own size / orientation / margins / columns as centred, stacked, editable
 page boxes, caret-preserving, stripped on save. docx reads each in-paragraph w:sectPr;
 odt reads each master page's page-layout (a master-page change begins a section, emitted
-as data-rdoc-secstart). Phases 3-4 (per-section header/footer, authoring) pending.
+as data-rdoc-secstart).
+
+Phase 4 (authoring) DONE: an "Insert section break" control splits the document at the
+caret (the new section inherits the current setup, written as data-rdoc-secbreak (docx) /
+data-rdoc-secstart + a fresh master name (odt) + a data-rdoc-secedited marker), and the
+Page setup dialog edits whichever section the caret is in. On save, an edited / inserted
+section's geometry is regenerated: docx merges it onto the preserved w:sectPr; odt creates
+or updates a per-section page-layout + master-page. Untouched sections pass through
+byte-for-byte (gated on data-rdoc-secedited). Capability flag: caps.sections =
+"trailing" (docx, geometry on the section's last paragraph) | "leading" (odt, on its
+first paragraph) | false.
+
+Phase 3 (per-section header/footer) pending; the per-section ruler is still display-only.
 
 Goal: render each section at its own page geometry, so e.g. an A4 portrait section
 followed by an A3 landscape section displays correctly in the editor (not just

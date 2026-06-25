@@ -4,7 +4,7 @@
 // whether the margins were edited (so the engine writes them back). Extracted from the
 // engine; the geometry, layout callbacks and DOM refs come in as deps.
 import { t } from "../i18n";
-import type { EditorOptions, PageGeometry } from "../types";
+import type { Capabilities, EditorOptions, PageGeometry, SecGeom } from "../types";
 
 export interface PageViewDeps {
   page: HTMLElement;
@@ -15,17 +15,25 @@ export interface PageViewDeps {
   scroll: HTMLElement;
   geometry: PageGeometry;
   options: EditorOptions;
+  caps: Capabilities;
   vertical: boolean;
   applyGeometry: () => void;
   mark: () => void;
   positionCards: () => void;
   reflow: () => void;
   scheduleReflow: () => void;
+  /** Flag the document geometry as edited so it is written back on save. */
+  markGeometryDirty: () => void;
+  /** Geometry of the section the caret is in (the document geometry if not in a sub-section). */
+  readSectionGeom: () => SecGeom;
+  /** Apply a geometry to the caret's section (mutates the model; the caller reflows). */
+  writeSectionGeom: (g: SecGeom) => void;
+  /** Insert a next-page section break after the caret's paragraph (mutates the model). */
+  insertSectionBreak: () => void;
 }
 
 export function setupPageView(deps: PageViewDeps) {
-  const { page, pagebox, canvas, leftSpacer, rightArea, scroll, geometry, options, vertical, applyGeometry, mark, positionCards, reflow, scheduleReflow } = deps;
-  let geometryDirty = false;
+  const { page, pagebox, canvas, leftSpacer, rightArea, scroll, geometry, options, caps, vertical, applyGeometry, mark, positionCards, reflow, scheduleReflow, markGeometryDirty, readSectionGeom, writeSectionGeom, insertSectionBreak } = deps;
 
   // --- Per-page rulers ------------------------------------------------------
   // One ruler set (a horizontal ruler above + a vertical ruler to the left) is drawn per
@@ -109,7 +117,7 @@ export function setupPageView(deps: PageViewDeps) {
         else if (side === "top") m.top = Math.max(0, Math.min(pos, H - m.bottom - MIN_CONTENT));
         else m.bottom = Math.max(0, Math.min(H - pos, H - m.top - MIN_CONTENT));
         showTipAt(ev.clientX, ev.clientY, pos);
-        geometryDirty = true;
+        markGeometryDirty();
         applyGeometry();
         syncRulers();
         scheduleReflow();
@@ -284,7 +292,7 @@ export function setupPageView(deps: PageViewDeps) {
 
   // --- Page setup -----------------------------------------------------------
   // A dialog to set the document's page size, orientation, margins and column count. It edits the
-  // document geometry (= the trailing section); per-section authoring comes later.
+  // the section the caret is in (or the document geometry when not inside a sub-section).
   const PAGE_SIZES: Record<string, [number, number]> = {
     a4: [794, 1123], a5: [559, 794], a3: [1123, 1587], letter: [816, 1056], legal: [816, 1344], tabloid: [1056, 1632],
   };
@@ -296,18 +304,16 @@ export function setupPageView(deps: PageViewDeps) {
     wide: { top: 96, right: 192, bottom: 96, left: 192 },
   };
   const near = (a: number, b: number, tol = 2) => Math.abs(a - b) <= tol;
-  const matchSize = (): { key: string; landscape: boolean } => {
-    const w = geometry.widthPx, h = geometry.heightPx;
+  const matchSize = (g: SecGeom): { key: string; landscape: boolean } => {
     for (const [key, [pw, ph]] of Object.entries(PAGE_SIZES)) {
-      if (near(w, pw) && near(h, ph)) return { key, landscape: false };
-      if (near(w, ph) && near(h, pw)) return { key, landscape: true };
+      if (near(g.w, pw) && near(g.h, ph)) return { key, landscape: false };
+      if (near(g.w, ph) && near(g.h, pw)) return { key, landscape: true };
     }
-    return { key: "custom", landscape: w > h };
+    return { key: "custom", landscape: g.w > g.h };
   };
-  const matchMargins = (): string => {
-    const m = geometry.margin;
+  const matchMargins = (g: SecGeom): string => {
     for (const [key, p] of Object.entries(MARGIN_PRESETS))
-      if (near(m.top, p.top, 1) && near(m.right, p.right, 1) && near(m.bottom, p.bottom, 1) && near(m.left, p.left, 1)) return key;
+      if (near(g.mt, p.top, 1) && near(g.mr, p.right, 1) && near(g.mb, p.bottom, 1) && near(g.ml, p.left, 1)) return key;
     return "custom";
   };
   const psOverlay = document.createElement("div");
@@ -380,22 +386,24 @@ export function setupPageView(deps: PageViewDeps) {
   scroll.appendChild(psOverlay);
   const closePageSetup = () => { psOverlay.hidden = true; };
   const openPageSetup = () => {
-    const m = matchSize();
+    const g = readSectionGeom(); // the section the caret is in (document geometry if none)
+    const m = matchSize(g);
     sizeSel.value = m.key;
     orientSel.value = m.landscape ? "landscape" : "portrait";
-    wIn.value = (geometry.widthPx / CM).toFixed(2);
-    hIn.value = (geometry.heightPx / CM).toFixed(2);
-    marginSel.value = matchMargins();
-    mtIn.value = (geometry.margin.top / CM).toFixed(2);
-    mrIn.value = (geometry.margin.right / CM).toFixed(2);
-    mbIn.value = (geometry.margin.bottom / CM).toFixed(2);
-    mlIn.value = (geometry.margin.left / CM).toFixed(2);
-    colSel.value = String(geometry.columns && geometry.columns > 1 ? geometry.columns : 1);
+    wIn.value = (g.w / CM).toFixed(2);
+    hIn.value = (g.h / CM).toFixed(2);
+    marginSel.value = matchMargins(g);
+    mtIn.value = (g.mt / CM).toFixed(2);
+    mrIn.value = (g.mr / CM).toFixed(2);
+    mbIn.value = (g.mb / CM).toFixed(2);
+    mlIn.value = (g.ml / CM).toFixed(2);
+    colSel.value = String(g.cols && g.cols > 1 ? g.cols : 1);
     syncCustom();
     psOverlay.hidden = false;
   };
   const applyPageSetup = () => {
-    let w = geometry.widthPx, h = geometry.heightPx;
+    const cur = readSectionGeom();
+    let w = cur.w, h = cur.h;
     if (sizeSel.value === "custom") {
       const cw = parseFloat(wIn.value), ch = parseFloat(hIn.value);
       if (cw > 0) w = Math.round(cw * CM);
@@ -405,22 +413,17 @@ export function setupPageView(deps: PageViewDeps) {
     }
     // For a preset size the orientation drives the swap; custom typed dims already imply it.
     if (sizeSel.value !== "custom" && (orientSel.value === "landscape") !== w > h) [w, h] = [h, w];
-    geometry.widthPx = w;
-    geometry.heightPx = h;
+    let mt = cur.mt, mr = cur.mr, mb = cur.mb, ml = cur.ml;
     if (marginSel.value === "custom") {
       const cm = (v: string, fallback: number) => { const n = parseFloat(v); return n >= 0 ? Math.round(n * CM) : fallback; };
-      geometry.margin = {
-        top: cm(mtIn.value, geometry.margin.top), right: cm(mrIn.value, geometry.margin.right),
-        bottom: cm(mbIn.value, geometry.margin.bottom), left: cm(mlIn.value, geometry.margin.left),
-      };
+      mt = cm(mtIn.value, cur.mt); mr = cm(mrIn.value, cur.mr); mb = cm(mbIn.value, cur.mb); ml = cm(mlIn.value, cur.ml);
     } else {
-      geometry.margin = { ...MARGIN_PRESETS[marginSel.value]! };
+      const p = MARGIN_PRESETS[marginSel.value]!;
+      mt = p.top; mr = p.right; mb = p.bottom; ml = p.left;
     }
     const c = parseInt(colSel.value, 10) || 1;
-    geometry.columns = c > 1 ? c : undefined;
-    if (geometry.columns && !geometry.columnGapPx) geometry.columnGapPx = 36;
-    geometryDirty = true;
-    applyGeometry();
+    const g: SecGeom = { w, h, mt, mr, mb, ml, cols: c > 1 ? c : undefined, colGap: c > 1 ? (cur.colGap ?? 36) : undefined };
+    writeSectionGeom(g);
     reflow();
     applyZoom();
     mark();
@@ -437,9 +440,26 @@ export function setupPageView(deps: PageViewDeps) {
   pageSetupBtn.innerHTML = `<svg width="16" height="16" viewBox="0 0 16 16" fill="none" stroke="currentColor" stroke-width="1.3"><rect x="3" y="1.5" width="10" height="13" rx="1"/><path d="M5 5h6M5 8h6M5 11h4"/></svg>`;
   pageSetupBtn.addEventListener("click", openPageSetup);
 
+  // Insert section break (only when the format supports section authoring).
+  let sectionBreakBtn: HTMLButtonElement | null = null;
+  if (caps.sections) {
+    sectionBreakBtn = document.createElement("button");
+    sectionBreakBtn.type = "button";
+    sectionBreakBtn.className = "docxedit-pagesetup-btn docxedit-sectionbreak-btn";
+    sectionBreakBtn.title = t("insertSectionBreak");
+    sectionBreakBtn.setAttribute("aria-label", t("insertSectionBreak"));
+    sectionBreakBtn.innerHTML = `<svg width="16" height="16" viewBox="0 0 16 16" fill="none" stroke="currentColor" stroke-width="1.3"><rect x="3" y="1.5" width="10" height="5" rx="1"/><rect x="3" y="9.5" width="10" height="5" rx="1"/><path d="M1 8h2M5 8h2M9 8h2M13 8h2" stroke-dasharray="0"/></svg>`;
+    sectionBreakBtn.addEventListener("click", () => {
+      insertSectionBreak();
+      reflow();
+      applyZoom();
+      mark();
+    });
+  }
+
   const teardown = () => {
     document.removeEventListener("selectionchange", onSelForRuler);
     window.clearTimeout(rulerSyncTimer);
   };
-  return { applyZoom, effectiveZoom, setZoom, zoomSlider, zoomLabel, pageSetupBtn, isGeometryDirty: () => geometryDirty, teardown };
+  return { applyZoom, effectiveZoom, setZoom, zoomSlider, zoomLabel, pageSetupBtn, sectionBreakBtn, teardown };
 }

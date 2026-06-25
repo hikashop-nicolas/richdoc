@@ -156,6 +156,7 @@ const dict: Dict = {
   edgeRight: "Right",
   edgeBottom: "Bottom",
   edgeLeft: "Left",
+  insertSectionBreak: "Insert section break",
 };
 
 export default dict;

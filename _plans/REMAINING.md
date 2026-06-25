@@ -61,13 +61,15 @@ context (a paragraph, or the document body) is regenerated from the edited HTML.
   boundary, so editing a multi-section document no longer flattens it. docx keeps a
   `w:sectPr` inside a paragraph; odt keeps a paragraph style's `fo:break-before` /
   `fo:break-after` and `style:master-page-name` (a new page master, i.e. a section).
-- **Mixed per-section page setup**: a document with section breaks renders each section
-  at its own page size / orientation / margins / columns (e.g. A4 portrait then A3
-  landscape), as centred, stacked per-section page boxes; editing preserves the caret
-  and the boxes are stripped on save. Both formats: docx from each section's `w:sectPr`,
-  odt from each master page's page-layout (a master-page change starts a section).
-  Per-section headers/footers + authoring are pending (see C1). Design in
-  `_plans/SECTIONS_PLAN.md`.
+- **Mixed per-section page setup + authoring**: a document with section breaks renders each
+  section at its own page size / orientation / margins / columns (e.g. A4 portrait then A3
+  landscape), as centred, stacked per-section page boxes; editing preserves the caret and the
+  boxes are stripped on save. An **Insert section break** control splits the document at the
+  caret (the new section inherits the current setup), and the **Page setup dialog** edits the
+  section the caret is in. Both formats: docx regenerates that section's `w:sectPr` from its
+  geometry (merging onto the preserved original); odt creates / updates a per-section
+  page-layout + master-page. Untouched sections still round-trip byte-for-byte. Per-section
+  headers/footers are pending (see C1). Design in `_plans/SECTIONS_PLAN.md`.
 
 ---
 
@@ -76,16 +78,15 @@ context (a paragraph, or the document body) is regenerated from the edited HTML.
 These are the only things that do not round-trip once the document is edited,
 because their context is regenerated. This is the work for "feature complete".
 
-1. **Sections: headers + per-section authoring.** Both formats render mixed per-section
-   page setup with a per-page ruler (bucket A), and a **Page setup dialog** authors the
-   *document* geometry (size / orientation / margins / columns) for both formats (bucket A).
-   What remains: (a) per-section header/footer in the section page boxes; (b) a control to
-   *insert* a section break at the caret; and (c) per-section authoring (the Page setup
-   dialog and the per-section ruler edit the document/trailing section only, so a
-   mid-document section's geometry is not yet settable: needs the writer to regenerate that
-   section's `w:sectPr` (docx) / a per-section page-layout + master-page (odt) from its
-   `data-rdoc-secbreak` / `data-rdoc-secstart`). Vertical (tategaki) pages show no ruler.
-   See `_plans/SECTIONS_PLAN.md`.
+1. **Sections: per-section header/footer.** Section rendering, insertion and authoring are
+   done (bucket A): an **Insert section break** control splits the document at the caret, and
+   the **Page setup dialog** edits the page size / orientation / margins / columns of whichever
+   section the caret is in, regenerating that section's `w:sectPr` (docx) / a per-section
+   page-layout + master-page (odt) on save while leaving untouched sections byte-for-byte.
+   What remains: (a) per-section header/footer in the section page boxes (only the document
+   default header/footer is editable); and (b) the per-section ruler is still display-only
+   (drag-to-set margins edits the document section only) and vertical (tategaki) pages show
+   no ruler. See `_plans/SECTIONS_PLAN.md`.
 2. **Tab-stop positioning + authoring.** Tabs and a paragraph's custom stops now
    round-trip (see bucket A), but custom stop *positions* render at the default 0.5in
    grid (preserved on save, not shown at their real x), and right / center / decimal

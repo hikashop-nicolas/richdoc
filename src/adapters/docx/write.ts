@@ -381,8 +381,12 @@ function makeParagraph(ctx: DocxCtx, src: HTMLElement, opts: { heading?: number;
   const revPara = src.getAttribute("data-rev-para"); // "ins" | "del" paragraph-mark revision
   const namedStyle = !opts.heading ? src.getAttribute("data-rdoc-style") : null; // a non-heading named style
   const sectXml = src.getAttribute("data-docx-sectpr"); // a mid-document section break to re-emit
+  const secGeom = src.getAttribute("data-rdoc-secbreak"); // this section's geometry (JSON), for rendering
+  // Regenerate the sectPr from the JSON only when the section was edited / inserted; an untouched
+  // section passes its original sectPr through byte-for-byte.
+  const regenSect = !!secGeom && (src.getAttribute("data-rdoc-secedited") === "1" || !sectXml);
   const tabStops = src.getAttribute("data-rdoc-tabstops"); // custom tab stops (JSON), schema-ordered before spacing
-  if (opts.heading || namedStyle || opts.listNumId || jc || revPara || sectXml || tabStops || indentPx > 0 || lineHeight > 0 || hasBefore || hasAfter) {
+  if (opts.heading || namedStyle || opts.listNumId || jc || revPara || sectXml || regenSect || tabStops || indentPx > 0 || lineHeight > 0 || hasBefore || hasAfter) {
     const pPr = ctx.doc.createElementNS(W, "w:pPr");
     if (opts.heading || namedStyle) {
       const st = ctx.doc.createElementNS(W, "w:pStyle");
@@ -445,8 +449,13 @@ function makeParagraph(ctx: DocxCtx, src: HTMLElement, opts: { heading?: number;
       rPr.appendChild(rev);
       pPr.appendChild(rPr);
     }
-    // The section break is the last child of w:pPr (schema order: after rPr).
-    if (sectXml) {
+    // The section break is the last child of w:pPr (schema order: after rPr). When the section's
+    // geometry was edited / inserted in-editor, regenerate the sectPr from it (merging onto the
+    // preserved original); otherwise re-emit the stashed original untouched.
+    if (regenSect) {
+      const sect = buildSectPr(ctx, secGeom!, sectXml);
+      if (sect) pPr.appendChild(sect);
+    } else if (sectXml) {
       const sect = importPassthrough(ctx, sectXml);
       if (sect) pPr.appendChild(sect);
     }
@@ -1280,15 +1289,9 @@ function applyDeletedComments(files: Record<string, Uint8Array>, ids: string[]):
  * Rebuild a .docx from edited HTML, preserving every other part of the archive. Pass
  * `parts` to also write back edited header/footer parts, and `opts` for comment edits.
  */
-/** Update the body section's page geometry (size, orientation, margins, columns) from the edited
-    geometry. px -> twips. Only the trailing (body-level) sectPr is touched; in-paragraph section
-    breaks keep their own sectPr. */
-function applyPageMargins(files: Record<string, Uint8Array>, geometry: PageGeometry): void {
-  const raw = files["word/document.xml"];
-  if (!raw) return;
-  const doc = new DOMParser().parseFromString(strFromU8(raw), "application/xml");
-  const sectPr = Array.from(doc.getElementsByTagName("w:sectPr")).pop();
-  if (!sectPr) return;
+/** Set a w:sectPr's page size, orientation, margins and columns (px -> twips), in place. Used for
+    both the body-level section (Page setup) and an in-paragraph section break (per-section setup). */
+function setSectPrGeom(doc: Document, sectPr: Element, g: { w: number; h: number; mt: number; mr: number; mb: number; ml: number; cols?: number; colGap?: number }): void {
   const tw = (px: number): string => String(Math.round(px * 15));
   const child = (tag: string): Element => {
     let e = sectPr.getElementsByTagName(tag)[0];
@@ -1297,22 +1300,51 @@ function applyPageMargins(files: Record<string, Uint8Array>, geometry: PageGeome
   };
   // Page size + orientation (Word marks landscape explicitly when width > height).
   const pgSz = child("w:pgSz");
-  pgSz.setAttributeNS(W, "w:w", tw(geometry.widthPx));
-  pgSz.setAttributeNS(W, "w:h", tw(geometry.heightPx));
-  if (geometry.widthPx > geometry.heightPx) pgSz.setAttributeNS(W, "w:orient", "landscape");
+  pgSz.setAttributeNS(W, "w:w", tw(g.w));
+  pgSz.setAttributeNS(W, "w:h", tw(g.h));
+  if (g.w > g.h) pgSz.setAttributeNS(W, "w:orient", "landscape");
   else { pgSz.removeAttributeNS(W, "orient"); pgSz.removeAttribute("w:orient"); }
   // Margins.
   const pgMar = child("w:pgMar");
-  pgMar.setAttributeNS(W, "w:top", tw(geometry.margin.top));
-  pgMar.setAttributeNS(W, "w:right", tw(geometry.margin.right));
-  pgMar.setAttributeNS(W, "w:bottom", tw(geometry.margin.bottom));
-  pgMar.setAttributeNS(W, "w:left", tw(geometry.margin.left));
+  pgMar.setAttributeNS(W, "w:top", tw(g.mt));
+  pgMar.setAttributeNS(W, "w:right", tw(g.mr));
+  pgMar.setAttributeNS(W, "w:bottom", tw(g.mb));
+  pgMar.setAttributeNS(W, "w:left", tw(g.ml));
   // Columns: write w:cols @num + equal-width @space; drop to single column when columns <= 1.
-  const n = geometry.columns && geometry.columns > 1 ? geometry.columns : 1;
+  const n = g.cols && g.cols > 1 ? g.cols : 1;
   const cols = child("w:cols");
   cols.setAttributeNS(W, "w:num", String(n));
-  cols.setAttributeNS(W, "w:space", tw(geometry.columnGapPx ?? 36));
+  cols.setAttributeNS(W, "w:space", tw(g.colGap ?? 36));
   cols.setAttributeNS(W, "w:equalWidth", "1");
+}
+
+/** Build a w:sectPr for an in-paragraph section break from the edited geometry JSON
+    (data-rdoc-secbreak), merging onto the preserved original sectPr when there is one (so header
+    refs, page borders, etc. survive) or a fresh next-page break otherwise. */
+function buildSectPr(ctx: DocxCtx, geomJson: string, stashedXml: string | null): Element | null {
+  let g: { w: number; h: number; mt: number; mr: number; mb: number; ml: number; cols?: number; colGap?: number };
+  try { g = JSON.parse(geomJson); } catch { return null; }
+  let sectPr = stashedXml ? importPassthrough(ctx, stashedXml) : null;
+  if (!sectPr || sectPr.tagName !== "w:sectPr") {
+    sectPr = ctx.doc.createElementNS(W, "w:sectPr");
+    const type = ctx.doc.createElementNS(W, "w:type");
+    type.setAttributeNS(W, "w:val", "nextPage");
+    sectPr.appendChild(type);
+  }
+  setSectPrGeom(ctx.doc, sectPr, g);
+  return sectPr;
+}
+
+/** Update the body section's page geometry (size, orientation, margins, columns) from the edited
+    geometry. px -> twips. Only the trailing (body-level) sectPr is touched; in-paragraph section
+    breaks are regenerated from their own data-rdoc-secbreak in makeParagraph. */
+function applyPageMargins(files: Record<string, Uint8Array>, geometry: PageGeometry): void {
+  const raw = files["word/document.xml"];
+  if (!raw) return;
+  const doc = new DOMParser().parseFromString(strFromU8(raw), "application/xml");
+  const sectPr = Array.from(doc.getElementsByTagName("w:sectPr")).pop();
+  if (!sectPr) return;
+  setSectPrGeom(doc, sectPr, { w: geometry.widthPx, h: geometry.heightPx, mt: geometry.margin.top, mr: geometry.margin.right, mb: geometry.margin.bottom, ml: geometry.margin.left, cols: geometry.columns, colGap: geometry.columnGapPx });
   files["word/document.xml"] = strToU8(new XMLSerializer().serializeToString(doc));
 }
 

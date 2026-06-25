@@ -827,8 +827,30 @@ function buildTrackedChanges(ctx: OdfCtx): Element | null {
   return tc;
 }
 
-/** Update the first page-layout in styles.xml from the edited geometry (size, orientation,
-    margins, columns). px -> cm. */
+/** Set a page-layout-properties element's size, orientation, margins and columns (px -> cm), in
+    place. Shared by the document Page setup and per-section master pages. */
+function setPageLayoutGeom(doc: Document, props: Element, g: { w: number; h: number; mt: number; mr: number; mb: number; ml: number; cols?: number; colGap?: number }): void {
+  // Size + orientation (page-width/height are stored already swapped for landscape).
+  props.setAttributeNS(NS.fo, "fo:page-width", pxToCm(g.w));
+  props.setAttributeNS(NS.fo, "fo:page-height", pxToCm(g.h));
+  props.setAttributeNS(NS.style, "style:print-orientation", g.w > g.h ? "landscape" : "portrait");
+  // Margins.
+  props.setAttributeNS(NS.fo, "fo:margin-top", pxToCm(g.mt));
+  props.setAttributeNS(NS.fo, "fo:margin-right", pxToCm(g.mr));
+  props.setAttributeNS(NS.fo, "fo:margin-bottom", pxToCm(g.mb));
+  props.setAttributeNS(NS.fo, "fo:margin-left", pxToCm(g.ml));
+  // Columns: a style:columns child with the count + gap; remove it when down to one column.
+  const old = props.getElementsByTagName("style:columns")[0];
+  if (old) old.parentNode!.removeChild(old);
+  if (g.cols && g.cols > 1) {
+    const colsEl = doc.createElementNS(NS.style, "style:columns");
+    colsEl.setAttributeNS(NS.fo, "fo:column-count", String(g.cols));
+    colsEl.setAttributeNS(NS.fo, "fo:column-gap", pxToCm(g.colGap ?? 36));
+    props.appendChild(colsEl);
+  }
+}
+
+/** Update the first page-layout in styles.xml from the edited document geometry. */
 function applyPageMargins(files: Record<string, Uint8Array>, geometry: PageGeometry): void {
   if (!files["styles.xml"]) return;
   const doc = new DOMParser().parseFromString(strFromU8(files["styles.xml"]), "application/xml");
@@ -839,25 +861,50 @@ function applyPageMargins(files: Record<string, Uint8Array>, geometry: PageGeome
     props = doc.createElementNS(NS.style, "style:page-layout-properties");
     pl.insertBefore(props, pl.firstChild);
   }
-  // Size + orientation (page-width/height are stored already swapped for landscape).
-  props.setAttributeNS(NS.fo, "fo:page-width", pxToCm(geometry.widthPx));
-  props.setAttributeNS(NS.fo, "fo:page-height", pxToCm(geometry.heightPx));
-  props.setAttributeNS(NS.style, "style:print-orientation", geometry.widthPx > geometry.heightPx ? "landscape" : "portrait");
-  // Margins.
-  props.setAttributeNS(NS.fo, "fo:margin-top", pxToCm(geometry.margin.top));
-  props.setAttributeNS(NS.fo, "fo:margin-right", pxToCm(geometry.margin.right));
-  props.setAttributeNS(NS.fo, "fo:margin-bottom", pxToCm(geometry.margin.bottom));
-  props.setAttributeNS(NS.fo, "fo:margin-left", pxToCm(geometry.margin.left));
-  // Columns: a style:columns child with the count + gap; remove it when down to one column.
-  const old = props.getElementsByTagName("style:columns")[0];
-  if (old) old.parentNode!.removeChild(old);
-  if (geometry.columns && geometry.columns > 1) {
-    const colsEl = doc.createElementNS(NS.style, "style:columns");
-    colsEl.setAttributeNS(NS.fo, "fo:column-count", String(geometry.columns));
-    colsEl.setAttributeNS(NS.fo, "fo:column-gap", pxToCm(geometry.columnGapPx ?? 36));
-    props.appendChild(colsEl);
-  }
+  setPageLayoutGeom(doc, props, { w: geometry.widthPx, h: geometry.heightPx, mt: geometry.margin.top, mr: geometry.margin.right, mb: geometry.margin.bottom, ml: geometry.margin.left, cols: geometry.columns, colGap: geometry.columnGapPx });
   files["styles.xml"] = strToU8(new XMLSerializer().serializeToString(doc));
+}
+
+/** Ensure each in-document section (a paragraph carrying data-rdoc-secstart + a master-page name)
+    has a master-page + page-layout in styles.xml with that geometry, creating them for inserted
+    sections and updating them for edited ones. The paragraph's text:style-name already references
+    the master via style:master-page-name (set in htmlBlockToOdf). */
+function applySectionMasters(files: Record<string, Uint8Array>, htmlDoc: Document): void {
+  const secs = Array.from(htmlDoc.querySelectorAll("[data-rdoc-secstart][data-odt-masterpage]"));
+  if (!secs.length || !files["styles.xml"]) return;
+  const doc = new DOMParser().parseFromString(strFromU8(files["styles.xml"]), "application/xml");
+  const root = doc.documentElement;
+  if (!root) return;
+  const layouts = ensureAutoStyles(doc); // style:page-layout lives in office:automatic-styles
+  let masters = doc.getElementsByTagName("office:master-styles")[0]; // style:master-page lives here
+  if (!masters) { masters = doc.createElementNS(NS.office, "office:master-styles"); root.appendChild(masters); }
+  let touched = false;
+  for (const el of secs) {
+    const name = el.getAttribute("data-odt-masterpage")!;
+    let g: { w: number; h: number; mt: number; mr: number; mb: number; ml: number; cols?: number; colGap?: number };
+    try { g = JSON.parse(el.getAttribute("data-rdoc-secstart")!); } catch { continue; }
+    let master = Array.from(doc.getElementsByTagName("style:master-page")).find((m) => m.getAttribute("style:name") === name);
+    // Leave an untouched section's existing master byte-for-byte; only act on edited / inserted ones.
+    if (master && el.getAttribute("data-rdoc-secedited") !== "1") continue;
+    touched = true;
+    let plName = master?.getAttribute("style:page-layout-name") ?? `${name}-pl`;
+    let pl = Array.from(doc.getElementsByTagName("style:page-layout")).find((p) => p.getAttribute("style:name") === plName);
+    if (!pl) {
+      pl = doc.createElementNS(NS.style, "style:page-layout");
+      pl.setAttributeNS(NS.style, "style:name", plName);
+      layouts.appendChild(pl);
+    }
+    let props = pl.getElementsByTagName("style:page-layout-properties")[0];
+    if (!props) { props = doc.createElementNS(NS.style, "style:page-layout-properties"); pl.insertBefore(props, pl.firstChild); }
+    setPageLayoutGeom(doc, props, g);
+    if (!master) {
+      master = doc.createElementNS(NS.style, "style:master-page");
+      master.setAttributeNS(NS.style, "style:name", name);
+      master.setAttributeNS(NS.style, "style:page-layout-name", plName);
+      masters.appendChild(master);
+    }
+  }
+  if (touched) files["styles.xml"] = strToU8(new XMLSerializer().serializeToString(doc));
 }
 
 /** Rebuild an .odt from edited HTML, preserving every other part of the archive. */
@@ -983,6 +1030,7 @@ export function htmlToOdt(
   addManifestEntries(files, ctx.pics); // register any images embedded above
   if (opts?.parts) applyHeaderFooter(files, opts.parts); // header/footer -> styles.xml
   if (opts?.page) applyPageMargins(files, opts.page); // margins -> styles.xml page-layout
+  applySectionMasters(files, htmlDoc); // per-section page setup -> styles.xml master pages
   if (opts?.newStyles?.length) addOdtStyles(files, opts.newStyles); // authored styles -> styles.xml
 
   const out = new XMLSerializer().serializeToString(doc);

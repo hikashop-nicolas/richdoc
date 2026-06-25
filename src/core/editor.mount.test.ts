@@ -263,7 +263,7 @@ describe("shared engine mount", () => {
     const host = document.createElement("div");
     document.body.appendChild(host);
     const ed = createDocxEditor(host, docx);
-    (host.querySelector(".docxedit-pagesetup-btn") as HTMLElement).click();
+    (host.querySelector(".docxedit-pagesetup-btn:not(.docxedit-sectionbreak-btn)") as HTMLElement).click();
     const sels = [...host.querySelectorAll(".docxedit-pagesetup select")] as HTMLSelectElement[];
     sels[0]!.value = "a3"; // page size
     sels[3]!.value = "2"; // columns
@@ -272,6 +272,40 @@ describe("shared engine mount", () => {
     expect(xml).toContain('w:w="16845"'); // A3 width in twips (1123px * 15)
     expect(xml).toContain('w:num="2"'); // two columns
     expect(xml).not.toContain('w:w="11906"'); // old A4 size replaced
+    ed.destroy();
+    host.remove();
+  });
+
+  it("inserts a section break and authors the new section (docx)", async () => {
+    const { strFromU8, unzipSync } = await import("fflate");
+    const doc = `<?xml version="1.0"?><w:document xmlns:w="http://schemas.openxmlformats.org/wordprocessingml/2006/main"><w:body>` +
+      "<w:p><w:r><w:t>First</w:t></w:r></w:p><w:p><w:r><w:t>Second</w:t></w:r></w:p>" +
+      '<w:sectPr><w:pgSz w:w="11906" w:h="16838"/><w:pgMar w:top="1440" w:right="1440" w:bottom="1440" w:left="1440"/></w:sectPr></w:body></w:document>';
+    const docx = zipSync({
+      "[Content_Types].xml": strToU8("<Types/>"),
+      "_rels/.rels": strToU8("<Relationships/>"),
+      "word/document.xml": strToU8(doc),
+      "word/_rels/document.xml.rels": strToU8(`<Relationships xmlns="http://schemas.openxmlformats.org/package/2006/relationships"></Relationships>`),
+    });
+    const host = document.createElement("div");
+    document.body.appendChild(host);
+    const ed = createDocxEditor(host, docx);
+    // Caret in the first paragraph, then insert a section break after it.
+    const p1 = host.querySelector(".docxedit-doc p")!;
+    const r = document.createRange(); r.setStart(p1.firstChild!, 0); r.collapse(true);
+    const sel = getSelection()!; sel.removeAllRanges(); sel.addRange(r);
+    (host.querySelector(".docxedit-sectionbreak-btn") as HTMLElement).click();
+    // The first paragraph now ends a section; customise it to A3 via Page setup.
+    const p1b = [...host.querySelectorAll(".docxedit-doc p")].find((p) => p.textContent === "First")!;
+    const r2 = document.createRange(); r2.setStart(p1b.firstChild!, 0); r2.collapse(true);
+    sel.removeAllRanges(); sel.addRange(r2);
+    (host.querySelector(".docxedit-pagesetup-btn:not(.docxedit-sectionbreak-btn)") as HTMLElement).click();
+    ([...host.querySelectorAll(".docxedit-pagesetup select")] as HTMLSelectElement[])[0]!.value = "a3";
+    (host.querySelector(".docxedit-pagesetup .docxedit-dialog-primary") as HTMLElement).click();
+    const xml = strFromU8(unzipSync(await ed.getBytes())["word/document.xml"]!);
+    expect((xml.match(/<w:sectPr/g) ?? []).length).toBe(2); // the inserted break + the body section
+    expect(xml).toContain('w:w="16845"'); // the new section is A3 (1123px * 15)
+    expect(xml).toContain('w:w="11906"'); // the trailing body section keeps its A4 size
     ed.destroy();
     host.remove();
   });
@@ -295,12 +329,51 @@ describe("shared engine mount", () => {
     const host = document.createElement("div");
     document.body.appendChild(host);
     const ed = createOdtEditor(host, odt);
-    (host.querySelector(".docxedit-pagesetup-btn") as HTMLElement).click();
+    (host.querySelector(".docxedit-pagesetup-btn:not(.docxedit-sectionbreak-btn)") as HTMLElement).click();
     const sels = [...host.querySelectorAll(".docxedit-pagesetup select")] as HTMLSelectElement[];
     sels[3]!.value = "2"; // columns
     (host.querySelector(".docxedit-pagesetup .docxedit-dialog-primary") as HTMLElement).click();
     const xml = strFromU8(unzipSync(await ed.getBytes())["styles.xml"]!);
     expect(xml).toContain('fo:column-count="2"');
+    ed.destroy();
+    host.remove();
+  });
+
+  it("inserts a section break and authors the new section (odt)", async () => {
+    const { strFromU8, unzipSync } = await import("fflate");
+    const styles =
+      '<?xml version="1.0"?><office:document-styles xmlns:office="urn:oasis:names:tc:opendocument:xmlns:office:1.0" ' +
+      'xmlns:style="urn:oasis:names:tc:opendocument:xmlns:style:1.0" xmlns:fo="urn:oasis:names:tc:opendocument:xmlns:xsl-fo-compatible:1.0"><office:automatic-styles>' +
+      '<style:page-layout style:name="pm1"><style:page-layout-properties fo:page-width="21cm" fo:page-height="29.7cm" fo:margin-top="2cm" fo:margin-right="2cm" fo:margin-bottom="2cm" fo:margin-left="2cm"/></style:page-layout>' +
+      '</office:automatic-styles><office:master-styles><style:master-page style:name="Standard" style:page-layout-name="pm1"/></office:master-styles></office:document-styles>';
+    const content =
+      '<?xml version="1.0"?><office:document-content xmlns:office="urn:oasis:names:tc:opendocument:xmlns:office:1.0" ' +
+      'xmlns:text="urn:oasis:names:tc:opendocument:xmlns:text:1.0"><office:body><office:text><text:p>First</text:p><text:p>Second</text:p></office:text></office:body></office:document-content>';
+    const odt = zipSync({
+      mimetype: [strToU8("application/vnd.oasis.opendocument.text"), { level: 0 }],
+      "content.xml": strToU8(content),
+      "styles.xml": strToU8(styles),
+      "META-INF/manifest.xml": strToU8("<m/>"),
+    });
+    const host = document.createElement("div");
+    document.body.appendChild(host);
+    const ed = createOdtEditor(host, odt);
+    // Caret in the first paragraph, insert a break (the second paragraph starts the new section).
+    const p1 = host.querySelector(".docxedit-doc p")!;
+    const r = document.createRange(); r.setStart(p1.firstChild!, 0); r.collapse(true);
+    const sel = getSelection()!; sel.removeAllRanges(); sel.addRange(r);
+    (host.querySelector(".docxedit-sectionbreak-btn") as HTMLElement).click();
+    // Caret in the second paragraph (the new section), customise it to A3.
+    const p2 = [...host.querySelectorAll(".docxedit-doc p")].find((p) => p.textContent === "Second")!;
+    const r2 = document.createRange(); r2.setStart(p2.firstChild!, 0); r2.collapse(true);
+    sel.removeAllRanges(); sel.addRange(r2);
+    (host.querySelector(".docxedit-pagesetup-btn:not(.docxedit-sectionbreak-btn)") as HTMLElement).click();
+    ([...host.querySelectorAll(".docxedit-pagesetup select")] as HTMLSelectElement[])[0]!.value = "a3";
+    (host.querySelector(".docxedit-pagesetup .docxedit-dialog-primary") as HTMLElement).click();
+    const xml = strFromU8(unzipSync(await ed.getBytes())["styles.xml"]!);
+    expect((xml.match(/<style:master-page/g) ?? []).length).toBe(2); // Standard + the new section master
+    expect(xml).toContain("rdoc-sec-1"); // the new master / page-layout
+    expect(xml).toContain('fo:page-width="29.713cm"'); // the new section is A3 (1123px)
     ed.destroy();
     host.remove();
   });

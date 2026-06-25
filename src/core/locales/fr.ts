@@ -156,6 +156,7 @@ const dict: Dict = {
   edgeRight: "Droite",
   edgeBottom: "Bas",
   edgeLeft: "Gauche",
+  insertSectionBreak: "Insérer un saut de section",
 };
 
 export default dict;

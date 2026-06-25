@@ -132,6 +132,24 @@ export interface Capabilities {
   verticalText: boolean;
   /** Insertable fields: page number, page count, table of contents. */
   fields: boolean;
+  /** Section-break authoring, and which paragraph carries a section's geometry:
+      "trailing" = the last paragraph of the section (docx w:sectPr / data-rdoc-secbreak),
+      "leading"  = the first paragraph of the section (odt master-page / data-rdoc-secstart),
+      false      = sections are not authorable. */
+  sections: "trailing" | "leading" | false;
+}
+
+/** A section's page geometry in px (the on-the-wire shape stashed on a section-boundary
+    paragraph as data-rdoc-secbreak / data-rdoc-secstart). */
+export interface SecGeom {
+  w: number;
+  h: number;
+  mt: number;
+  mr: number;
+  mb: number;
+  ml: number;
+  cols?: number;
+  colGap?: number;
 }
 
 /** A style the user authored in-session, to be added to the document's stylesheet on save.

@@ -80,6 +80,7 @@ export function createOdtAdapter(bytes: Uint8Array): Adapter {
       alignment: true,
       verticalText: true,
       fields: true,
+      sections: "leading",
     },
   };
 }

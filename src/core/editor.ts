@@ -5,7 +5,7 @@
 
 import { t } from "./i18n";
 import { defaultPageGeometry, paginate } from "./page";
-import type { Adapter, EditorOptions, RichEditor, RichDoc } from "./types";
+import type { Adapter, EditorOptions, RichEditor, RichDoc, SecGeom } from "./types";
 import { setupComments } from "./feature/comments";
 import { setupImages } from "./feature/images";
 import { setupImageLayout } from "./feature/image-layout";
@@ -165,11 +165,101 @@ export function createRichEditor(container: HTMLElement, adapter: Adapter, optio
   const { addThreadCard, positionCards, setActiveComment, allocId, freshParaId, getEdits } =
     setupComments({ wrap, cmtPanel, pagebox, options, caps, mark });
 
+  // Page geometry write-back is gated on this flag (set when the document geometry is edited via
+  // the ruler or Page setup). Owned here so section authoring can set it too.
+  let geometryDirty = false;
+
+  // --- Section authoring (insert breaks + per-section page setup) -----------------------------
+  // The flat block sequence (descending the column/section wrappers a layout pass may have added).
+  const flatBlocks = (): HTMLElement[] => {
+    const out: HTMLElement[] = [];
+    for (const c of Array.from(doc.children) as HTMLElement[]) {
+      if (c.classList.contains("docxedit-secpage") || c.classList.contains("docxedit-colpage")) out.push(...(Array.from(c.children) as HTMLElement[]));
+      else if (!c.classList.contains("docxedit-pagespacer") && !c.classList.contains("docxedit-pagetop")) out.push(c);
+    }
+    return out;
+  };
+  const caretFlatBlock = (): HTMLElement | null => {
+    const sel = window.getSelection();
+    if (!sel || !sel.rangeCount) return null;
+    const node = sel.getRangeAt(0).startContainer;
+    return flatBlocks().find((b) => b === node || b.contains(node)) ?? null;
+  };
+  // Which paragraph carries the caret's section geometry, per the format's convention. null = the
+  // caret is in the document (trailing-final / leading-first) section, whose geometry is `geometry`.
+  const sectionGeomEl = (): HTMLElement | null => {
+    if (!caps.sections) return null;
+    const blocks = flatBlocks();
+    const b = caretFlatBlock();
+    const idx = b ? blocks.indexOf(b) : -1;
+    if (idx < 0) return null;
+    if (caps.sections === "trailing") {
+      for (let i = idx; i < blocks.length; i++) if (blocks[i]!.hasAttribute("data-rdoc-secbreak")) return blocks[i]!;
+    } else {
+      for (let i = idx; i >= 0; i--) if (blocks[i]!.hasAttribute("data-rdoc-secstart")) return blocks[i]!;
+    }
+    return null;
+  };
+  const parseSecGeom = (el: HTMLElement): SecGeom => {
+    const attr = caps.sections === "leading" ? "data-rdoc-secstart" : "data-rdoc-secbreak";
+    try { return { ...docGeom(), ...JSON.parse(el.getAttribute(attr) ?? "") }; } catch { return docGeom(); }
+  };
+  const readSectionGeom = (): SecGeom => {
+    const el = sectionGeomEl();
+    return el ? parseSecGeom(el) : docGeom();
+  };
+  // Apply a geometry to the caret's section (document geometry, or a mid-document section's
+  // boundary paragraph). Mutates the model only; the caller reflows.
+  const writeSectionGeom = (g: SecGeom): void => {
+    const el = sectionGeomEl();
+    if (!el) {
+      geometry.widthPx = g.w;
+      geometry.heightPx = g.h;
+      geometry.margin = { top: g.mt, right: g.mr, bottom: g.mb, left: g.ml };
+      geometry.columns = g.cols && g.cols > 1 ? g.cols : undefined;
+      geometry.columnGapPx = geometry.columns ? (g.colGap ?? 36) : undefined;
+      geometryDirty = true;
+      applyGeometry();
+      return;
+    }
+    const attr = caps.sections === "leading" ? "data-rdoc-secstart" : "data-rdoc-secbreak";
+    el.setAttribute(attr, JSON.stringify(g));
+    el.setAttribute("data-rdoc-secedited", "1"); // regenerate this section's props on save (vs passthrough)
+  };
+  let secMasterSeq = 0;
+  // Insert a next-page section break after the caret's paragraph; the new section inherits the
+  // current section's geometry until the user changes it. Mutates the model only.
+  const insertSectionBreak = (): void => {
+    if (!caps.sections) return;
+    const blocks = flatBlocks();
+    const b = caretFlatBlock() ?? blocks[blocks.length - 1];
+    if (!b) return;
+    const geom = JSON.stringify(readSectionGeom());
+    if (caps.sections === "trailing") {
+      b.setAttribute("data-rdoc-secbreak", geom); // b ends the section before the break
+      b.setAttribute("data-rdoc-secedited", "1");
+      if (b === blocks[blocks.length - 1]) {
+        const p = document.createElement("p");
+        p.innerHTML = "<br>";
+        b.after(p); // give the new section a paragraph to type in
+      }
+    } else {
+      let c = blocks[blocks.indexOf(b) + 1] ?? null; // the new section starts at the block after b
+      if (!c) { c = document.createElement("p"); c.innerHTML = "<br>"; b.after(c); }
+      c.setAttribute("data-rdoc-secstart", geom);
+      c.setAttribute("data-rdoc-secedited", "1");
+      c.setAttribute("data-odt-masterpage", `rdoc-sec-${++secMasterSeq}`);
+      c.setAttribute("data-odt-break-before", "page");
+    }
+  };
+
   // Page view: rulers (margin handles) + zoom + the centred canvas around the page box.
-  const { applyZoom, effectiveZoom, zoomSlider, zoomLabel, pageSetupBtn, isGeometryDirty, teardown: teardownPageView } = setupPageView({
-    page, pagebox, canvas, leftSpacer, rightArea, scroll, geometry, options,
+  const { applyZoom, effectiveZoom, zoomSlider, zoomLabel, pageSetupBtn, sectionBreakBtn, teardown: teardownPageView } = setupPageView({
+    page, pagebox, canvas, leftSpacer, rightArea, scroll, geometry, options, caps,
     vertical: !!(geometry.vertical && caps.verticalText),
     applyGeometry, mark, positionCards, reflow: () => reflow(), scheduleReflow: () => scheduleReflow(),
+    markGeometryDirty: () => { geometryDirty = true; },
+    readSectionGeom, writeSectionGeom, insertSectionBreak,
   });
   // Bottom bar: paragraph/character style pickers on the left, zoom on the right. Keeps the
   // top toolbar focused on formatting/insert controls.
@@ -179,6 +269,7 @@ export function createRichEditor(container: HTMLElement, adapter: Adapter, optio
   bottomLeft.className = "docxedit-bottombar-left";
   const bottomRight = document.createElement("div");
   bottomRight.className = "docxedit-bottombar-right";
+  if (sectionBreakBtn) bottomRight.append(sectionBreakBtn);
   bottomRight.append(pageSetupBtn, zoomSlider, zoomLabel);
   bottomBar.append(bottomLeft, bottomRight);
   wrap.append(toolbar, scroll, bottomBar);
@@ -518,7 +609,6 @@ export function createRichEditor(container: HTMLElement, adapter: Adapter, optio
   // (N+1)th column for several), and the boxes are centred + stacked. The caret is preserved as
   // a (block, char-offset) pair across the reparent, like the column reflow.
   const SECPAGE = "docxedit-secpage";
-  type SecGeom = { w: number; h: number; mt: number; mr: number; mb: number; ml: number; cols?: number; colGap?: number };
   const docGeom = (): SecGeom => ({ w: geometry.widthPx, h: geometry.heightPx, mt: geometry.margin.top, mr: geometry.margin.right, mb: geometry.margin.bottom, ml: geometry.margin.left, cols: geometry.columns, colGap: geometry.columnGapPx });
   const repaginateSections = () => {
     const blocks: HTMLElement[] = [];
@@ -852,7 +942,7 @@ export function createRichEditor(container: HTMLElement, adapter: Adapter, optio
       // has none, so fall back to the "header"/"footer" sentinel the adapters create from.
       if (header && !isBandEmpty(header)) editedParts.push({ path: parts.headerPath ?? "header", html: header.innerHTML });
       if (footer && !isBandEmpty(footer)) editedParts.push({ path: parts.footerPath ?? "footer", html: footer.innerHTML });
-      return adapter.write(cleanBody(), editedParts, getEdits(), isGeometryDirty() ? geometry : undefined, newStyles);
+      return adapter.write(cleanBody(), editedParts, getEdits(), geometryDirty ? geometry : undefined, newStyles);
     },
     destroy() {
       for (const u of fontUrls) URL.revokeObjectURL(u);
