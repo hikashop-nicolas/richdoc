@@ -19,6 +19,8 @@
   font: 13px system-ui, sans-serif; background: #3a3f47; color: #e6e6e6; border: 1px solid #4a4f57; border-radius: 5px;
   height: 26px; min-width: 28px; padding: 2px 6px; cursor: pointer;
 }
+.docxedit-floatbar-color { width: 28px; height: 26px; padding: 1px; background: #3a3f47; border: 1px solid #4a4f57; border-radius: 5px; cursor: pointer; box-sizing: border-box; }
+.docxedit-floatbar-color:hover { border-color: #6e7bff; }
 .docxedit-floatbar-btn:hover { border-color: #6e7bff; }
 .docxedit-floatbar-btn.is-on { background: #6e7bff; border-color: #6e7bff; color: #fff; }
 .docxedit-floatbar-btn.docxedit-tb-bold { font-weight: bold; }
@@ -169,6 +171,12 @@
    page for the rulers; both align with, and are sized to, the scaled page footprint. */
 .docxedit-pagewrap { position: relative; flex: 0 0 auto; padding: 22px 0 0 22px; }
 .docxedit-ruler { position: absolute; background: #d7dde4; box-shadow: inset 0 0 0 1px #c2cad3; }
+.docxedit-ruler-tip {
+  position: fixed; z-index: 70; pointer-events: none; white-space: nowrap;
+  background: #1c1f24; color: #fff; font: 11px system-ui, sans-serif; padding: 2px 6px; border-radius: 4px;
+  box-shadow: 0 2px 8px rgba(0,0,0,.4);
+}
+.docxedit-ruler-tip[hidden] { display: none; }
 .docxedit-ruler-h { top: 0; left: 22px; height: 16px; }
 .docxedit-ruler-v { left: 0; top: 22px; width: 16px; }
 .docxedit-ruler-fill { position: absolute; background: #fff; }

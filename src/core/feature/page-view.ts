@@ -89,12 +89,49 @@ export function setupPageView(deps: PageViewDeps) {
     vBottom.style.top = `${(g.heightPx - m.bottom) * z}px`;
   };
 
+  // Ruler tooltip: the cursor's distance from the page's top-left corner (in cm), shown while
+  // hovering a ruler or dragging a margin handle. Follows the pointer along the ruler's axis.
+  let dragging = false;
+  const rulerTip = document.createElement("div");
+  rulerTip.className = "docxedit-ruler-tip";
+  rulerTip.hidden = true;
+  scroll.appendChild(rulerTip);
+  const showTip = (axis: "h" | "v", client: number, px: number) => {
+    rulerTip.textContent = `${(px / CM).toFixed(2)} cm`;
+    rulerTip.hidden = false;
+    const tw = rulerTip.offsetWidth;
+    const th = rulerTip.offsetHeight;
+    if (axis === "h") {
+      const rect = hRuler.r.getBoundingClientRect();
+      rulerTip.style.left = `${Math.round(client - tw / 2)}px`;
+      rulerTip.style.top = `${Math.round(rect.top - th - 4)}px`;
+    } else {
+      const rect = vRuler.r.getBoundingClientRect();
+      rulerTip.style.left = `${Math.round(rect.left - tw - 4)}px`;
+      rulerTip.style.top = `${Math.round(client - th / 2)}px`;
+    }
+  };
+  const hideTip = () => {
+    if (!dragging) rulerTip.hidden = true;
+  };
+  hRuler.r.addEventListener("mousemove", (e) => {
+    if (dragging) return;
+    showTip("h", e.clientX, (e.clientX - hRuler.r.getBoundingClientRect().left) / effectiveZoom());
+  });
+  hRuler.r.addEventListener("mouseleave", hideTip);
+  vRuler.r.addEventListener("mousemove", (e) => {
+    if (dragging) return;
+    showTip("v", e.clientY, (e.clientY - vRuler.r.getBoundingClientRect().top) / effectiveZoom());
+  });
+  vRuler.r.addEventListener("mouseleave", hideTip);
+
   // Drag a handle: map the pointer position within its ruler to unscaled page px, clamp so
   // opposing margins keep a minimum content band, then live-update (debounced reflow).
   const MIN_CONTENT = 96; // ~1in of content must remain between opposing margins
   const dragHandle = (handle: HTMLElement, axis: "h" | "v", side: "left" | "right" | "top" | "bottom") => {
     handle.addEventListener("pointerdown", (e) => {
       e.preventDefault();
+      dragging = true;
       const ruler = axis === "h" ? hRuler.r : vRuler.r;
       try { handle.setPointerCapture(e.pointerId); } catch { /* no active pointer */ }
       const onMove = (ev: PointerEvent) => {
@@ -112,6 +149,7 @@ export function setupPageView(deps: PageViewDeps) {
         else if (side === "right") m.right = Math.max(0, Math.min(W - pos, W - m.left - MIN_CONTENT));
         else if (side === "top") m.top = Math.max(0, Math.min(pos, H - m.bottom - MIN_CONTENT));
         else m.bottom = Math.max(0, Math.min(H - pos, H - m.top - MIN_CONTENT));
+        showTip(axis, axis === "h" ? ev.clientX : ev.clientY, pos); // distance from the top-left corner
         geometryDirty = true;
         applyGeometry();
         updateRulers();
@@ -122,6 +160,8 @@ export function setupPageView(deps: PageViewDeps) {
         try { handle.releasePointerCapture(ev.pointerId); } catch { /* not captured */ }
         handle.removeEventListener("pointermove", onMove);
         handle.removeEventListener("pointerup", onUp);
+        dragging = false;
+        rulerTip.hidden = true;
         reflow();
       };
       handle.addEventListener("pointermove", onMove);

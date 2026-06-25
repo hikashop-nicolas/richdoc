@@ -1286,11 +1286,13 @@ export function setupToolbar(deps: ToolbarDeps) {
 
   scheduleSync(); // reflect the initial caret position once mounted
 
-  // --- Floating formatting bar (desktop): quick B/I/U/S near the caret on mouse proximity ----
+  // --- Floating formatting bar (desktop): quick formatting near the caret on mouse proximity --
   const coarse = typeof window.matchMedia === "function" && window.matchMedia("(hover: none), (pointer: coarse)").matches;
   const floatBar = document.createElement("div");
   floatBar.className = "docxedit-floatbar";
   floatBar.hidden = true;
+  let floatHideTimer = 0;
+  let floatHovered = false;
   const fbtn = (label: string, title: string, cmd: string, cls: string): HTMLButtonElement => {
     const b = document.createElement("button");
     b.type = "button";
@@ -1305,13 +1307,36 @@ export function setupToolbar(deps: ToolbarDeps) {
     });
     return b;
   };
+  // A colour input applies foreColor / hiliteColor; keep the bar open while its picker is up.
+  const fcolor = (title: string, cmd: string, value: string): HTMLInputElement => {
+    const c = document.createElement("input");
+    c.type = "color";
+    c.value = value;
+    c.title = title;
+    c.className = "docxedit-floatbar-color";
+    c.addEventListener("mousedown", () => {
+      floatHovered = true;
+      window.clearTimeout(floatHideTimer);
+      getActiveEl().focus();
+    });
+    c.addEventListener("input", () => {
+      beginFormatChange();
+      exec(cmd, c.value);
+    });
+    c.addEventListener("change", () => {
+      floatHovered = false;
+    });
+    return c;
+  };
   const fBold = fbtn("B", t("bold"), "bold", "docxedit-tb-bold");
   const fItalic = fbtn("I", t("italic"), "italic", "docxedit-tb-italic");
   const fUnderline = fbtn("U", t("underline"), "underline", "docxedit-tb-underline");
   const fStrike = fbtn("S", t("strikethrough"), "strikeThrough", "docxedit-tb-strike");
   const fSup = fbtn("x²", t("superscript"), "superscript", "");
   const fSub = fbtn("x₂", t("subscript"), "subscript", "");
-  floatBar.append(fBold, fItalic, fUnderline, fStrike, fSup, fSub);
+  const fColor = fcolor(t("textColor"), "foreColor", "#000000");
+  const fBg = fcolor(t("highlight"), "hiliteColor", "#ffff00");
+  floatBar.append(fBold, fItalic, fUnderline, fStrike, fSup, fSub, fColor, fBg);
   wrap.appendChild(floatBar);
   const updateFloatStates = () => {
     fBold.classList.toggle("is-on", queryState("bold"));
@@ -1321,8 +1346,6 @@ export function setupToolbar(deps: ToolbarDeps) {
     fSup.classList.toggle("is-on", queryState("superscript"));
     fSub.classList.toggle("is-on", queryState("subscript"));
   };
-  let floatHideTimer = 0;
-  let floatHovered = false;
   const hideFloat = () => {
     floatBar.hidden = true;
   };
