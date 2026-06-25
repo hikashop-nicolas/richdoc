@@ -513,9 +513,102 @@ export function createRichEditor(container: HTMLElement, adapter: Adapter, optio
     if (caretBlock && caretBlock.isConnected) placeCaret(caretBlock, caretOffset);
   };
 
+  // Per-section pagination: a document with mid-document section breaks can mix page sizes /
+  // orientation / margins / columns. Each section's blocks are bucketed into editable page boxes
+  // sized to that section (the box overflows when full, by height for one column or by the
+  // (N+1)th column for several), and the boxes are centred + stacked. The caret is preserved as
+  // a (block, char-offset) pair across the reparent, like the column reflow.
+  const SECPAGE = "docxedit-secpage";
+  type SecGeom = { w: number; h: number; mt: number; mr: number; mb: number; ml: number; cols?: number; colGap?: number };
+  const docGeom = (): SecGeom => ({ w: geometry.widthPx, h: geometry.heightPx, mt: geometry.margin.top, mr: geometry.margin.right, mb: geometry.margin.bottom, ml: geometry.margin.left, cols: geometry.columns, colGap: geometry.columnGapPx });
+  const repaginateSections = () => {
+    const blocks: HTMLElement[] = [];
+    for (const child of Array.from(doc.children) as HTMLElement[]) {
+      if (child.classList.contains(SECPAGE)) blocks.push(...(Array.from(child.children) as HTMLElement[]));
+      else if (!child.classList.contains("docxedit-pagespacer")) blocks.push(child);
+    }
+    const sel = window.getSelection();
+    let caretBlock: HTMLElement | null = null;
+    let caretOffset = 0;
+    if (sel && sel.rangeCount) {
+      const r = sel.getRangeAt(0);
+      const blk = blocks.find((b) => b === r.startContainer || b.contains(r.startContainer));
+      if (blk) {
+        caretBlock = blk;
+        caretOffset = charOffsetIn(blk, r.startContainer, r.startOffset);
+      }
+    }
+    // Segment: a block with data-rdoc-secbreak ends its section (carrying that section's geometry);
+    // the trailing run uses the document geometry.
+    const sections: { blocks: HTMLElement[]; geom: SecGeom }[] = [];
+    let run: HTMLElement[] = [];
+    for (const b of blocks) {
+      run.push(b);
+      const sb = b.getAttribute("data-rdoc-secbreak");
+      if (sb) {
+        let geom = docGeom();
+        try { geom = { ...docGeom(), ...JSON.parse(sb) }; } catch { /* keep doc geometry */ }
+        sections.push({ blocks: run, geom });
+        run = [];
+      }
+    }
+    if (run.length) sections.push({ blocks: run, geom: docGeom() });
+
+    const maxW = Math.max(geometry.widthPx, ...sections.map((s) => s.geom.w));
+    pagelayer.replaceChildren();
+    hflayer.replaceChildren();
+    page.style.width = `${maxW}px`;
+    doc.style.cssText = `display:flex;flex-direction:column;align-items:center;gap:${PAGE_GAP}px;padding:0`;
+
+    const stale = (Array.from(doc.children) as HTMLElement[]).filter((c) => c.classList.contains(SECPAGE) || c.classList.contains("docxedit-pagespacer"));
+    const EPS = 2;
+    const newBox = (g: SecGeom): HTMLElement => {
+      const b = document.createElement("div");
+      b.className = SECPAGE;
+      b.style.width = `${g.w}px`;
+      b.style.height = `${g.h}px`;
+      b.style.boxSizing = "border-box";
+      b.style.padding = `${g.mt}px ${g.mr}px ${g.mb}px ${g.ml}px`;
+      b.style.overflow = "hidden"; // a scroll container during bucketing; clipped on finalize
+      if (g.cols && g.cols > 1) {
+        b.style.columnCount = String(g.cols);
+        b.style.columnGap = `${g.colGap ?? 36}px`;
+        b.style.columnFill = "auto";
+      }
+      return b;
+    };
+    const finalize = (b: HTMLElement, g: SecGeom): void => {
+      b.style.overflow = "clip";
+      if (g.cols && g.cols > 1) b.style.columnFill = "balance";
+    };
+    const overflowed = (b: HTMLElement, g: SecGeom): boolean =>
+      g.cols && g.cols > 1 ? b.scrollWidth > b.clientWidth + EPS : b.scrollHeight > b.clientHeight + EPS;
+
+    for (const sec of sections) {
+      let box = newBox(sec.geom);
+      doc.appendChild(box);
+      for (const block of sec.blocks) {
+        box.appendChild(block);
+        if (overflowed(box, sec.geom) && box.children.length > 1) {
+          box.removeChild(block);
+          finalize(box, sec.geom);
+          box = newBox(sec.geom);
+          doc.appendChild(box);
+          box.appendChild(block); // a lone oversized block stays even if it still overflows
+        }
+      }
+      finalize(box, sec.geom);
+    }
+    for (const old of stale) old.remove();
+    page.style.minHeight = "";
+    decorateFields(0, 0, false); // refresh field text (page-number fields show no count here)
+    if (caretBlock && caretBlock.isConnected) placeCaret(caretBlock, caretOffset);
+  };
+
   const repaginate = () => {
     if (!paginated || editingBand) return;
     if (isVertical) return repaginateVertical();
+    if (doc.querySelector("[data-rdoc-secbreak]")) return repaginateSections();
     if (columnCount > 1) return repaginateColumns();
     for (const s of Array.from(doc.querySelectorAll(":scope > .docxedit-pagespacer"))) s.remove();
     pagelayer.replaceChildren();
@@ -593,12 +686,12 @@ export function createRichEditor(container: HTMLElement, adapter: Adapter, optio
   // Body HTML for saving: the live doc minus pagination artifacts (inert spacers and the
   // transient page-top class the engine adds for alignment).
   const cleanBody = (): string => {
-    if (!doc.querySelector(".docxedit-pagespacer, .docxedit-pagetop, .docxedit-colpage")) return doc.innerHTML;
+    if (!doc.querySelector(".docxedit-pagespacer, .docxedit-pagetop, .docxedit-colpage, .docxedit-secpage")) return doc.innerHTML;
     const tmp = doc.cloneNode(true) as HTMLElement;
     for (const s of Array.from(tmp.querySelectorAll(".docxedit-pagespacer"))) s.remove();
     for (const el of Array.from(tmp.querySelectorAll(".docxedit-pagetop"))) el.classList.remove("docxedit-pagetop");
-    // Unwrap the per-page multi-column wrappers, lifting their blocks back to the flat body.
-    for (const w of Array.from(tmp.querySelectorAll(".docxedit-colpage"))) {
+    // Unwrap the per-page column / per-section page boxes, lifting their blocks back to the body.
+    for (const w of Array.from(tmp.querySelectorAll(".docxedit-colpage, .docxedit-secpage"))) {
       while (w.firstChild) w.parentNode!.insertBefore(w.firstChild, w);
       w.remove();
     }

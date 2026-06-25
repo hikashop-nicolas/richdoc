@@ -577,6 +577,7 @@ interface PInfo {
   revDate?: string;
   sectPr?: string; // a mid-document section break (w:pPr/w:sectPr), preserved verbatim
   sectBreak?: boolean; // that section starts a new page (type != continuous) -> show a page break
+  secGeom?: string; // JSON page geometry of the section ending here, for per-section rendering
   tabStops?: string; // JSON [{pos,val,leader}] of the paragraph's custom tab stops (w:tabs)
 }
 function paragraphInfo(p: Element, numbering: Map<string, boolean>): PInfo {
@@ -632,8 +633,15 @@ function paragraphInfo(p: Element, numbering: Map<string, boolean>): PInfo {
     revDate: mark?.getAttribute("w:date") ?? undefined,
     sectPr: sectEl ? serializePassthrough(sectEl) : undefined,
     sectBreak: sectEl ? sectType !== "continuous" : undefined,
+    secGeom: sectEl ? secGeomJson(sectEl) : undefined,
     tabStops: stops.length ? JSON.stringify(stops) : undefined,
   };
+}
+// Compact JSON page geometry of a section, read from its w:sectPr, for per-section rendering.
+function secGeomJson(sectPr: Element): string | undefined {
+  const g = parsePageGeometry(sectPr);
+  if (!g) return undefined;
+  return JSON.stringify({ w: g.widthPx, h: g.heightPx, mt: g.margin.top, mr: g.margin.right, mb: g.margin.bottom, ml: g.margin.left, cols: g.columns, colGap: g.columnGapPx });
 }
 function blockStyleAttr(info: PInfo): string {
   const parts: string[] = [];
@@ -646,9 +654,10 @@ function blockStyleAttr(info: PInfo): string {
   const style = parts.length ? ` style="${parts.join(";")}"` : "";
   const styleAttr = info.styleId ? ` data-rdoc-style="${escapeAttr(info.styleId)}"` : "";
   const sectAttr = info.sectPr ? ` data-docx-sectpr="${escapeAttr(info.sectPr)}"` : "";
+  const secGeomAttr = info.secGeom ? ` data-rdoc-secbreak="${escapeAttr(info.secGeom)}"` : "";
   const tabAttr = info.tabStops ? ` data-rdoc-tabstops="${escapeAttr(info.tabStops)}"` : "";
-  if (!info.revPara) return style + styleAttr + sectAttr + tabAttr;
-  return `${style}${styleAttr}${sectAttr}${tabAttr} class="docx-para-${info.revPara}" data-rev-para="${info.revPara}" data-rev-author="${escapeAttr(info.revAuthor ?? "")}" data-rev-date="${escapeAttr(info.revDate ?? "")}"`;
+  if (!info.revPara) return style + styleAttr + sectAttr + secGeomAttr + tabAttr;
+  return `${style}${styleAttr}${sectAttr}${secGeomAttr}${tabAttr} class="docx-para-${info.revPara}" data-rev-para="${info.revPara}" data-rev-author="${escapeAttr(info.revAuthor ?? "")}" data-rev-date="${escapeAttr(info.revDate ?? "")}"`;
 }
 
 /** Build nested <ul>/<ol> from a flat list of items carrying their nesting level (w:ilvl).

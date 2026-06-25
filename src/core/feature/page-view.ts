@@ -220,8 +220,9 @@ export function setupPageView(deps: PageViewDeps) {
     const z = effectiveZoom();
     page.style.transformOrigin = "top left";
     page.style.transform = `scale(${z})`;
+    // Size the box to the page's real footprint (handles mixed per-section page widths too).
     // A vertical page grows in width and is fixed in height; a horizontal one is the reverse.
-    pagebox.style.width = `${Math.round((vertical ? page.offsetWidth : geometry.widthPx) * z)}px`;
+    pagebox.style.width = `${Math.round(page.offsetWidth * z)}px`;
     pagebox.style.height = `${Math.round((vertical ? geometry.heightPx : page.offsetHeight) * z)}px`;
     if (document.activeElement !== zoomLabel) zoomLabel.value = `${Math.round(z * 100)}%`;
     zoomSlider.value = String(Math.round(z * 100));

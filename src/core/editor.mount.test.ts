@@ -150,6 +150,43 @@ describe("shared engine mount", () => {
     ed.destroy();
   });
 
+  it("renders mixed per-section page sizes and strips the section boxes on save", async () => {
+    const { strFromU8, unzipSync } = await import("fflate");
+    const a4 = '<w:pgSz w:w="11906" w:h="16838"/><w:pgMar w:top="1440" w:right="1440" w:bottom="1440" w:left="1440"/>';
+    const a3l = '<w:pgSz w:w="23811" w:h="16838" w:orient="landscape"/><w:pgMar w:top="1440" w:right="1440" w:bottom="1440" w:left="1440"/>';
+    const doc = `<?xml version="1.0"?><w:document xmlns:w="http://schemas.openxmlformats.org/wordprocessingml/2006/main"><w:body>` +
+      "<w:p><w:r><w:t>One</w:t></w:r></w:p>" +
+      `<w:p><w:pPr><w:sectPr>${a4}<w:type w:val="nextPage"/></w:sectPr></w:pPr><w:r><w:t>EndOne</w:t></w:r></w:p>` +
+      "<w:p><w:r><w:t>Two</w:t></w:r></w:p>" +
+      `<w:sectPr>${a3l}</w:sectPr></w:body></w:document>`;
+    const docx = zipSync({
+      "[Content_Types].xml": strToU8("<Types/>"),
+      "_rels/.rels": strToU8("<Relationships/>"),
+      "word/document.xml": strToU8(doc),
+      "word/_rels/document.xml.rels": strToU8(`<Relationships xmlns="http://schemas.openxmlformats.org/package/2006/relationships"></Relationships>`),
+    });
+    const host = document.createElement("div");
+    document.body.appendChild(host);
+    const ed = createDocxEditor(host, docx);
+    const boxes = [...host.querySelectorAll(".docxedit-secpage")] as HTMLElement[];
+    expect(boxes).toHaveLength(2); // one box per section
+    expect(boxes[0]!.style.width).toBe("794px"); // A4 portrait
+    expect(boxes[1]!.style.width).toBe("1587px"); // A3 landscape (wider)
+    // Edit, then save: the section boxes are unwrapped and both sections round-trip.
+    const p = host.querySelector(".docxedit-doc p")!;
+    p.firstChild!.textContent = "One edited";
+    (host.querySelector(".docxedit-doc") as HTMLElement).dispatchEvent(new Event("input", { bubbles: true }));
+    const xml = strFromU8(unzipSync(await ed.getBytes())["word/document.xml"]!);
+    expect(xml).not.toContain("docxedit-secpage");
+    expect(xml).toContain("One edited");
+    expect(xml).toContain("Two");
+    expect(xml).toContain('w:w="11906"'); // section 1 A4 size preserved
+    expect(xml).toContain('w:w="23811"'); // section 2 A3 landscape size preserved
+    expect((xml.match(/<w:sectPr/g) ?? []).length).toBe(2);
+    ed.destroy();
+    host.remove();
+  });
+
   it("paginates columns and strips the column wrappers on save", async () => {
     const { strFromU8, unzipSync } = await import("fflate");
     const doc = `<?xml version="1.0"?><w:document xmlns:w="http://schemas.openxmlformats.org/wordprocessingml/2006/main"><w:body>` +

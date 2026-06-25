@@ -247,6 +247,9 @@
    built in editor.ts). Pageless: the body flows continuously into N columns. Tables and floating
    images span all columns so they are not sliced. */
 .docxedit-colpage { column-count: var(--rdoc-columns, 1); column-gap: var(--rdoc-column-gap, 36px); overflow: clip; }
+/* Per-section page boxes (mixed page size/orientation/margins): each is a real page, centred and
+   stacked in the body flow; size/padding/columns are set inline from the section's geometry. */
+.docxedit-secpage { background: #fff; box-shadow: 0 2px 12px rgba(0, 0, 0, .45); flex: 0 0 auto; }
 .docxedit-page:not(.is-paginated).is-columns .docxedit-doc { column-count: var(--rdoc-columns, 1); column-gap: var(--rdoc-column-gap, 36px); }
 .docxedit-colpage > .docx-table, .docxedit-colpage > [data-rdoc-wrap],
 .docxedit-page.is-columns .docx-table, .docxedit-page.is-columns img[data-rdoc-wrap] { column-span: all; }
