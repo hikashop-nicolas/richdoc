@@ -362,7 +362,9 @@ export function setupPageView(deps: PageViewDeps) {
   marginCustomRow.append(fMT.wrap, fMR.wrap, fMB.wrap, fML.wrap);
   const { row: colRow, sel: colSel } = mkSelectRow(t("columns"), [["1", "1"], ["2", "2"], ["3", "3"]]);
   const syncCustom = () => {
-    customRow.hidden = sizeSel.value !== "custom";
+    const customSize = sizeSel.value === "custom";
+    customRow.hidden = !customSize;
+    orientRow.hidden = customSize; // custom width/height already imply the orientation
     marginCustomRow.hidden = marginSel.value !== "custom";
   };
   sizeSel.addEventListener("change", syncCustom);
@@ -401,7 +403,8 @@ export function setupPageView(deps: PageViewDeps) {
     } else {
       [w, h] = PAGE_SIZES[sizeSel.value]!;
     }
-    if ((orientSel.value === "landscape") !== w > h) [w, h] = [h, w];
+    // For a preset size the orientation drives the swap; custom typed dims already imply it.
+    if (sizeSel.value !== "custom" && (orientSel.value === "landscape") !== w > h) [w, h] = [h, w];
     geometry.widthPx = w;
     geometry.heightPx = h;
     if (marginSel.value === "custom") {
