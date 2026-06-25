@@ -1286,11 +1286,114 @@ export function setupToolbar(deps: ToolbarDeps) {
 
   scheduleSync(); // reflect the initial caret position once mounted
 
+  // --- Floating formatting bar (desktop): quick B/I/U/S near the caret on mouse proximity ----
+  const coarse = typeof window.matchMedia === "function" && window.matchMedia("(hover: none), (pointer: coarse)").matches;
+  const floatBar = document.createElement("div");
+  floatBar.className = "docxedit-floatbar";
+  floatBar.hidden = true;
+  const fbtn = (label: string, title: string, cmd: string, cls: string): HTMLButtonElement => {
+    const b = document.createElement("button");
+    b.type = "button";
+    b.className = `docxedit-floatbar-btn ${cls}`;
+    b.textContent = label;
+    b.title = title;
+    b.addEventListener("mousedown", (e) => e.preventDefault()); // keep the selection
+    b.addEventListener("click", () => {
+      beginFormatChange();
+      exec(cmd);
+      updateFloatStates();
+    });
+    return b;
+  };
+  const fBold = fbtn("B", t("bold"), "bold", "docxedit-tb-bold");
+  const fItalic = fbtn("I", t("italic"), "italic", "docxedit-tb-italic");
+  const fUnderline = fbtn("U", t("underline"), "underline", "docxedit-tb-underline");
+  const fStrike = fbtn("S", t("strikethrough"), "strikeThrough", "docxedit-tb-strike");
+  const fSup = fbtn("x²", t("superscript"), "superscript", "");
+  const fSub = fbtn("x₂", t("subscript"), "subscript", "");
+  floatBar.append(fBold, fItalic, fUnderline, fStrike, fSup, fSub);
+  wrap.appendChild(floatBar);
+  const updateFloatStates = () => {
+    fBold.classList.toggle("is-on", queryState("bold"));
+    fItalic.classList.toggle("is-on", queryState("italic"));
+    fUnderline.classList.toggle("is-on", queryState("underline"));
+    fStrike.classList.toggle("is-on", queryState("strikeThrough"));
+    fSup.classList.toggle("is-on", queryState("superscript"));
+    fSub.classList.toggle("is-on", queryState("subscript"));
+  };
+  let floatHideTimer = 0;
+  let floatHovered = false;
+  const hideFloat = () => {
+    floatBar.hidden = true;
+  };
+  const scheduleFloatHide = () => {
+    window.clearTimeout(floatHideTimer);
+    floatHideTimer = window.setTimeout(() => {
+      if (!floatHovered) hideFloat();
+    }, 350);
+  };
+  const showFloatAt = (rect: DOMRect) => {
+    floatBar.hidden = false;
+    const bw = floatBar.offsetWidth || 180;
+    const bh = floatBar.offsetHeight || 32;
+    let left = rect.left + rect.width / 2 - bw / 2;
+    left = Math.max(8, Math.min(left, window.innerWidth - bw - 8));
+    let top = rect.top - bh - 8;
+    if (top < 8) top = rect.bottom + 8; // not enough room above -> below
+    floatBar.style.left = `${left}px`;
+    floatBar.style.top = `${top}px`;
+  };
+  const selectionRect = (): DOMRect | null => {
+    const sel = window.getSelection();
+    if (!sel || !sel.rangeCount) return null;
+    const range = sel.getRangeAt(0);
+    const n = range.startContainer;
+    const el = n.nodeType === 3 ? n.parentElement : (n as HTMLElement);
+    if (!el || !regions.some((r) => r.contains(el))) return null;
+    const rect = range.getBoundingClientRect();
+    return rect && (rect.width > 0 || rect.height > 0) ? rect : null;
+  };
+  const onFloatMouseMove = (e: MouseEvent) => {
+    if (floatHovered) return;
+    const rect = selectionRect();
+    if (!rect) {
+      scheduleFloatHide();
+      return;
+    }
+    const dx = Math.max(rect.left - e.clientX, 0, e.clientX - rect.right);
+    const dy = Math.max(rect.top - e.clientY, 0, e.clientY - rect.bottom);
+    if (dx < 110 && dy < 90) {
+      window.clearTimeout(floatHideTimer);
+      updateFloatStates();
+      showFloatAt(rect);
+    } else {
+      scheduleFloatHide();
+    }
+  };
+  if (!coarse) {
+    floatBar.addEventListener("mouseenter", () => {
+      floatHovered = true;
+      window.clearTimeout(floatHideTimer);
+    });
+    floatBar.addEventListener("mouseleave", () => {
+      floatHovered = false;
+      scheduleFloatHide();
+    });
+    document.addEventListener("mousemove", onFloatMouseMove);
+    for (const r of regions) {
+      r.addEventListener("keydown", hideFloat); // typing dismisses it
+      r.addEventListener("scroll", hideFloat);
+    }
+    wrap.addEventListener("scroll", hideFloat, true);
+  }
+
   const teardown = () => {
     toolbarObserver.disconnect();
     document.removeEventListener("click", closeOverflow);
     document.removeEventListener("selectionchange", scheduleSync);
+    document.removeEventListener("mousemove", onFloatMouseMove);
     window.clearTimeout(syncTimer);
+    window.clearTimeout(floatHideTimer);
   };
   return { updateChangeButtons, teardown };
 }

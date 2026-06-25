@@ -8,6 +8,23 @@
   background: #2b2f36; border-top: 1px solid #1c1f24; color: #e6e6e6; font: 13px system-ui, sans-serif;
 }
 .docxedit-bottombar-left, .docxedit-bottombar-right { display: flex; align-items: center; gap: 6px; }
+
+/* Floating formatting bar shown near the caret/selection on mouse proximity (desktop). */
+.docxedit-floatbar {
+  position: fixed; z-index: 60; display: flex; gap: 3px; padding: 4px;
+  background: #2b2f36; border: 1px solid #1c1f24; border-radius: 8px; box-shadow: 0 6px 20px rgba(0,0,0,.5);
+}
+.docxedit-floatbar[hidden] { display: none; }
+.docxedit-floatbar-btn {
+  font: 13px system-ui, sans-serif; background: #3a3f47; color: #e6e6e6; border: 1px solid #4a4f57; border-radius: 5px;
+  height: 26px; min-width: 28px; padding: 2px 6px; cursor: pointer;
+}
+.docxedit-floatbar-btn:hover { border-color: #6e7bff; }
+.docxedit-floatbar-btn.is-on { background: #6e7bff; border-color: #6e7bff; color: #fff; }
+.docxedit-floatbar-btn.docxedit-tb-bold { font-weight: bold; }
+.docxedit-floatbar-btn.docxedit-tb-italic { font-style: italic; }
+.docxedit-floatbar-btn.docxedit-tb-underline { text-decoration: underline; }
+.docxedit-floatbar-btn.docxedit-tb-strike { text-decoration: line-through; }
 .docxedit-bottombar select {
   font: inherit; background: #3a3f47; color: #e6e6e6; border: 1px solid #4a4f57; border-radius: 5px;
   padding: 3px 8px; cursor: pointer; height: 28px; box-sizing: border-box; min-width: 30px;
