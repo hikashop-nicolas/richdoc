@@ -6,7 +6,7 @@
 import { t } from "../i18n";
 import { firstFontFamily, fontSizeToHalfPt } from "../util";
 import { setupTrackChanges } from "./track-changes";
-import type { Adapter, Capabilities, CommentThread, EditorOptions, RichDoc } from "../types";
+import type { Adapter, Capabilities, CommentThread, EditorOptions, NewStyle, RichDoc } from "../types";
 
 export interface ToolbarDeps {
   toolbar: HTMLElement;
@@ -27,12 +27,15 @@ export interface ToolbarDeps {
   insertImage: () => void;
   zoomSlider: HTMLElement;
   zoomLabel: HTMLElement;
+  newStyles: NewStyle[]; // styles authored in-session, collected for save
+  newStyleCss: HTMLStyleElement; // live <style> for the appearance of in-session styles
 }
 
 export function setupToolbar(deps: ToolbarDeps) {
   const {
     toolbar, wrap, doc, regions, caps, options, parts, adapter, getActiveEl, mark, positionCards,
     addThreadCard, setActiveComment, allocId, freshParaId, insertImage, zoomSlider, zoomLabel,
+    newStyles, newStyleCss,
   } = deps;
 
   const exec = (cmd: string, val?: string) => {
@@ -110,18 +113,20 @@ export function setupToolbar(deps: ToolbarDeps) {
     block.add(new Option(t(key), v));
   }
   // The document's own named paragraph styles (Title, Quote, ...), value = style id with a
-  // "s:" prefix so it never collides with the built-in block tags.
-  const namedStyles = parts.paragraphStyles ?? [];
-  if (namedStyles.length) {
-    const grp = document.createElement("optgroup");
-    grp.label = t("documentStyles");
-    for (const s of namedStyles) grp.appendChild(new Option(s.name, `s:${s.id}`));
-    block.appendChild(grp);
-  }
+  // "s:" prefix so it never collides with the built-in block tags. The list is mutable so a
+  // style authored in-session can be appended.
+  const namedStyles = [...(parts.paragraphStyles ?? [])];
+  const paraGroup = document.createElement("optgroup");
+  paraGroup.label = t("documentStyles");
+  for (const s of namedStyles) paraGroup.appendChild(new Option(s.name, `s:${s.id}`));
+  if (namedStyles.length) block.appendChild(paraGroup);
+  block.add(new Option(t("newParagraphStyle"), "__newpara__"));
   block.addEventListener("mousedown", () => getActiveEl().focus());
   block.addEventListener("change", () => {
     const v = block.value;
-    if (BUILTIN_BLOCKS.has(v)) {
+    if (v === "__newpara__") {
+      createParagraphStyle();
+    } else if (BUILTIN_BLOCKS.has(v)) {
       // a built-in block clears any named style on the affected paragraphs
       exec("formatBlock", v);
       for (const b of selectedBlocks()) b.removeAttribute("data-rdoc-style");
@@ -138,7 +143,7 @@ export function setupToolbar(deps: ToolbarDeps) {
 
   // Character styles: wrap the selection in a span carrying the style id (or strip it). The
   // appearance comes from the injected style CSS; the id round-trips to w:rStyle / text:style-name.
-  const charStyles = parts.characterStyles ?? [];
+  const charStyles = [...(parts.characterStyles ?? [])];
   const applyCStyle = (id: string | null): void => {
     getActiveEl().focus();
     const sel = window.getSelection();
@@ -177,12 +182,162 @@ export function setupToolbar(deps: ToolbarDeps) {
   cstyleSel.add(cstyleHead);
   cstyleSel.add(new Option(t("noCharStyle"), "none"));
   for (const s of charStyles) cstyleSel.add(new Option(s.name, `c:${s.id}`));
+  const cstyleNewOpt = new Option(t("newCharacterStyle"), "__newchar__");
+  cstyleSel.add(cstyleNewOpt);
   cstyleSel.addEventListener("mousedown", () => getActiveEl().focus());
   cstyleSel.addEventListener("change", () => {
     const v = cstyleSel.value;
-    if (v === "none") applyCStyle(null);
+    if (v === "__newchar__") createCharacterStyle();
+    else if (v === "none") applyCStyle(null);
     else if (v.startsWith("c:")) applyCStyle(v.slice(2));
   });
+
+  // --- Authoring new styles ---------------------------------------------------------------
+  const existingIds = new Set<string>([...namedStyles, ...charStyles].map((s) => s.id));
+  const makeStyleId = (name: string): string => {
+    const base = name.replace(/[^A-Za-z0-9]/g, "") || "Style";
+    let id = base;
+    let n = 1;
+    while (existingIds.has(id)) id = `${base}${++n}`;
+    existingIds.add(id);
+    return id;
+  };
+  const cssBody = (css: Record<string, string>): string => Object.entries(css).map(([k, v]) => `${k}:${v}`).join(";");
+  // Register an authored style: record it for save, append its appearance CSS live, and add it
+  // to the matching dropdown so it can be reused immediately.
+  const registerStyle = (kind: "paragraph" | "character", name: string, css: Record<string, string>): string => {
+    const id = makeStyleId(name);
+    newStyles.push({ id, name, kind, css });
+    const attr = kind === "paragraph" ? "data-rdoc-style" : "data-rdoc-cstyle";
+    const body = cssBody(css);
+    if (body) newStyleCss.textContent += `.docxedit-doc [${attr}="${id}"]{${body}}\n`;
+    if (kind === "paragraph") {
+      namedStyles.push({ id, name });
+      if (!paraGroup.parentNode) block.insertBefore(paraGroup, block.querySelector('option[value="__newpara__"]'));
+      paraGroup.appendChild(new Option(name, `s:${id}`));
+    } else {
+      charStyles.push({ id, name });
+      cstyleSel.add(new Option(name, `c:${id}`), cstyleNewOpt);
+    }
+    return id;
+  };
+  // Capture a block's direct paragraph formatting as style CSS.
+  const captureParaCss = (b: HTMLElement): Record<string, string> => {
+    const css: Record<string, string> = {};
+    if (b.style.textAlign && b.style.textAlign !== "left") css["text-align"] = b.style.textAlign;
+    if (b.style.marginLeft) css["margin-left"] = b.style.marginLeft;
+    if (b.style.lineHeight) css["line-height"] = b.style.lineHeight;
+    if (b.style.marginTop) css["margin-top"] = b.style.marginTop;
+    if (b.style.marginBottom) css["margin-bottom"] = b.style.marginBottom;
+    return css;
+  };
+  // Capture the selection's run formatting (toggles via execCommand state, the rest computed).
+  const rgbToHex = (rgb: string): string | null => {
+    const m = /rgba?\((\d+),\s*(\d+),\s*(\d+)/.exec(rgb);
+    if (!m) return null;
+    return "#" + [m[1], m[2], m[3]].map((n) => Number(n).toString(16).padStart(2, "0")).join("");
+  };
+  const captureCharCss = (): Record<string, string> => {
+    const css: Record<string, string> = {};
+    if (queryState("bold")) css["font-weight"] = "bold";
+    if (queryState("italic")) css["font-style"] = "italic";
+    const deco: string[] = [];
+    if (queryState("underline")) deco.push("underline");
+    if (queryState("strikeThrough")) deco.push("line-through");
+    if (deco.length) css["text-decoration"] = deco.join(" ");
+    const sel = window.getSelection();
+    const node = sel && sel.rangeCount ? sel.getRangeAt(0).startContainer : null;
+    const el = node ? (node.nodeType === 3 ? node.parentElement : (node as HTMLElement)) : null;
+    if (el) {
+      const cs = getComputedStyle(el);
+      const hex = rgbToHex(cs.color);
+      if (hex && hex !== "#000000") css["color"] = hex;
+      const px = parseFloat(cs.fontSize);
+      if (px) css["font-size"] = `${Math.round((px * 72) / 96)}pt`;
+      const fam = firstFontFamily(cs.fontFamily);
+      if (fam) css["font-family"] = `'${fam.replace(/'/g, "")}'`;
+    }
+    return css;
+  };
+  const createParagraphStyle = (): void => {
+    const blocks = selectedBlocks();
+    if (!blocks.length) return;
+    const css = captureParaCss(blocks[0]!);
+    promptStyleName(block, (name) => {
+      const id = registerStyle("paragraph", name, css);
+      for (const b of blocks) {
+        b.setAttribute("data-rdoc-style", id);
+        // the captured direct formatting now lives in the style; clear it so it is not written twice
+        for (const p of ["textAlign", "marginLeft", "lineHeight", "marginTop", "marginBottom"] as const) b.style[p] = "";
+      }
+      mark();
+      syncToolbarState();
+    });
+  };
+  const createCharacterStyle = (): void => {
+    const sel = window.getSelection();
+    if (!sel || !sel.rangeCount || sel.getRangeAt(0).collapsed) {
+      syncToolbarState();
+      return; // need a selection
+    }
+    const css = captureCharCss();
+    const saved = sel.getRangeAt(0).cloneRange();
+    promptStyleName(cstyleSel, (name) => {
+      const id = registerStyle("character", name, css);
+      const s = window.getSelection();
+      if (s) {
+        s.removeAllRanges();
+        s.addRange(saved);
+      }
+      applyCStyle(id);
+    });
+  };
+  // A small inline popover to name a new style (input + Create), anchored under the trigger.
+  const namePopover = document.createElement("div");
+  namePopover.className = "docxedit-menu docxedit-name-popover";
+  namePopover.hidden = true;
+  const nameInput = document.createElement("input");
+  nameInput.type = "text";
+  nameInput.className = "docxedit-name-input";
+  nameInput.placeholder = t("styleName");
+  const nameCreate = document.createElement("button");
+  nameCreate.type = "button";
+  nameCreate.className = "docxedit-menu-item";
+  nameCreate.textContent = t("createStyle");
+  namePopover.append(nameInput, nameCreate);
+  let onNamed: ((name: string) => void) | null = null;
+  const hideNamePopover = () => {
+    namePopover.hidden = true;
+    onNamed = null;
+    syncToolbarState(); // reset the dropdowns off the "New..." entry
+  };
+  const promptStyleName = (anchor: HTMLElement, cb: (name: string) => void): void => {
+    onNamed = cb;
+    const r = anchor.getBoundingClientRect();
+    const wr = wrap.getBoundingClientRect();
+    namePopover.style.left = `${r.left - wr.left}px`;
+    namePopover.style.top = `${r.bottom - wr.top + 2}px`;
+    nameInput.value = "";
+    namePopover.hidden = false;
+    nameInput.focus();
+  };
+  const submitName = () => {
+    const v = nameInput.value.trim();
+    const cb = onNamed;
+    hideNamePopover();
+    if (v && cb) cb(v);
+  };
+  nameCreate.addEventListener("mousedown", (e) => e.preventDefault());
+  nameCreate.addEventListener("click", submitName);
+  nameInput.addEventListener("keydown", (e) => {
+    if (e.key === "Enter") {
+      e.preventDefault();
+      submitName();
+    } else if (e.key === "Escape") {
+      hideNamePopover();
+    }
+  });
+  wrap.appendChild(namePopover);
 
   // A select whose first option is a non-selectable title; firing fn(value) on change.
   const pickerSelect = (title: string, opts: [string, string][], fn: (v: string) => void): HTMLSelectElement => {
@@ -825,6 +980,7 @@ export function setupToolbar(deps: ToolbarDeps) {
     if (!tablePicker.hidden && !tablePicker.contains(e.target as Node) && !tableBtn.contains(e.target as Node)) tablePicker.hidden = true;
     if (!lineSpacingMenu.hidden && !lineSpacingMenu.contains(e.target as Node) && !lineSpacingBtn.contains(e.target as Node)) lineSpacingMenu.hidden = true;
     if (!fieldsMenu.hidden && !fieldsMenu.contains(e.target as Node) && !fieldsBtn.contains(e.target as Node)) fieldsMenu.hidden = true;
+    if (!namePopover.hidden && !namePopover.contains(e.target as Node)) hideNamePopover();
   };
   document.addEventListener("click", closeOverflow);
   toolbar.append(...toolbarItems, moreBtn);

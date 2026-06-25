@@ -6,7 +6,7 @@
 // preserving every other part (styles, headers/footers, images, numbering) byte-for-byte.
 import { unzipSync } from "fflate";
 import { createRichEditor } from "../../core/editor";
-import type { Adapter, CommentEdits, EditorOptions, NewCommentMeta, PageGeometry, RichDoc, RichEditor } from "../../core/types";
+import type { Adapter, CommentEdits, EditorOptions, NewCommentMeta, NewStyle, PageGeometry, RichDoc, RichEditor } from "../../core/types";
 import "./docxedit.css";
 import { W } from "./shared";
 import { docxToParts, loadEmbeddedFonts, defaultFont } from "./read";
@@ -84,8 +84,8 @@ export function createDocxAdapter(bytes: Uint8Array): Adapter {
       }
       return { ...parts, fontCss, fontUrls, defaultFont: defaultFontName };
     },
-    write(bodyHtml: string, editedParts: { path: string; html: string }[], edits: CommentEdits, page?: PageGeometry): Uint8Array {
-      return htmlToDocx(bodyHtml, original, editedParts, { ...edits, pageGeometry: page });
+    write(bodyHtml: string, editedParts: { path: string; html: string }[], edits: CommentEdits, page?: PageGeometry, newStyles?: NewStyle[]): Uint8Array {
+      return htmlToDocx(bodyHtml, original, editedParts, { ...edits, pageGeometry: page, newStyles });
     },
     newCommentMarkers: docxCommentMarkers,
     capabilities: {

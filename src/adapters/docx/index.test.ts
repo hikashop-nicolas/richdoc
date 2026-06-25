@@ -755,6 +755,43 @@ describe("named paragraph styles", () => {
   });
 });
 
+describe("authoring new styles", () => {
+  const EMPTY_STYLES = `<?xml version="1.0"?><w:styles xmlns:w="http://schemas.openxmlformats.org/wordprocessingml/2006/main"></w:styles>`;
+  const make = (doc: string) => zipSync({
+    "[Content_Types].xml": strToU8("<Types/>"),
+    "_rels/.rels": strToU8("<Relationships/>"),
+    "word/document.xml": strToU8(doc),
+    "word/_rels/document.xml.rels": strToU8(RELS),
+    "word/styles.xml": strToU8(EMPTY_STYLES),
+  });
+  const P = (body: string) => `<?xml version="1.0"?>
+<w:document xmlns:w="http://schemas.openxmlformats.org/wordprocessingml/2006/main" xmlns:r="http://schemas.openxmlformats.org/officeDocument/2006/relationships"><w:body>${body}<w:sectPr><w:pgSz w:w="11906" w:h="16838"/></w:sectPr></w:body></w:document>`;
+
+  it("adds an authored paragraph style to styles.xml and reads it back", () => {
+    const out = htmlToDocx('<p data-rdoc-style="MyHeading">Hi</p>', make(P("<w:p/>")), undefined, {
+      newStyles: [{ id: "MyHeading", name: "My Heading", kind: "paragraph", css: { "text-align": "center", "font-weight": "bold", "margin-left": "24px" } }],
+    });
+    const stylesXml = strFromU8(unzipSync(out)["word/styles.xml"]!);
+    expect(stylesXml).toMatch(/w:style[^>]*w:type="paragraph"[^>]*w:styleId="MyHeading"|w:style[^>]*w:styleId="MyHeading"[^>]*w:type="paragraph"/);
+    expect(stylesXml).toMatch(/w:jc[^>]*w:val="center"/);
+    expect(stylesXml).toContain("<w:b");
+    expect(stylesXml).toMatch(/w:ind[^>]*w:left="360"/); // 24px * 15
+    // the picker now lists it
+    expect(docxToParts(out).paragraphStyles?.some((s) => s.id === "MyHeading")).toBe(true);
+  });
+
+  it("adds an authored character style to styles.xml", () => {
+    const out = htmlToDocx('<p>a <span data-rdoc-cstyle="Em">b</span></p>', make(P("<w:p/>")), undefined, {
+      newStyles: [{ id: "Em", name: "Emph", kind: "character", css: { "font-style": "italic", color: "#cc0000" } }],
+    });
+    const stylesXml = strFromU8(unzipSync(out)["word/styles.xml"]!);
+    expect(stylesXml).toMatch(/w:style[^>]*w:type="character"[^>]*w:styleId="Em"|w:style[^>]*w:styleId="Em"[^>]*w:type="character"/);
+    expect(stylesXml).toContain("<w:i");
+    expect(stylesXml).toMatch(/w:color[^>]*w:val="cc0000"/);
+    expect(docxToParts(out).characterStyles?.some((s) => s.id === "Em")).toBe(true);
+  });
+});
+
 describe("named character styles", () => {
   const STYLES = `<?xml version="1.0"?>
 <w:styles xmlns:w="http://schemas.openxmlformats.org/wordprocessingml/2006/main">

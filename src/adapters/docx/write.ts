@@ -3,7 +3,7 @@
 // read half lives in ./read.
 import { strFromU8, strToU8, unzipSync, zipSync } from "fflate";
 import { toHex6, fontSizeToHalfPt, firstFontFamily } from "../../core/util";
-import type { PageGeometry } from "../../core/types";
+import type { NewStyle, PageGeometry } from "../../core/types";
 import { W, R, PKG, REL_HYPERLINK, NS_DECLS, FMT0, HL_BY_HEX, JC_BY_ALIGN } from "./shared";
 import type { Fmt } from "./shared";
 
@@ -1212,14 +1212,111 @@ function applyPageMargins(files: Record<string, Uint8Array>, geometry: PageGeome
   files["word/document.xml"] = strToU8(new XMLSerializer().serializeToString(doc));
 }
 
+/** Add user-authored styles to word/styles.xml (creating + registering the part if absent),
+    translating the CSS-like props back to a w:style's pPr/rPr. */
+function addNewStyles(files: Record<string, Uint8Array>, styles: NewStyle[]): void {
+  const key = "word/styles.xml";
+  const created = !files[key];
+  const doc = files[key]
+    ? new DOMParser().parseFromString(strFromU8(files[key]!), "application/xml")
+    : new DOMParser().parseFromString(`<w:styles xmlns:w="${W}"></w:styles>`, "application/xml");
+  const root = doc.documentElement!;
+  const el = (tag: string): Element => doc.createElementNS(W, tag);
+  const valEl = (parent: Element, tag: string, val: string) => {
+    const e = el(tag);
+    e.setAttributeNS(W, "w:val", val);
+    parent.appendChild(e);
+  };
+  for (const s of styles) {
+    const c = s.css;
+    const st = el("w:style");
+    st.setAttributeNS(W, "w:type", s.kind === "paragraph" ? "paragraph" : "character");
+    st.setAttributeNS(W, "w:styleId", s.id);
+    valEl(st, "w:name", s.name);
+    if (s.kind === "paragraph") {
+      const pPr = el("w:pPr");
+      if (c["margin-top"] || c["margin-bottom"] || c["line-height"]) {
+        const sp = el("w:spacing");
+        if (c["margin-top"]) sp.setAttributeNS(W, "w:before", String(Math.round(parseFloat(c["margin-top"]) * 15)));
+        if (c["margin-bottom"]) sp.setAttributeNS(W, "w:after", String(Math.round(parseFloat(c["margin-bottom"]) * 15)));
+        if (c["line-height"]) {
+          sp.setAttributeNS(W, "w:line", String(Math.round(parseFloat(c["line-height"]) * 240)));
+          sp.setAttributeNS(W, "w:lineRule", "auto");
+        }
+        pPr.appendChild(sp);
+      }
+      if (c["margin-left"]) {
+        const ind = el("w:ind");
+        ind.setAttributeNS(W, "w:left", String(Math.round(parseFloat(c["margin-left"]) * 15)));
+        pPr.appendChild(ind);
+      }
+      const jc = JC_BY_ALIGN[c["text-align"] ?? ""];
+      if (jc) valEl(pPr, "w:jc", jc);
+      if (pPr.childNodes.length) st.appendChild(pPr);
+    }
+    const rPr = el("w:rPr");
+    const font = (c["font-family"] ?? "").replace(/['"]/g, "").split(",")[0]?.trim();
+    if (font) {
+      const rf = el("w:rFonts");
+      rf.setAttributeNS(W, "w:ascii", font);
+      rf.setAttributeNS(W, "w:hAnsi", font);
+      rPr.appendChild(rf);
+    }
+    if (/bold|[6-9]00/.test(c["font-weight"] ?? "")) rPr.appendChild(el("w:b"));
+    if (c["font-style"] === "italic") rPr.appendChild(el("w:i"));
+    if (/underline/.test(c["text-decoration"] ?? "")) valEl(rPr, "w:u", "single");
+    if (/line-through/.test(c["text-decoration"] ?? "")) rPr.appendChild(el("w:strike"));
+    const color = (c["color"] ?? "").replace(/^#/, "");
+    if (/^[0-9a-f]{6}$/i.test(color)) valEl(rPr, "w:color", color);
+    if (c["font-size"]) valEl(rPr, "w:sz", String(Math.round(parseFloat(c["font-size"]) * 2)));
+    if (rPr.childNodes.length) st.appendChild(rPr);
+    root.appendChild(st);
+  }
+  files[key] = strToU8(new XMLSerializer().serializeToString(doc));
+  if (created) registerStylesPart(files);
+}
+
+/** Declare word/styles.xml in [Content_Types].xml and the document rels (when newly created). */
+function registerStylesPart(files: Record<string, Uint8Array>): void {
+  const ct = files["[Content_Types].xml"];
+  if (ct) {
+    const d = new DOMParser().parseFromString(strFromU8(ct), "application/xml");
+    if (!Array.from(d.getElementsByTagName("Override")).some((o) => o.getAttribute("PartName") === "/word/styles.xml")) {
+      const ov = d.createElementNS(d.documentElement!.namespaceURI, "Override");
+      ov.setAttribute("PartName", "/word/styles.xml");
+      ov.setAttribute("ContentType", "application/vnd.openxmlformats-officedocument.wordprocessingml.styles+xml");
+      d.documentElement!.appendChild(ov);
+      files["[Content_Types].xml"] = strToU8(new XMLSerializer().serializeToString(d));
+    }
+  }
+  const key = "word/_rels/document.xml.rels";
+  const d = files[key]
+    ? new DOMParser().parseFromString(strFromU8(files[key]!), "application/xml")
+    : new DOMParser().parseFromString(`<Relationships xmlns="${PKG}"></Relationships>`, "application/xml");
+  if (!Array.from(d.getElementsByTagName("Relationship")).some((r) => (r.getAttribute("Type") ?? "").endsWith("/styles"))) {
+    let max = 0;
+    for (const r of Array.from(d.getElementsByTagName("Relationship"))) {
+      const m = /^rId(\d+)$/.exec(r.getAttribute("Id") ?? "");
+      if (m) max = Math.max(max, Number(m[1]));
+    }
+    const rel = d.createElementNS(PKG, "Relationship");
+    rel.setAttribute("Id", `rId${max + 1}`);
+    rel.setAttribute("Type", "http://schemas.openxmlformats.org/officeDocument/2006/relationships/styles");
+    rel.setAttribute("Target", "styles.xml");
+    d.documentElement!.appendChild(rel);
+    files[key] = strToU8(new XMLSerializer().serializeToString(d));
+  }
+}
+
 export function htmlToDocx(
   html: string,
   original: Uint8Array,
   parts?: { path: string; html: string }[],
-  opts?: { reactions?: ReactionEdit[]; replies?: ReplyEdit[]; done?: Map<string, boolean>; deletedComments?: string[]; pageGeometry?: PageGeometry },
+  opts?: { reactions?: ReactionEdit[]; replies?: ReplyEdit[]; done?: Map<string, boolean>; deletedComments?: string[]; pageGeometry?: PageGeometry; newStyles?: NewStyle[] },
 ): Uint8Array {
   const files = unzipSync(original);
   rebuildPart(files, "word/document.xml", html);
+  if (opts?.newStyles?.length) addNewStyles(files, opts.newStyles);
   for (const p of parts ?? []) {
     // "header" / "footer" are sentinels for a band created in-editor (no existing part).
     if (p.path === "header" || p.path === "footer") createHeaderFooterPart(files, p.path, p.html);

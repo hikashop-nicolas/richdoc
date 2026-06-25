@@ -109,12 +109,24 @@ export interface Capabilities {
   fields: boolean;
 }
 
+/** A style the user authored in-session, to be added to the document's stylesheet on save.
+    `css` uses the same property vocabulary the reader emits (text-align, margin-left "Npx",
+    line-height, margin-top/bottom, font-weight, font-style, text-decoration, color "#hex",
+    font-size "Npt", font-family). */
+export interface NewStyle {
+  id: string;
+  name: string;
+  kind: "paragraph" | "character";
+  css: Record<string, string>;
+}
+
 /** The irreducible per-format layer: parse, serialize, comment markers, feature flags. */
 export interface Adapter {
   original: Uint8Array;
   read(): RichDoc;
-  /** Serialize edits. `page` is passed when the user changed the page geometry (margins). */
-  write(bodyHtml: string, parts: { path: string; html: string }[], edits: CommentEdits, page?: PageGeometry): Uint8Array;
+  /** Serialize edits. `page` is passed when the user changed the page geometry (margins);
+      `newStyles` are styles authored in-session, to add to the stylesheet. */
+  write(bodyHtml: string, parts: { path: string; html: string }[], edits: CommentEdits, page?: PageGeometry, newStyles?: NewStyle[]): Uint8Array;
   newCommentMarkers(meta: NewCommentMeta): CommentMarkers;
   capabilities: Capabilities;
 }

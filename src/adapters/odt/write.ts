@@ -3,7 +3,7 @@
 // the read half lives in ./read.
 import { strFromU8, strToU8, unzipSync, zipSync } from "fflate";
 import { firstFontFamily, fontSizeToHalfPt, toHex6 } from "../../core/util";
-import type { PageGeometry } from "../../core/types";
+import type { NewStyle, PageGeometry } from "../../core/types";
 import { NS, fmtKey, FMT0, ODF_ALIGN, importPassthrough, IMG_MIME } from "./shared";
 import type { Fmt } from "./shared";
 
@@ -766,10 +766,63 @@ function applyPageMargins(files: Record<string, Uint8Array>, geometry: PageGeome
 }
 
 /** Rebuild an .odt from edited HTML, preserving every other part of the archive. */
+/** Add user-authored styles to styles.xml's office:styles, translating the CSS-like props to a
+    style:style (paragraph or text family). */
+function addOdtStyles(files: Record<string, Uint8Array>, styles: NewStyle[]): void {
+  const key = "styles.xml";
+  const doc = files[key]
+    ? new DOMParser().parseFromString(strFromU8(files[key]!), "application/xml")
+    : new DOMParser().parseFromString(`<office:document-styles xmlns:office="${NS.office}" xmlns:style="${NS.style}" xmlns:fo="${NS.fo}" xmlns:text="${NS.text}"><office:styles/></office:document-styles>`, "application/xml");
+  let officeStyles = doc.getElementsByTagName("office:styles")[0];
+  if (!officeStyles) {
+    officeStyles = doc.createElementNS(NS.office, "office:styles");
+    doc.documentElement!.appendChild(officeStyles);
+  }
+  for (const s of styles) {
+    const c = s.css;
+    const st = doc.createElementNS(NS.style, "style:style");
+    st.setAttributeNS(NS.style, "style:name", s.id);
+    st.setAttributeNS(NS.style, "style:display-name", s.name);
+    st.setAttributeNS(NS.style, "style:family", s.kind === "paragraph" ? "paragraph" : "text");
+    if (s.kind === "paragraph") {
+      const pp = doc.createElementNS(NS.style, "style:paragraph-properties");
+      const a = ODF_ALIGN[c["text-align"] ?? ""];
+      if (a && a !== "left") pp.setAttributeNS(NS.fo, "fo:text-align", a === "right" ? "end" : a === "center" ? "center" : "justify");
+      if (c["margin-left"]) pp.setAttributeNS(NS.fo, "fo:margin-left", pxToCm(parseFloat(c["margin-left"])));
+      if (c["margin-top"]) pp.setAttributeNS(NS.fo, "fo:margin-top", pxToCm(parseFloat(c["margin-top"])));
+      if (c["margin-bottom"]) pp.setAttributeNS(NS.fo, "fo:margin-bottom", pxToCm(parseFloat(c["margin-bottom"])));
+      if (c["line-height"]) pp.setAttributeNS(NS.fo, "fo:line-height", `${Math.round(parseFloat(c["line-height"]) * 100)}%`);
+      if (pp.attributes.length) st.appendChild(pp);
+    }
+    const tp = doc.createElementNS(NS.style, "style:text-properties");
+    if (/bold|[6-9]00/.test(c["font-weight"] ?? "")) tp.setAttributeNS(NS.fo, "fo:font-weight", "bold");
+    if (c["font-style"] === "italic") tp.setAttributeNS(NS.fo, "fo:font-style", "italic");
+    if (/underline/.test(c["text-decoration"] ?? "")) {
+      tp.setAttributeNS(NS.style, "style:text-underline-style", "solid");
+      tp.setAttributeNS(NS.style, "style:text-underline-width", "auto");
+      tp.setAttributeNS(NS.style, "style:text-underline-color", "font-color");
+    }
+    if (/line-through/.test(c["text-decoration"] ?? "")) {
+      tp.setAttributeNS(NS.style, "style:text-line-through-style", "solid");
+      tp.setAttributeNS(NS.style, "style:text-line-through-type", "single");
+    }
+    if (c["color"]) tp.setAttributeNS(NS.fo, "fo:color", c["color"]);
+    if (c["font-size"]) tp.setAttributeNS(NS.fo, "fo:font-size", c["font-size"]);
+    const font = (c["font-family"] ?? "").replace(/['"]/g, "").split(",")[0]?.trim();
+    if (font) {
+      tp.setAttributeNS(NS.fo, "fo:font-family", font);
+      tp.setAttributeNS(NS.style, "style:font-name", font);
+    }
+    if (tp.attributes.length) st.appendChild(tp);
+    officeStyles.appendChild(st);
+  }
+  files[key] = strToU8(new XMLSerializer().serializeToString(doc));
+}
+
 export function htmlToOdt(
   html: string,
   original: Uint8Array,
-  opts?: { done?: Map<string, boolean>; parts?: { path: string; html: string }[]; page?: PageGeometry },
+  opts?: { done?: Map<string, boolean>; parts?: { path: string; html: string }[]; page?: PageGeometry; newStyles?: NewStyle[] },
 ): Uint8Array {
   const files = unzipSync(original);
   const content = files["content.xml"];
@@ -807,6 +860,7 @@ export function htmlToOdt(
   addManifestEntries(files, ctx.pics); // register any images embedded above
   if (opts?.parts) applyHeaderFooter(files, opts.parts); // header/footer -> styles.xml
   if (opts?.page) applyPageMargins(files, opts.page); // margins -> styles.xml page-layout
+  if (opts?.newStyles?.length) addOdtStyles(files, opts.newStyles); // authored styles -> styles.xml
 
   const out = new XMLSerializer().serializeToString(doc);
   // Re-zip. ODF requires the "mimetype" entry first and stored (uncompressed).

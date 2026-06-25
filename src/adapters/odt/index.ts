@@ -4,7 +4,7 @@
 // (./read) converts it to HTML, the shared engine edits it, and the write half (./write)
 // rebuilds the archive on save, preserving every other part byte-for-byte.
 import { createRichEditor } from "../../core/editor";
-import type { Adapter, CommentEdits, CommentMarkers, EditorOptions, NewCommentMeta, PageGeometry, RichDoc, RichEditor } from "../../core/types";
+import type { Adapter, CommentEdits, CommentMarkers, EditorOptions, NewCommentMeta, NewStyle, PageGeometry, RichDoc, RichEditor } from "../../core/types";
 import { odtToParts } from "./read";
 import { htmlToOdt } from "./write";
 
@@ -42,8 +42,8 @@ export function createOdtAdapter(bytes: Uint8Array): Adapter {
         styleCss: parts.styleCss,
       };
     },
-    write(bodyHtml: string, parts: { path: string; html: string }[], edits: CommentEdits, page?: PageGeometry): Uint8Array {
-      return htmlToOdt(bodyHtml, original, { done: edits.done, parts, page });
+    write(bodyHtml: string, parts: { path: string; html: string }[], edits: CommentEdits, page?: PageGeometry, newStyles?: NewStyle[]): Uint8Array {
+      return htmlToOdt(bodyHtml, original, { done: edits.done, parts, page, newStyles });
     },
     newCommentMarkers(meta: NewCommentMeta): CommentMarkers {
       const cmark = (): HTMLElement => {

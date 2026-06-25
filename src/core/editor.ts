@@ -58,6 +58,11 @@ export function createRichEditor(container: HTMLElement, adapter: Adapter, optio
     ss.textContent = parts.styleCss;
     wrap.appendChild(ss);
   }
+  // Styles the user authors in-session: collected for save, and their CSS appended live so a
+  // new style takes effect immediately (same data-rdoc-style / data-rdoc-cstyle keying).
+  const newStyles: import("./types").NewStyle[] = [];
+  const newStyleCss = document.createElement("style");
+  wrap.appendChild(newStyleCss);
   if (parts.defaultFont) page.style.setProperty("--docxedit-doc-font", `"${parts.defaultFont.replace(/"/g, "")}"`);
 
   // Page geometry: render at the document's real size and margins, or the default size
@@ -538,6 +543,7 @@ export function createRichEditor(container: HTMLElement, adapter: Adapter, optio
   const { updateChangeButtons, teardown: teardownToolbar } = setupToolbar({
     toolbar, wrap, doc, regions, caps, options, parts, adapter, getActiveEl: () => activeEl, mark,
     positionCards, addThreadCard, setActiveComment, allocId, freshParaId, insertImage, zoomSlider, zoomLabel,
+    newStyles, newStyleCss,
   });
   afterReflow = updateChangeButtons;
   updateChangeButtons();
@@ -556,7 +562,7 @@ export function createRichEditor(container: HTMLElement, adapter: Adapter, optio
       // has none, so fall back to the "header"/"footer" sentinel the adapters create from.
       if (header && !isBandEmpty(header)) editedParts.push({ path: parts.headerPath ?? "header", html: header.innerHTML });
       if (footer && !isBandEmpty(footer)) editedParts.push({ path: parts.footerPath ?? "footer", html: footer.innerHTML });
-      return adapter.write(cleanBody(), editedParts, getEdits(), isGeometryDirty() ? geometry : undefined);
+      return adapter.write(cleanBody(), editedParts, getEdits(), isGeometryDirty() ? geometry : undefined, newStyles);
     },
     destroy() {
       for (const u of fontUrls) URL.revokeObjectURL(u);

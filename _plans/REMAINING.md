@@ -7,18 +7,23 @@ line spacing, paragraph space before/after, and nested ordered/unordered lists),
 (cell border colour/style/width, table column/row/indent resize with graduated rulers
 + magnet, and fields: page number / count / table of contents). What is left:
 
+Named paragraph and character styles are now fully editable: the block dropdown and a
+character-style dropdown list the document's styles, apply them (w:pStyle / w:rStyle,
+odt text:style-name), render each via injected CSS, and round-trip. New paragraph and
+character styles can be authored from the current formatting (the "New ... style"
+entries), added to the document's stylesheet on save.
+
 ## Modelled-but-incomplete
 - **List restart/continue numbering**: nesting levels and ordered/bullet kind now
   round-trip (w:numPr/w:ilvl/w:numId, odt per-level list styles), and the indent /
   outdent buttons create real nesting. Restart-at-N and continue-previous-list are
   still not modelled; every ordered list restarts at 1.
 - **Tab stops**: custom tab stops (`w:tabs`) are dropped on paragraph regen.
-- **Character styles**: named *paragraph* styles now round-trip and are editable from
-  the block dropdown (the picker lists the document's styles, applies them via
-  `w:pStyle` / odt `text:style-name`, and renders each via injected CSS). Named
-  *character* styles (`w:rStyle`) are still preserved on untouched runs only, not an
-  editable concept. New custom styles cannot be authored from the editor yet (you pick
-  from the styles the document already defines).
+- **Style editing depth**: authored styles capture the common run/paragraph properties
+  (align, indent, spacing, weight/italic/underline/strike, colour, size, font). basedOn
+  inheritance, tab stops, borders and the long tail of style properties are not modelled
+  when authoring; editing an existing style's definition (vs. authoring a new one) is not
+  exposed yet.
 
 ## Preserved-but-not-editable (round-trip via passthrough; no insert/edit UI)
 These survive a save untouched but cannot be created or modified in the editor:

@@ -624,6 +624,39 @@ describe("odt named paragraph styles", () => {
   });
 });
 
+describe("odt authoring new styles", () => {
+  const STYLES = `<?xml version="1.0"?>
+<office:document-styles xmlns:office="urn:oasis:names:tc:opendocument:xmlns:office:1.0" xmlns:style="urn:oasis:names:tc:opendocument:xmlns:style:1.0" xmlns:fo="urn:oasis:names:tc:opendocument:xmlns:xsl-fo-compatible:1.0" xmlns:text="urn:oasis:names:tc:opendocument:xmlns:text:1.0"><office:styles/></office:document-styles>`;
+  const make = () => zipSync({
+    mimetype: [strToU8("application/vnd.oasis.opendocument.text"), { level: 0 }],
+    "content.xml": strToU8(`<?xml version="1.0"?>
+<office:document-content xmlns:office="urn:oasis:names:tc:opendocument:xmlns:office:1.0" xmlns:text="urn:oasis:names:tc:opendocument:xmlns:text:1.0" xmlns:style="urn:oasis:names:tc:opendocument:xmlns:style:1.0" xmlns:fo="urn:oasis:names:tc:opendocument:xmlns:xsl-fo-compatible:1.0"><office:body><office:text><text:p>x</text:p></office:text></office:body></office:document-content>`),
+    "styles.xml": strToU8(STYLES),
+    "META-INF/manifest.xml": strToU8("<m/>"),
+  });
+
+  it("adds an authored paragraph style to styles.xml office:styles", () => {
+    const out = htmlToOdt('<p data-rdoc-style="MyHeading">Hi</p>', make(), {
+      newStyles: [{ id: "MyHeading", name: "My Heading", kind: "paragraph", css: { "text-align": "center", "font-weight": "bold" } }],
+    });
+    const stylesXml = strFromU8(unzipSync(out)["styles.xml"]);
+    expect(stylesXml).toMatch(/<style:style[^>]*style:name="MyHeading"[^>]*style:family="paragraph"/);
+    expect(stylesXml).toMatch(/fo:text-align="center"/);
+    expect(stylesXml).toMatch(/fo:font-weight="bold"/);
+    expect(odtToParts(out).paragraphStyles?.some((s) => s.id === "MyHeading")).toBe(true);
+  });
+
+  it("adds an authored character style to styles.xml", () => {
+    const out = htmlToOdt('<p>a <span data-rdoc-cstyle="Em">b</span></p>', make(), {
+      newStyles: [{ id: "Em", name: "Emph", kind: "character", css: { "font-style": "italic" } }],
+    });
+    const stylesXml = strFromU8(unzipSync(out)["styles.xml"]);
+    expect(stylesXml).toMatch(/<style:style[^>]*style:name="Em"[^>]*style:family="text"/);
+    expect(stylesXml).toMatch(/fo:font-style="italic"/);
+    expect(odtToParts(out).characterStyles?.some((s) => s.id === "Em")).toBe(true);
+  });
+});
+
 describe("odt named character styles", () => {
   const STYLES = `<?xml version="1.0"?>
 <office:document-styles xmlns:office="urn:oasis:names:tc:opendocument:xmlns:office:1.0" xmlns:style="urn:oasis:names:tc:opendocument:xmlns:style:1.0" xmlns:fo="urn:oasis:names:tc:opendocument:xmlns:xsl-fo-compatible:1.0">
