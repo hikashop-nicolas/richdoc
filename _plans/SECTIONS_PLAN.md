@@ -1,9 +1,10 @@
 # Per-section page setup (mixed page size / orientation / margins / columns)
 
-Status: Phase 1 DONE (docx). A document with section breaks renders each section at its
-own size / orientation / margins / columns as centred, stacked, editable page boxes,
-caret-preserving, stripped on save. Phases 2-4 (odt parity, per-section header/footer,
-authoring) pending.
+Status: Phases 1-2 DONE (docx + odt). A document with section breaks renders each
+section at its own size / orientation / margins / columns as centred, stacked, editable
+page boxes, caret-preserving, stripped on save. docx reads each in-paragraph w:sectPr;
+odt reads each master page's page-layout (a master-page change begins a section, emitted
+as data-rdoc-secstart). Phases 3-4 (per-section header/footer, authoring) pending.
 
 Goal: render each section at its own page geometry, so e.g. an A4 portrait section
 followed by an A3 landscape section displays correctly in the editor (not just

@@ -538,21 +538,34 @@ export function createRichEditor(container: HTMLElement, adapter: Adapter, optio
         caretOffset = charOffsetIn(blk, r.startContainer, r.startOffset);
       }
     }
-    // Segment: a block with data-rdoc-secbreak ends its section (carrying that section's geometry);
-    // the trailing run uses the document geometry.
+    // Segment into sections. Two conventions: docx marks the LAST paragraph of a section
+    // (data-rdoc-secbreak = that section's geometry); odt marks the FIRST paragraph of a new
+    // section (data-rdoc-secstart = the new section's geometry). The leading run uses the
+    // document geometry.
+    const parseGeom = (s: string | null): SecGeom => {
+      try { return { ...docGeom(), ...JSON.parse(s ?? "") }; } catch { return docGeom(); }
+    };
     const sections: { blocks: HTMLElement[]; geom: SecGeom }[] = [];
     let run: HTMLElement[] = [];
+    let runGeom = docGeom();
     for (const b of blocks) {
+      const start = b.getAttribute("data-rdoc-secstart");
+      if (start) {
+        if (run.length) {
+          sections.push({ blocks: run, geom: runGeom });
+          run = [];
+        }
+        runGeom = parseGeom(start); // this block begins a section with this geometry
+      }
       run.push(b);
-      const sb = b.getAttribute("data-rdoc-secbreak");
-      if (sb) {
-        let geom = docGeom();
-        try { geom = { ...docGeom(), ...JSON.parse(sb) }; } catch { /* keep doc geometry */ }
-        sections.push({ blocks: run, geom });
+      const brk = b.getAttribute("data-rdoc-secbreak");
+      if (brk) {
+        sections.push({ blocks: run, geom: parseGeom(brk) }); // this block ends a section
         run = [];
+        runGeom = docGeom();
       }
     }
-    if (run.length) sections.push({ blocks: run, geom: docGeom() });
+    if (run.length) sections.push({ blocks: run, geom: runGeom });
 
     const maxW = Math.max(geometry.widthPx, ...sections.map((s) => s.geom.w));
     pagelayer.replaceChildren();
@@ -608,7 +621,7 @@ export function createRichEditor(container: HTMLElement, adapter: Adapter, optio
   const repaginate = () => {
     if (!paginated || editingBand) return;
     if (isVertical) return repaginateVertical();
-    if (doc.querySelector("[data-rdoc-secbreak]")) return repaginateSections();
+    if (doc.querySelector("[data-rdoc-secbreak], [data-rdoc-secstart]")) return repaginateSections();
     if (columnCount > 1) return repaginateColumns();
     for (const s of Array.from(doc.querySelectorAll(":scope > .docxedit-pagespacer"))) s.remove();
     pagelayer.replaceChildren();

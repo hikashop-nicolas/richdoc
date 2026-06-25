@@ -187,6 +187,38 @@ describe("shared engine mount", () => {
     host.remove();
   });
 
+  it("renders mixed per-section page sizes for odt (master-page change)", () => {
+    const styles =
+      '<?xml version="1.0"?><office:document-styles xmlns:office="urn:oasis:names:tc:opendocument:xmlns:office:1.0" ' +
+      'xmlns:style="urn:oasis:names:tc:opendocument:xmlns:style:1.0" xmlns:fo="urn:oasis:names:tc:opendocument:xmlns:xsl-fo-compatible:1.0"><office:automatic-styles>' +
+      '<style:page-layout style:name="pm1"><style:page-layout-properties fo:page-width="21cm" fo:page-height="29.7cm"/></style:page-layout>' +
+      '<style:page-layout style:name="pm2"><style:page-layout-properties fo:page-width="29.7cm" fo:page-height="21cm"/></style:page-layout>' +
+      "</office:automatic-styles><office:master-styles>" +
+      '<style:master-page style:name="Standard" style:page-layout-name="pm1"/>' +
+      '<style:master-page style:name="Landscape" style:page-layout-name="pm2"/>' +
+      "</office:master-styles></office:document-styles>";
+    const content =
+      '<?xml version="1.0"?><office:document-content xmlns:office="urn:oasis:names:tc:opendocument:xmlns:office:1.0" ' +
+      'xmlns:text="urn:oasis:names:tc:opendocument:xmlns:text:1.0" xmlns:style="urn:oasis:names:tc:opendocument:xmlns:style:1.0">' +
+      '<office:automatic-styles><style:style style:name="P2" style:family="paragraph" style:master-page-name="Landscape"/></office:automatic-styles>' +
+      '<office:body><office:text><text:p>One</text:p><text:p text:style-name="P2">Two</text:p></office:text></office:body></office:document-content>';
+    const odt = zipSync({
+      mimetype: [strToU8("application/vnd.oasis.opendocument.text"), { level: 0 }],
+      "content.xml": strToU8(content),
+      "styles.xml": strToU8(styles),
+      "META-INF/manifest.xml": strToU8("<m/>"),
+    });
+    const host = document.createElement("div");
+    document.body.appendChild(host);
+    const ed = createOdtEditor(host, odt);
+    const boxes = [...host.querySelectorAll(".docxedit-secpage")] as HTMLElement[];
+    expect(boxes).toHaveLength(2);
+    expect(boxes[0]!.style.width).toBe("794px"); // A4 portrait (default master)
+    expect(boxes[1]!.style.width).toBe("1123px"); // landscape master (wider)
+    ed.destroy();
+    host.remove();
+  });
+
   it("paginates columns and strips the column wrappers on save", async () => {
     const { strFromU8, unzipSync } = await import("fflate");
     const doc = `<?xml version="1.0"?><w:document xmlns:w="http://schemas.openxmlformats.org/wordprocessingml/2006/main"><w:body>` +

@@ -64,6 +64,42 @@ interface RCtx {
   listStarts: Map<string, number>; // list style-name -> level-1 start number
   listRun: { last: number }; // running end-count of the last level-1 ordered list (for continue-numbering)
   tabStops: Map<string, TabStop[]>; // paragraph style-name -> custom tab stops (px)
+  masterGeoms: Map<string, string>; // master-page name -> JSON page geometry (for per-section rendering)
+}
+
+/** Page geometry (compact JSON) from a style:page-layout-properties element, for per-section
+    rendering. Mirrors the docx secGeomJson shape. */
+function geomFromLayoutProps(props: Element, lenToPx: (v: string | null) => number | undefined): string | undefined {
+  const w = lenToPx(props.getAttribute("fo:page-width"));
+  const h = lenToPx(props.getAttribute("fo:page-height"));
+  if (!w || !h) return undefined;
+  const m = (a: string) => Math.round(Math.max(0, lenToPx(props.getAttribute(`fo:margin-${a}`)) ?? 96));
+  const colsEl = props.getElementsByTagName("style:columns")[0];
+  const numCols = Number(colsEl?.getAttribute("fo:column-count"));
+  const cols = Number.isFinite(numCols) && numCols > 1 ? numCols : undefined;
+  const gap = colsEl?.getElementsByTagName("style:column-sep")[0]?.getAttribute("style:width");
+  return JSON.stringify({ w: Math.round(w), h: Math.round(h), mt: m("top"), mr: m("right"), mb: m("bottom"), ml: m("left"), cols, colGap: cols ? Math.round(lenToPx(gap) ?? 36) : undefined });
+}
+
+/** Map master-page name -> its page-layout geometry (JSON), so a section that switches master
+    page renders at that page's size/orientation/margins/columns. */
+function collectMasterGeoms(stylesXml: Uint8Array | undefined, lenToPx: (v: string | null) => number | undefined): Map<string, string> {
+  const map = new Map<string, string>();
+  if (!stylesXml) return map;
+  const doc = new DOMParser().parseFromString(strFromU8(stylesXml), "application/xml");
+  const layouts = new Map<string, Element>();
+  for (const pl of Array.from(doc.getElementsByTagName("style:page-layout"))) {
+    const name = pl.getAttribute("style:name");
+    const props = pl.getElementsByTagName("style:page-layout-properties")[0];
+    if (name && props) layouts.set(name, props);
+  }
+  for (const mp of Array.from(doc.getElementsByTagName("style:master-page"))) {
+    const mname = mp.getAttribute("style:name");
+    const props = layouts.get(mp.getAttribute("style:page-layout-name") ?? "");
+    const g = props ? geomFromLayoutProps(props, lenToPx) : undefined;
+    if (mname && g) map.set(mname, g);
+  }
+  return map;
 }
 
 /** A paragraph's custom tab stops, shared (as JSON) with the editor and the docx adapter. */
@@ -636,6 +672,9 @@ function blockToHtml(el: Element, ctx: RCtx): string {
   if (own.before === "page") breakAttr += ` data-odt-break-before="page"`;
   if (own.after === "page") breakAttr += ` data-odt-break-after="page"`;
   if (own.master) breakAttr += ` data-odt-masterpage="${escapeAttr(own.master)}"`;
+  // A new page master begins a section: surface its geometry so the section renders at that size.
+  const secGeom = own.master ? ctx.masterGeoms.get(own.master) : undefined;
+  if (secGeom) breakAttr += ` data-rdoc-secstart="${escapeAttr(secGeom)}"`;
   const odtPageBreak = `<span class="docx-pagebreak docx-pagebreak-auto" contenteditable="false" data-docx-pagebreak="auto" data-label="${escapeAttr(t("pageBreak"))}"></span>`;
   const before = beforePage ? odtPageBreak : "";
   const after = afterPage ? odtPageBreak : "";
@@ -669,7 +708,7 @@ function readHeaderFooter(files: Record<string, Uint8Array>): { header: string; 
   const doc = new DOMParser().parseFromString(strFromU8(raw), "application/xml");
   const master = doc.getElementsByTagName("style:master-page")[0];
   if (!master) return { header: "", footer: "" };
-  const ctx: RCtx = { files, styles: collectTextStyles(doc), paras: collectParaStyles(doc), cellStyles: collectCellStyles(doc), tableMargins: collectTableMargins(doc), listStyles: collectListStyles(doc), namedStyles: new Set(), autoParent: new Map(), namedCharStyles: new Set(), textAutoParent: new Map(), threads: [], rangedNames: new Set(), openComment: new Set(), changes: new Map(), openIns: new Set(), graphicStyles: collectGraphicStyles(doc, lenToPx), paraBreaks: collectParaBreaks(doc), listStarts: collectListStarts(doc), listRun: { last: 0 }, tabStops: collectTabStops(doc, lenToPx) };
+  const ctx: RCtx = { files, styles: collectTextStyles(doc), paras: collectParaStyles(doc), cellStyles: collectCellStyles(doc), tableMargins: collectTableMargins(doc), listStyles: collectListStyles(doc), namedStyles: new Set(), autoParent: new Map(), namedCharStyles: new Set(), textAutoParent: new Map(), threads: [], rangedNames: new Set(), openComment: new Set(), changes: new Map(), openIns: new Set(), graphicStyles: collectGraphicStyles(doc, lenToPx), paraBreaks: collectParaBreaks(doc), listStarts: collectListStarts(doc), listRun: { last: 0 }, tabStops: collectTabStops(doc, lenToPx), masterGeoms: collectMasterGeoms(files["styles.xml"], lenToPx) };
   const render = (tag: string): string => {
     const el = master.getElementsByTagName(tag)[0];
     if (!el) return "";
@@ -734,7 +773,7 @@ export function odtToParts(bytes: Uint8Array): { body: string; comments: Comment
     for (const [k, v] of collectListStarts(sdoc)) if (!listStarts.has(k)) listStarts.set(k, v);
     for (const [k, v] of collectTabStops(sdoc, lenToPx)) if (!tabStops.has(k)) tabStops.set(k, v);
   }
-  const ctx: RCtx = { files, styles: collectTextStyles(doc), paras: collectParaStyles(doc), cellStyles: collectCellStyles(doc), tableMargins: collectTableMargins(doc), listStyles: collectListStyles(doc), namedStyles: ps.namedPara, autoParent: collectAutoParents(doc, "paragraph"), namedCharStyles: ps.namedChar, textAutoParent: collectAutoParents(doc, "text"), threads: [], rangedNames, openComment: new Set(), changes: readChanges(body), openIns: new Set(), graphicStyles, paraBreaks, listStarts, listRun: { last: 0 }, tabStops };
+  const ctx: RCtx = { files, styles: collectTextStyles(doc), paras: collectParaStyles(doc), cellStyles: collectCellStyles(doc), tableMargins: collectTableMargins(doc), listStyles: collectListStyles(doc), namedStyles: ps.namedPara, autoParent: collectAutoParents(doc, "paragraph"), namedCharStyles: ps.namedChar, textAutoParent: collectAutoParents(doc, "text"), threads: [], rangedNames, openComment: new Set(), changes: readChanges(body), openIns: new Set(), graphicStyles, paraBreaks, listStarts, listRun: { last: 0 }, tabStops, masterGeoms: collectMasterGeoms(files["styles.xml"], lenToPx) };
   let html = "";
   for (const block of Array.from(body.children)) {
     if (block.tagName === "text:tracked-changes") continue; // metadata, parsed into ctx.changes

@@ -55,11 +55,13 @@ context (a paragraph, or the document body) is regenerated from the edited HTML.
   boundary, so editing a multi-section document no longer flattens it. docx keeps a
   `w:sectPr` inside a paragraph; odt keeps a paragraph style's `fo:break-before` /
   `fo:break-after` and `style:master-page-name` (a new page master, i.e. a section).
-- **Mixed per-section page setup (docx)**: a document with section breaks now renders
-  each section at its own page size / orientation / margins / columns (e.g. A4 portrait
-  then A3 landscape), as centred, stacked per-section page boxes; editing preserves the
-  caret and the boxes are stripped on save. odt parity + per-section headers/footers +
-  authoring are pending (see C1). Design in `_plans/SECTIONS_PLAN.md`.
+- **Mixed per-section page setup**: a document with section breaks renders each section
+  at its own page size / orientation / margins / columns (e.g. A4 portrait then A3
+  landscape), as centred, stacked per-section page boxes; editing preserves the caret
+  and the boxes are stripped on save. Both formats: docx from each section's `w:sectPr`,
+  odt from each master page's page-layout (a master-page change starts a section).
+  Per-section headers/footers + authoring are pending (see C1). Design in
+  `_plans/SECTIONS_PLAN.md`.
 
 ---
 
@@ -68,11 +70,10 @@ context (a paragraph, or the document body) is regenerated from the edited HTML.
 These are the only things that do not round-trip once the document is edited,
 because their context is regenerated. This is the work for "feature complete".
 
-1. **Sections: odt rendering + headers + authoring.** docx renders mixed per-section
-   page setup (bucket A); what remains: (a) odt parity (resolve each section's
-   master-page geometry and emit the same data-rdoc-secbreak), (b) per-section
-   header/footer in the section page boxes, and (c) a UI to *insert* a break and edit a
-   section's page setup (the ruler editing the section at the caret). See
+1. **Sections: headers + authoring.** Both formats render mixed per-section page setup
+   (bucket A); what remains: (a) per-section header/footer in the section page boxes,
+   and (b) a UI to *insert* a break and edit a section's page setup (the ruler editing
+   the section at the caret, with per-section margin persistence). See
    `_plans/SECTIONS_PLAN.md`.
 2. **Columns authoring.** Columns now read, render with true per-page balancing, and
    round-trip (see bucket A). What remains is only a control to *set* the column count
