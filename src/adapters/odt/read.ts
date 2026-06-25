@@ -5,6 +5,8 @@ import { bytesToBase64 } from "../../core/util";
 import type { CommentThread, PageGeometry } from "../../core/types";
 import { ODF_ALIGN, escapeHtml, escapeAttr, inlinePass, blockPass, passthroughAttr, FMT0, IMG_MIME } from "./shared";
 import type { Fmt, PFmt } from "./shared";
+import { collectGraphicStyles, readOdtLayout } from "./image-layout";
+import type { GraphicStyleInfo } from "./image-layout";
 
 
 const hex6 = (v: string | null | undefined): string | undefined => {
@@ -56,6 +58,7 @@ interface RCtx {
   openComment: Set<string>; // comment ranges currently open (reopened per paragraph)
   changes: Map<string, ChangeInfo>; // tracked-change id -> metadata
   openIns: Set<string>; // insertion ranges currently open (reopened per paragraph)
+  graphicStyles: Map<string, GraphicStyleInfo>; // graphic style-name -> wrap properties
 }
 
 /** Parse text:tracked-changes into a map of change id -> metadata. */
@@ -105,7 +108,9 @@ function commentRef(name: string, m: { author: string; date: string; text: strin
   );
 }
 
-/** A draw:frame holding a draw:image -> an <img> with a data URL; otherwise passthrough. */
+/** A draw:frame holding a draw:image -> an <img> with a data URL; otherwise passthrough. The
+ *  frame is stashed (data-odt-xml) so its layout + the draw:image href survive a save, and its
+ *  wrap/anchor surfaces as data-rdoc-* so the image toolbar can edit it. */
 function imageHtml(frame: Element, ctx: RCtx): string {
   const imgEl = frame.getElementsByTagName("draw:image")[0];
   const href = (imgEl?.getAttribute("xlink:href") ?? "").replace(/^\.\//, "");
@@ -116,7 +121,16 @@ function imageHtml(frame: Element, ctx: RCtx): string {
   const w = lenToPx(frame.getAttribute("svg:width"));
   const h = lenToPx(frame.getAttribute("svg:height"));
   const dims = (w ? ` width="${Math.round(w)}"` : "") + (h ? ` height="${Math.round(h)}"` : "");
-  return `<img src="data:${mime};base64,${bytesToBase64(bytes)}" alt=""${dims}>`;
+  const layout = readOdtLayout(frame, ctx.graphicStyles, lenToPx);
+  let lay = "";
+  if (layout) {
+    lay = ` data-rdoc-wrap="${layout.wrap}" data-rdoc-align="${layout.align}"`;
+    if (layout.wrap === "behind" || layout.wrap === "front") {
+      lay += ` data-rdoc-x="${layout.x}" data-rdoc-y="${layout.y}" style="left:${layout.x}px;top:${layout.y}px"`;
+    }
+  }
+  const alt = frame.getElementsByTagName("svg:desc")[0]?.textContent ?? frame.getElementsByTagName("svg:title")[0]?.textContent ?? "";
+  return `<img src="data:${mime};base64,${bytesToBase64(bytes)}" alt="${escapeAttr(alt)}" contenteditable="false"${passthroughAttr(frame)}${dims}${lay}>`;
 }
 
 /** Map text:style-name -> run formatting, read from the automatic/text styles. */
@@ -561,7 +575,7 @@ function readHeaderFooter(files: Record<string, Uint8Array>): { header: string; 
   const doc = new DOMParser().parseFromString(strFromU8(raw), "application/xml");
   const master = doc.getElementsByTagName("style:master-page")[0];
   if (!master) return { header: "", footer: "" };
-  const ctx: RCtx = { files, styles: collectTextStyles(doc), paras: collectParaStyles(doc), cellStyles: collectCellStyles(doc), tableMargins: collectTableMargins(doc), listStyles: collectListStyles(doc), namedStyles: new Set(), autoParent: new Map(), namedCharStyles: new Set(), textAutoParent: new Map(), threads: [], rangedNames: new Set(), openComment: new Set(), changes: new Map(), openIns: new Set() };
+  const ctx: RCtx = { files, styles: collectTextStyles(doc), paras: collectParaStyles(doc), cellStyles: collectCellStyles(doc), tableMargins: collectTableMargins(doc), listStyles: collectListStyles(doc), namedStyles: new Set(), autoParent: new Map(), namedCharStyles: new Set(), textAutoParent: new Map(), threads: [], rangedNames: new Set(), openComment: new Set(), changes: new Map(), openIns: new Set(), graphicStyles: collectGraphicStyles(doc) };
   const render = (tag: string): string => {
     const el = master.getElementsByTagName(tag)[0];
     if (!el) return "";
@@ -606,7 +620,14 @@ export function odtToParts(bytes: Uint8Array): { body: string; comments: Comment
       .map((e) => e.getAttribute("office:name"))
       .filter((n): n is string => !!n),
   );
-  const ctx: RCtx = { files, styles: collectTextStyles(doc), paras: collectParaStyles(doc), cellStyles: collectCellStyles(doc), tableMargins: collectTableMargins(doc), listStyles: collectListStyles(doc), namedStyles: ps.namedPara, autoParent: collectAutoParents(doc, "paragraph"), namedCharStyles: ps.namedChar, textAutoParent: collectAutoParents(doc, "text"), threads: [], rangedNames, openComment: new Set(), changes: readChanges(body), openIns: new Set() };
+  // Graphic styles (for image wrap) can live in content.xml's automatic styles or styles.xml.
+  const graphicStyles = collectGraphicStyles(doc);
+  const stylesRaw = files["styles.xml"];
+  if (stylesRaw) {
+    const sdoc = new DOMParser().parseFromString(strFromU8(stylesRaw), "application/xml");
+    for (const [k, v] of collectGraphicStyles(sdoc)) if (!graphicStyles.has(k)) graphicStyles.set(k, v);
+  }
+  const ctx: RCtx = { files, styles: collectTextStyles(doc), paras: collectParaStyles(doc), cellStyles: collectCellStyles(doc), tableMargins: collectTableMargins(doc), listStyles: collectListStyles(doc), namedStyles: ps.namedPara, autoParent: collectAutoParents(doc, "paragraph"), namedCharStyles: ps.namedChar, textAutoParent: collectAutoParents(doc, "text"), threads: [], rangedNames, openComment: new Set(), changes: readChanges(body), openIns: new Set(), graphicStyles };
   let html = "";
   for (const block of Array.from(body.children)) {
     if (block.tagName === "text:tracked-changes") continue; // metadata, parsed into ctx.changes

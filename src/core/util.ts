@@ -1,4 +1,5 @@
 // Small format-agnostic helpers shared by the engine and the format adapters.
+import type { ImageLayout, ImageWrap } from "./types";
 
 /** Base64-encode bytes in chunks (avoids call-stack limits on large images/fonts). */
 export function bytesToBase64(bytes: Uint8Array): string {
@@ -34,3 +35,18 @@ export function fontSizeToHalfPt(v: string | undefined): number | undefined {
 /** First family name from a CSS font-family list, unquoted. */
 export const firstFontFamily = (v: string | undefined): string | undefined =>
   v ? (v.split(",")[0] ?? "").trim().replace(/^['"]|['"]$/g, "") || undefined : undefined;
+
+/** Read an <img>'s floating layout from its data attributes, or null when it is inline. This
+ *  is the format-agnostic contract: the editor sets the attrs, each adapter maps them to its
+ *  own XML (docx wp:anchor, odt draw:frame). */
+export function imageLayoutFromEl(el: Element): ImageLayout | null {
+  const wrap = el.getAttribute("data-rdoc-wrap") as ImageWrap | null;
+  if (!wrap) return null;
+  const a = el.getAttribute("data-rdoc-align");
+  return {
+    wrap,
+    align: a === "right" || a === "center" ? a : "left",
+    x: Number(el.getAttribute("data-rdoc-x")) || 0,
+    y: Number(el.getAttribute("data-rdoc-y")) || 0,
+  };
+}

@@ -2,10 +2,11 @@
 // Pure HTML -> XML (body, header/footer, comments, reactions, replies, page margins); the
 // read half lives in ./read.
 import { strFromU8, strToU8, unzipSync, zipSync } from "fflate";
-import { toHex6, fontSizeToHalfPt, firstFontFamily } from "../../core/util";
-import type { NewStyle, PageGeometry } from "../../core/types";
+import { toHex6, fontSizeToHalfPt, firstFontFamily, imageLayoutFromEl } from "../../core/util";
+import type { ImageLayout, NewStyle, PageGeometry } from "../../core/types";
 import { W, R, PKG, REL_HYPERLINK, NS_DECLS, FMT0, HL_BY_HEX, JC_BY_ALIGN } from "./shared";
 import type { Fmt } from "./shared";
+import { EMU_PER_PX, makeContainer } from "./image-layout";
 
 // ---------------------------------------------------------------------------
 // HTML -> .docx
@@ -56,8 +57,9 @@ function ensureContentType(files: Record<string, Uint8Array>, ext: string, mime:
   files[key] = strToU8(new XMLSerializer().serializeToString(doc));
 }
 
-/** Embed a data: URL image as a new media part + relationship; return a w:drawing run. */
-function buildImageDrawing(ctx: DocxCtx, src: string, widthPx: number, heightPx: number): Element | null {
+/** Embed a data: URL image as a new media part + relationship; return a w:drawing run.
+ *  `layout` null = inline; otherwise the run is anchored (floating) with the given wrap. */
+function buildImageDrawing(ctx: DocxCtx, src: string, widthPx: number, heightPx: number, layout: ImageLayout | null, alt: string): Element | null {
   if (!ctx.rels) return null;
   const m = /^data:([^;,]+)(;base64)?,(.*)$/s.exec(src);
   if (!m) return null;
@@ -86,18 +88,13 @@ function buildImageDrawing(ctx: DocxCtx, src: string, widthPx: number, heightPx:
   ctx.rels.documentElement.appendChild(rel);
   ctx.relsAdded = true;
 
-  const cx = Math.max(1, Math.round((widthPx || 200) * 9525));
-  const cy = Math.max(1, Math.round((heightPx || 200) * 9525));
+  const cx = Math.max(1, Math.round((widthPx || 200) * EMU_PER_PX));
+  const cy = Math.max(1, Math.round((heightPx || 200) * EMU_PER_PX));
   const ce = (ns: string, name: string) => ctx.doc.createElementNS(ns, name);
-  const r = ce(W, "w:r");
-  const drawing = ce(W, "w:drawing");
-  const inline = ce(WP_NS, "wp:inline");
-  const extent = ce(WP_NS, "wp:extent");
-  extent.setAttribute("cx", String(cx));
-  extent.setAttribute("cy", String(cy));
   const docPr = ce(WP_NS, "wp:docPr");
   docPr.setAttribute("id", String(ctx.nextRid));
   docPr.setAttribute("name", `Image ${ctx.nextRid}`);
+  if (alt) docPr.setAttribute("descr", alt);
   const graphic = ce(A_NS, "a:graphic");
   const gData = ce(A_NS, "a:graphicData");
   gData.setAttribute("uri", PIC_NS);
@@ -129,10 +126,47 @@ function buildImageDrawing(ctx: DocxCtx, src: string, widthPx: number, heightPx:
   pic.append(nvPicPr, blipFill, spPr);
   gData.appendChild(pic);
   graphic.appendChild(gData);
-  inline.append(extent, docPr, graphic);
-  drawing.appendChild(inline);
+  const r = ce(W, "w:r");
+  const drawing = ce(W, "w:drawing");
+  drawing.appendChild(makeContainer(ctx.doc, graphic, docPr, cx, cy, layout));
   r.appendChild(drawing);
   return r;
+}
+
+/** Serialize an edited <img> back to a run. A preserved image (data-docx-xml carrying its
+ *  original drawing) is rebuilt around its own a:graphic so the blip relationship survives,
+ *  picking up the editor's current size + wrap; a brand-new image embeds fresh media. Returns
+ *  null when there is nothing to emit (caller falls back to verbatim passthrough). */
+function buildImageRun(ctx: DocxCtx, img: HTMLElement): Element | null {
+  const layout = imageLayoutFromEl(img);
+  const w = Number(img.getAttribute("width")) || (img as HTMLImageElement).naturalWidth || 0;
+  const h = Number(img.getAttribute("height")) || (img as HTMLImageElement).naturalHeight || 0;
+  const alt = img.getAttribute("alt") || "";
+  const stash = img.getAttribute("data-docx-xml");
+  if (stash) {
+    const run = importPassthrough(ctx, stash);
+    const drawing = run?.getElementsByTagName("w:drawing")[0];
+    const graphic = drawing?.getElementsByTagName("a:graphic")[0];
+    // Only DrawingML images are rebuilt; VML (w:pict) / OLE keep their original markup.
+    if (run && drawing && graphic) {
+      let docPr = drawing.getElementsByTagName("wp:docPr")[0];
+      if (!docPr) {
+        docPr = ctx.doc.createElementNS(WP_NS, "wp:docPr");
+        docPr.setAttribute("id", String(ctx.nextRid++));
+        docPr.setAttribute("name", "Image");
+      }
+      if (alt) docPr.setAttribute("descr", alt); else docPr.removeAttribute("descr");
+      const old = drawing.getElementsByTagName("wp:extent")[0];
+      const cx = w ? Math.max(1, Math.round(w * EMU_PER_PX)) : Number(old?.getAttribute("cx")) || 1;
+      const cy = h ? Math.max(1, Math.round(h * EMU_PER_PX)) : Number(old?.getAttribute("cy")) || 1;
+      const container = drawing.firstElementChild; // wp:inline or wp:anchor
+      drawing.replaceChild(makeContainer(ctx.doc, graphic, docPr, cx, cy, layout), container!);
+      return run;
+    }
+    return run; // non-DrawingML: re-emit verbatim
+  }
+  const src = img.getAttribute("src") ?? "";
+  return src.startsWith("data:") ? buildImageDrawing(ctx, src, w, h, layout, alt) : null;
 }
 
 const fmtHasProps = (f: Fmt): boolean => !!(f.b || f.i || f.u || f.strike || f.vertAlign || f.color || f.highlight || f.shading || f.sizeHalfPt || f.font || f.cStyle);
@@ -263,6 +297,13 @@ function appendInline(ctx: DocxCtx, node: Node, parent: Element, f: Fmt, del = f
       parent.appendChild(w);
       continue;
     }
+    // An image (new or preserved) is rebuilt so size + wrap edits round-trip; this must run
+    // before the generic passthrough below, which would otherwise re-emit the stash verbatim.
+    if (tag === "img") {
+      const run = buildImageRun(ctx, el);
+      if (run) parent.appendChild(run);
+      continue;
+    }
     const stash = el.getAttribute("data-docx-xml");
     if (stash) {
       const node2 = importPassthrough(ctx, stash);
@@ -289,17 +330,6 @@ function appendInline(ctx: DocxCtx, node: Node, parent: Element, f: Fmt, del = f
         parent.appendChild(link);
       } else {
         appendInline(ctx, el, parent, f, del, change);
-      }
-      continue;
-    }
-    if (tag === "img") {
-      // A newly inserted image (existing ones carry data-docx-xml, handled above).
-      const src = el.getAttribute("src") ?? "";
-      const w = Number(el.getAttribute("width")) || (el as HTMLImageElement).naturalWidth || 0;
-      const h = Number(el.getAttribute("height")) || (el as HTMLImageElement).naturalHeight || 0;
-      if (src.startsWith("data:")) {
-        const run = buildImageDrawing(ctx, src, w, h);
-        if (run) parent.appendChild(run);
       }
       continue;
     }

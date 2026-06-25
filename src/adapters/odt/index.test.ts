@@ -249,6 +249,45 @@ describe("odt images (draw:frame)", () => {
     expect(Array.from(files["Pictures/ot_img0.png"])).toEqual([1, 2, 3, 4, 5]);
     expect(strFromU8(files["META-INF/manifest.xml"])).toContain('manifest:full-path="Pictures/ot_img0.png"');
   });
+
+  // A floating frame: anchored to the paragraph with a graphic style carrying style:wrap.
+  const FLOAT_ROOT = ROOT + ' xmlns:style="urn:oasis:names:tc:opendocument:xmlns:style:1.0"';
+  it("reads a floating draw:frame's wrap mode from its graphic style", () => {
+    const content = `<?xml version="1.0"?><office:document-content ${FLOAT_ROOT}>` +
+      "<office:automatic-styles>" +
+      '<style:style style:name="fr1" style:family="graphic"><style:graphic-properties style:wrap="parallel" style:horizontal-pos="right"/></style:style>' +
+      "</office:automatic-styles><office:body><office:text>" +
+      '<text:p>hi<draw:frame text:anchor-type="paragraph" draw:style-name="fr1" svg:width="2.54cm" svg:height="1.27cm"><draw:image xlink:href="Pictures/p.png"/><svg:desc>a cat</svg:desc></draw:frame></text:p>' +
+      "</office:text></office:body></office:document-content>";
+    const html = odtToHtml(makeImgOdt(content));
+    expect(html).toContain('data-rdoc-wrap="square"');
+    expect(html).toContain('data-rdoc-align="right"');
+    expect(html).toContain('alt="a cat"');
+  });
+
+  it("writes a wrapped image as an anchored frame + graphic style", () => {
+    const base = `<?xml version="1.0"?><office:document-content ${FLOAT_ROOT}><office:body><office:text><text:p/></office:text></office:body></office:document-content>`;
+    const out = htmlToOdt('<p><img src="data:image/png;base64,AQIDBAU=" width="100" height="50" data-rdoc-wrap="square" data-rdoc-align="left"></p>', makeImgOdt(base));
+    const xml = strFromU8(unzipSync(out)["content.xml"]);
+    expect(xml).toContain('text:anchor-type="paragraph"');
+    expect(xml).toContain('style:family="graphic"');
+    expect(xml).toContain('style:wrap="parallel"');
+  });
+
+  it("round-trips a floating frame's wrap through an edit", () => {
+    const content = `<?xml version="1.0"?><office:document-content ${FLOAT_ROOT}>` +
+      "<office:automatic-styles>" +
+      '<style:style style:name="fr1" style:family="graphic"><style:graphic-properties style:wrap="none" style:horizontal-pos="center"/></style:style>' +
+      "</office:automatic-styles><office:body><office:text>" +
+      '<text:p>hi<draw:frame text:anchor-type="paragraph" draw:style-name="fr1" svg:width="2.54cm" svg:height="1.27cm"><draw:image xlink:href="Pictures/p.png"/></draw:frame></text:p>' +
+      "</office:text></office:body></office:document-content>";
+    const odt = makeImgOdt(content);
+    const html = odtToHtml(odt);
+    expect(html).toContain('data-rdoc-wrap="topbottom"');
+    const xml = strFromU8(unzipSync(htmlToOdt(html.replace(">hi<", ">HI<"), odt))["content.xml"]);
+    expect(xml).toContain('xlink:href="Pictures/p.png"'); // original picture reused
+    expect(xml).toContain('style:wrap="none"');
+  });
 });
 
 describe("odt comments (office:annotation)", () => {

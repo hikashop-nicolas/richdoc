@@ -2,10 +2,11 @@
 // Pure HTML -> XML (body, styles, header/footer, comments, tracked changes, page margins);
 // the read half lives in ./read.
 import { strFromU8, strToU8, unzipSync, zipSync } from "fflate";
-import { firstFontFamily, fontSizeToHalfPt, toHex6 } from "../../core/util";
+import { firstFontFamily, fontSizeToHalfPt, toHex6, imageLayoutFromEl } from "../../core/util";
 import type { NewStyle, PageGeometry } from "../../core/types";
 import { NS, fmtKey, FMT0, ODF_ALIGN, importPassthrough, IMG_MIME } from "./shared";
 import type { Fmt } from "./shared";
+import { applyFrameLayout } from "./image-layout";
 
 const pxToCm = (px: number): string => `${Math.round((px / (96 / 2.54)) * 1000) / 1000}cm`;
 
@@ -133,8 +134,39 @@ function makeAnnotation(ctx: OdfCtx, id: string): Element {
   return an;
 }
 
-/** Turn an <img> (data URL) into a draw:frame, embedding the bytes in the archive. */
+/** Set (or clear) a draw:frame's alt text via its svg:desc child. */
+function setFrameAlt(doc: Document, frame: Element, alt: string): void {
+  for (const tag of ["svg:desc", "svg:title"]) {
+    const old = frame.getElementsByTagName(tag)[0];
+    if (old) old.remove();
+  }
+  if (alt) {
+    const desc = doc.createElementNS(NS.svg, "svg:desc");
+    desc.textContent = alt;
+    frame.appendChild(desc);
+  }
+}
+
+/** Serialize an edited <img> back to a draw:frame. A preserved image (data-odt-xml carrying its
+ *  original frame) is rebuilt around its own draw:image so the picture part is reused, picking up
+ *  the editor's current size + wrap; a brand-new image embeds fresh bytes. */
 function buildImageFrame(img: HTMLElement, ctx: OdfCtx): Element | null {
+  const layout = imageLayoutFromEl(img);
+  const wPx = parseFloat(img.getAttribute("width") ?? "") || undefined;
+  const hPx = parseFloat(img.getAttribute("height") ?? "") || undefined;
+  const alt = img.getAttribute("alt") || "";
+  const stash = img.getAttribute("data-odt-xml");
+  if (stash) {
+    const frame = importPassthrough(ctx.doc, stash);
+    if (frame && frame.getElementsByTagName("draw:image")[0]) {
+      if (wPx) frame.setAttributeNS(NS.svg, "svg:width", pxToCm(wPx));
+      if (hPx) frame.setAttributeNS(NS.svg, "svg:height", pxToCm(hPx));
+      setFrameAlt(ctx.doc, frame, alt);
+      applyFrameLayout(ctx.doc, frame, layout, ctx.auto, ctx.created);
+      return frame;
+    }
+    return frame; // not a resolvable image frame: re-emit verbatim
+  }
   const m = /^data:([^;]+);base64,(.+)$/.exec(img.getAttribute("src") ?? "");
   if (!m) return null; // not an embeddable image (e.g. an external URL): drop it
   const mime = m[1]!;
@@ -147,11 +179,8 @@ function buildImageFrame(img: HTMLElement, ctx: OdfCtx): Element | null {
   ctx.files[path] = bytes;
   ctx.pics.push({ path, mime });
 
-  const wPx = parseFloat(img.getAttribute("width") ?? "") || undefined;
-  const hPx = parseFloat(img.getAttribute("height") ?? "") || undefined;
   const frame = ctx.doc.createElementNS(NS.draw, "draw:frame");
   frame.setAttributeNS(NS.draw, "draw:name", `Image${idx + 1}`);
-  frame.setAttributeNS(NS.text, "text:anchor-type", "as-char");
   if (wPx) frame.setAttributeNS(NS.svg, "svg:width", pxToCm(wPx));
   if (hPx) frame.setAttributeNS(NS.svg, "svg:height", pxToCm(hPx));
   const image = ctx.doc.createElementNS(NS.draw, "draw:image");
@@ -160,6 +189,8 @@ function buildImageFrame(img: HTMLElement, ctx: OdfCtx): Element | null {
   image.setAttributeNS(NS.xlink, "xlink:show", "embed");
   image.setAttributeNS(NS.xlink, "xlink:actuate", "onLoad");
   frame.appendChild(image);
+  setFrameAlt(ctx.doc, frame, alt);
+  applyFrameLayout(ctx.doc, frame, layout, ctx.auto, ctx.created); // sets as-char when inline
   return frame;
 }
 
@@ -204,6 +235,13 @@ function htmlInlineToOdf(node: Node, parent: Element, f: Fmt, ctx: OdfCtx): void
     const el = child as HTMLElement;
     const tag = el.tagName.toLowerCase();
     if (tag === "ul" || tag === "ol" || tag === "li") continue; // nested lists handled by htmlListToOdf, not inline
+    // An image (new or preserved) is rebuilt so size + wrap edits round-trip; this must run
+    // before the generic passthrough below, which would otherwise re-emit the frame verbatim.
+    if (tag === "img") {
+      const frame = buildImageFrame(el, ctx);
+      if (frame) parent.appendChild(frame);
+      continue;
+    }
     const stash = el.getAttribute("data-odt-xml");
     if (stash) {
       const node2 = importPassthrough(ctx.doc, stash);
@@ -226,11 +264,6 @@ function htmlInlineToOdf(node: Node, parent: Element, f: Fmt, ctx: OdfCtx): void
         e.appendChild(ctx.doc.createTextNode(el.textContent || "1"));
         parent.appendChild(e);
       }
-      continue;
-    }
-    if (tag === "img") {
-      const frame = buildImageFrame(el, ctx);
-      if (frame) parent.appendChild(frame);
       continue;
     }
     if (el.classList.contains("docx-comment")) {

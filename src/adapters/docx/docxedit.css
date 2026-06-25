@@ -239,6 +239,36 @@
 .docxedit-doc img.sel { outline: 2px solid #6e7bff; outline-offset: 1px; }
 .docxedit-table td { border: 1px solid #999; }
 .docxedit-img-ph { display: inline-block; padding: 2px 8px; border: 1px dashed #aaa; color: #777; font-size: .85em; }
+
+/* Floating images: how an image sits relative to the text (data-rdoc-wrap, set by the image
+   toolbar). The doc is a positioned, isolated stacking context so behind-text images paint
+   under the text but over the page, and behind/front images are positioned within it. */
+.docxedit-doc { position: relative; isolation: isolate; }
+.docxedit-doc img[data-rdoc-wrap="square"], .docxedit-doc img[data-rdoc-wrap="tight"] { float: left; margin: 2px 14px 6px 0; }
+.docxedit-doc img[data-rdoc-wrap="square"][data-rdoc-align="right"], .docxedit-doc img[data-rdoc-wrap="tight"][data-rdoc-align="right"] { float: right; margin: 2px 0 6px 14px; }
+.docxedit-doc img[data-rdoc-wrap="square"][data-rdoc-align="center"], .docxedit-doc img[data-rdoc-wrap="tight"][data-rdoc-align="center"] { float: none; display: block; margin: 8px auto; }
+.docxedit-doc img[data-rdoc-wrap="topbottom"] { float: none; display: block; clear: both; margin: 8px 0; }
+.docxedit-doc img[data-rdoc-wrap="topbottom"][data-rdoc-align="center"] { margin-left: auto; margin-right: auto; }
+.docxedit-doc img[data-rdoc-wrap="topbottom"][data-rdoc-align="right"] { margin-left: auto; margin-right: 0; }
+.docxedit-doc img[data-rdoc-wrap="behind"], .docxedit-doc img[data-rdoc-wrap="front"] { position: absolute; margin: 0; cursor: move; }
+.docxedit-doc img[data-rdoc-wrap="behind"] { z-index: -1; }
+.docxedit-doc img[data-rdoc-wrap="front"] { z-index: 4; }
+
+/* Image layout toolbar (shown above a selected image). */
+.docxedit-imgbar {
+  position: fixed; z-index: 60; display: flex; align-items: center; gap: 3px; padding: 4px;
+  background: #2b2f36; border: 1px solid #1c1f24; border-radius: 8px; box-shadow: 0 6px 20px rgba(0,0,0,.5);
+}
+.docxedit-imgbar[hidden] { display: none; }
+.docxedit-imgbar-btn {
+  display: inline-flex; align-items: center; justify-content: center; min-width: 26px; height: 26px; padding: 0 5px;
+  font: 12px system-ui, sans-serif; background: #3a3f47; color: #e6e6e6; border: 1px solid #4a4f57; border-radius: 5px; cursor: pointer;
+}
+.docxedit-imgbar-btn:hover { border-color: #6e7bff; }
+.docxedit-imgbar-btn.is-on { background: #6e7bff; border-color: #6e7bff; color: #fff; }
+.docxedit-imgbar-btn[hidden] { display: none; }
+.docxedit-imgbar-sep { width: 1px; align-self: stretch; background: #4a4f57; margin: 0 2px; }
+.docxedit-imgbar-sep[hidden] { display: none; }
 /* Inserted fields (page number / count) and the table of contents. */
 .docx-field { background: rgba(110,123,255,.12); border-radius: 2px; padding: 0 1px; cursor: default; }
 .docx-field-toc { border: 1px dashed #cdd3da; border-radius: 4px; padding: 8px 12px; margin: 0 0 .6em; }

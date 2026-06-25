@@ -10,10 +10,12 @@ export interface ImagesDeps {
   regions: HTMLElement[];
   mark: () => void;
   getActiveEl: () => HTMLElement;
+  /** Notified when the selected image changes (null = deselected), for the layout toolbar. */
+  onSelect?: (img: HTMLImageElement | null) => void;
 }
 
 export function setupImages(deps: ImagesDeps) {
-  const { wrap, scroll, regions, mark, getActiveEl } = deps;
+  const { wrap, scroll, regions, mark, getActiveEl, onSelect } = deps;
 
   // Image select: click an image to select it, drag the corner handle to resize, and use
   // the delete button (top-right) or the Delete/Backspace key to remove it.
@@ -47,6 +49,7 @@ export function setupImages(deps: ImagesDeps) {
     selImg = img;
     if (selImg) selImg.classList.add("sel");
     placeHandle();
+    onSelect?.(selImg);
   };
   const deleteSelImg = () => {
     if (!selImg) return;
@@ -164,5 +167,5 @@ export function setupImages(deps: ImagesDeps) {
     fileInput.click();
   };
 
-  return { insertImage };
+  return { insertImage, repositionHandles: placeHandle };
 }

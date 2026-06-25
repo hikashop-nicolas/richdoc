@@ -62,6 +62,45 @@ describe("shared engine mount", () => {
     odtEd.destroy();
   });
 
+  it("shows the image layout toolbar on select and applies a wrap mode", () => {
+    const png = new Uint8Array([0x89, 0x50, 0x4e, 0x47, 1, 2, 3, 4]);
+    const anchor =
+      '<w:r><w:drawing><wp:anchor behindDoc="0" xmlns:wp="http://schemas.openxmlformats.org/drawingml/2006/wordprocessingDrawing">' +
+      '<wp:positionH relativeFrom="column"><wp:align>left</wp:align></wp:positionH>' +
+      '<wp:positionV relativeFrom="paragraph"><wp:align>top</wp:align></wp:positionV>' +
+      '<wp:extent cx="1143000" cy="571500"/><wp:wrapSquare wrapText="bothSides"/>' +
+      '<wp:docPr id="1" name="Image 1"/>' +
+      '<a:graphic xmlns:a="http://schemas.openxmlformats.org/drawingml/2006/main"><a:graphicData uri="x">' +
+      '<pic:pic xmlns:pic="http://schemas.openxmlformats.org/drawingml/2006/picture"><pic:blipFill>' +
+      '<a:blip r:embed="rId100"/></pic:blipFill></pic:pic></a:graphicData></a:graphic></wp:anchor></w:drawing></w:r>';
+    const docx = zipSync({
+      "[Content_Types].xml": strToU8("<Types/>"),
+      "_rels/.rels": strToU8("<Relationships/>"),
+      "word/document.xml": strToU8(
+        `<?xml version="1.0"?><w:document xmlns:w="http://schemas.openxmlformats.org/wordprocessingml/2006/main" xmlns:r="http://schemas.openxmlformats.org/officeDocument/2006/relationships"><w:body><w:p><w:r><w:t>hi</w:t></w:r>${anchor}</w:p></w:body></w:document>`,
+      ),
+      "word/_rels/document.xml.rels": strToU8(
+        `<Relationships xmlns="http://schemas.openxmlformats.org/package/2006/relationships"><Relationship Id="rId100" Type="x" Target="media/image1.png"/></Relationships>`,
+      ),
+      "word/media/image1.png": png,
+    });
+    const host = document.createElement("div");
+    const ed = createDocxEditor(host, docx);
+    const img = host.querySelector("img") as HTMLImageElement;
+    expect(img).toBeTruthy();
+    expect(img.getAttribute("data-rdoc-wrap")).toBe("square"); // read as floating
+    const bar = host.querySelector(".docxedit-imgbar") as HTMLElement;
+    expect(bar.hidden).toBe(true); // hidden until an image is selected
+    img.click(); // select it -> the layout toolbar appears
+    expect(bar.hidden).toBe(false);
+    // The "behind text" button is the 4th wrap button; clicking it changes the wrap.
+    const behindBtn = bar.querySelectorAll(".docxedit-imgbar-btn")[3] as HTMLButtonElement;
+    behindBtn.click();
+    expect(img.getAttribute("data-rdoc-wrap")).toBe("behind");
+    expect(ed.isDirty()).toBe(true);
+    ed.destroy();
+  });
+
   it("returns the original bytes unchanged when nothing was edited", async () => {
     const host = document.createElement("div");
     const ed = createOdtEditor(host, ODT);

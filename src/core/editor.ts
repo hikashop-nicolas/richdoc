@@ -8,6 +8,7 @@ import { defaultPageGeometry, paginate } from "./page";
 import type { Adapter, EditorOptions, RichEditor, RichDoc } from "./types";
 import { setupComments } from "./feature/comments";
 import { setupImages } from "./feature/images";
+import { setupImageLayout } from "./feature/image-layout";
 import { setupPageView } from "./feature/page-view";
 import { setupToolbar } from "./feature/toolbar";
 import { setupTableEdit } from "./feature/table-edit";
@@ -521,8 +522,14 @@ export function createRichEditor(container: HTMLElement, adapter: Adapter, optio
   repositionObserver.observe(scroll);
   for (const r of regions) r.addEventListener("input", scheduleReflow);
 
-  // Image select/resize/delete and insert-from-file live in the images feature module.
-  const { insertImage } = setupImages({ wrap, scroll, regions, mark, getActiveEl: () => activeEl });
+  // Image select/resize/delete + insert live in the images module; the layout toolbar (wrap
+  // mode, alignment, alt, drag-to-position) is a sibling module driven by the selection.
+  let images: ReturnType<typeof setupImages>;
+  const imageLayout = caps.images
+    ? setupImageLayout({ wrap, doc, scroll, mark, getZoom: effectiveZoom, reposition: () => images.repositionHandles() })
+    : null;
+  images = setupImages({ wrap, scroll, regions, mark, getActiveEl: () => activeEl, onSelect: imageLayout?.onSelect });
+  const { insertImage } = images;
   // Emit inline CSS (text-align, font-weight, ...) the serializer reads back, not legacy tags.
   try {
     document.execCommand("styleWithCSS", false, "true");
@@ -580,6 +587,7 @@ export function createRichEditor(container: HTMLElement, adapter: Adapter, optio
       repositionObserver.disconnect();
       teardownToolbar();
       tableEdit?.teardown();
+      imageLayout?.teardown();
       wrap.remove();
     },
   };

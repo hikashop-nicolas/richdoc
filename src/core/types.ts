@@ -23,6 +23,17 @@ export interface CommentThread extends CommentEntry {
   resolved: boolean;
 }
 
+/** How a floating image sits relative to the text. Absent on the element = "inline". */
+export type ImageWrap = "square" | "tight" | "topbottom" | "behind" | "front";
+
+/** A floating image's wrap mode, alignment, and (for behind/front) absolute px offset. */
+export interface ImageLayout {
+  wrap: ImageWrap;
+  align: "left" | "center" | "right";
+  x: number; // px offset from the anchor (behind/front only)
+  y: number; // px offset from the anchor (behind/front only)
+}
+
 /** A named default page size used when a document carries no geometry of its own. */
 export type PageSizeName = "a4" | "letter";
 

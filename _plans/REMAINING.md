@@ -25,6 +25,11 @@ context (a paragraph, or the document body) is regenerated from the edited HTML.
 - Header / footer (the default one), with live page-number / page-count / TOC
   fields.
 - Inline images, hyperlinks.
+- **Floating / anchored images + text wrap**: inline, wrap (square), break
+  (top-and-bottom), behind text, in front of text; alignment; alt text; behind /
+  front are draggable to position. An on-select image toolbar drives it; docx maps
+  to `wp:anchor` (wrap + positionH/V), odt to a `draw:frame` + graphic style. The
+  picture relationship is reused on save, so size/wrap edits never re-embed.
 - Comments (+ replies, reactions, resolve) and tracked changes (insert / delete /
   formatting change).
 
@@ -35,27 +40,26 @@ context (a paragraph, or the document body) is regenerated from the edited HTML.
 These are the only things that do not round-trip once the document is edited,
 because their context is regenerated. This is the work for "feature complete".
 
-1. **Floating / anchored images + text wrap.** Only inline images are modelled.
-   Existing floating images round-trip if untouched, but wrap modes (square /
-   tight / top-and-bottom / behind / in-front) cannot be authored, and
-   moving/resizing one flattens it to inline. Needs: read/write `wp:anchor` +
-   wrap, CSS float/positioned rendering, and a floating image toolbar on select
-   (wrap mode, position, size, alt text).
-2. **Multiple sections / mid-document section breaks.** Only the final section's
+1. **Multiple sections / mid-document section breaks.** Only the final section's
    `w:sectPr` is kept; mid-document section breaks are dropped, collapsing a
    multi-section document to one section on save. (A single-section document keeps
    its section richness fine.) Needs: model section breaks + per-section page
    setup.
-3. **Columns (`w:cols`).** Preserved for a single section (it rides the trailing
+2. **Columns (`w:cols`).** Preserved for a single section (it rides the trailing
    sectPr) but not authorable, and lost together with multi-section flattening.
-4. **Tab stops (`w:tabs`).** Dropped from any paragraph that is edited. Needs a
+3. **Tab stops (`w:tabs`).** Dropped from any paragraph that is edited. Needs a
    model + ruler tab markers (browsers do not render custom tab stops natively, so
    this is real work).
-5. **List restart-at-N / continue-previous numbering.** Nesting and ordered/bullet
+4. **List restart-at-N / continue-previous numbering.** Nesting and ordered/bullet
    kind round-trip; every ordered list currently restarts at 1.
-6. **Style editing depth.** The style dialog covers the common properties;
+5. **Style editing depth.** The style dialog covers the common properties;
    `w:basedOn` inheritance is flattened when a style is edited, and tab stops,
    borders and the long tail of style properties are not exposed.
+6. **Image layout fine detail.** Wrap + alignment + behind/front offset round-trip,
+   but the offset is approximate (mapped to a CSS-positioned element, not a Word
+   layout engine), the toolbar exposes "wrap" as square (a file's `wrapTight` is
+   preserved on read but authored as square), and distT/distB wrap padding uses a
+   fixed default rather than the file's own values.
 
 ---
 
@@ -99,5 +103,7 @@ which they do.
   page-number restart, etc.); multi-section flattening (C2) is the real risk.
 - First/even/odd and per-section header/footer *parts* are not regenerated, so
   they survive a save; only the default header/footer is shown for editing.
-- The same gaps apply to the odt adapter; section model, anchored frames
-  (`draw:frame` anchoring/wrap) and tab stops are the odt equivalents of C1-C4.
+- The odt adapter mirrors docx for floating images (`draw:frame` anchor-type +
+  a graphic style carrying `style:wrap` / `style:run-through` / `style:horizontal-pos`,
+  and `svg:x`/`svg:y` for behind/front). The remaining gaps still shared with docx
+  are the section model and tab stops (C1, C3).

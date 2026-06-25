@@ -128,6 +128,13 @@ const en: Dict = {
   bsDashed: "Dashed",
   bsDotted: "Dotted",
   bsDouble: "Double",
+  wrapInline: "In line with text",
+  wrapSquare: "Wrap text",
+  wrapTopBottom: "Break text (above and below)",
+  wrapBehind: "Behind text",
+  wrapFront: "In front of text",
+  altText: "Alt",
+  imageAltPrompt: "Describe this image (alt text):",
 };
 
 const fr: Dict = {
@@ -253,6 +260,13 @@ const fr: Dict = {
   bsDashed: "Tirets",
   bsDotted: "Pointillés",
   bsDouble: "Double",
+  wrapInline: "Aligné sur le texte",
+  wrapSquare: "Habillage du texte",
+  wrapTopBottom: "Coupure du texte (au-dessus et en dessous)",
+  wrapBehind: "Derrière le texte",
+  wrapFront: "Devant le texte",
+  altText: "Alt",
+  imageAltPrompt: "Décrivez cette image (texte alternatif) :",
 };
 
 const LOCALES: Record<string, Dict> = { en, fr };

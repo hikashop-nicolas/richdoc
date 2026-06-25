@@ -1,0 +1,203 @@
+// Image layout toolbar: a small bar shown above a selected image to set how it sits relative
+// to the text (in line / wrap / break / behind / in front), its alignment, and its alt text.
+// It only writes the format-agnostic data-rdoc-* attributes (the adapters map them to docx
+// wp:anchor / odt draw:frame); CSS renders them. Behind/front images can be dragged to position.
+import { t } from "../i18n";
+import type { ImageWrap } from "../types";
+
+export interface ImageLayoutDeps {
+  wrap: HTMLElement;
+  doc: HTMLElement; // the editable body; the offset parent for behind/front images
+  scroll: HTMLElement;
+  mark: () => void;
+  getZoom: () => number;
+  reposition: () => void; // re-place the resize handle after a layout change moves the image
+}
+
+const WRAP_ICONS: Record<"inline" | "square" | "topbottom" | "behind" | "front", string> = {
+  inline:
+    '<svg width="14" height="14" viewBox="0 0 16 16" aria-hidden="true"><rect x="1.5" y="5" width="5" height="6" rx="1" fill="currentColor"/><rect x="8" y="5.4" width="6.5" height="1.4" rx=".6" fill="currentColor"/><rect x="8" y="9.2" width="6.5" height="1.4" rx=".6" fill="currentColor"/></svg>',
+  square:
+    '<svg width="14" height="14" viewBox="0 0 16 16" aria-hidden="true"><rect x="1.5" y="2.5" width="6" height="6" rx="1" fill="currentColor"/><rect x="9" y="2.8" width="5.5" height="1.3" rx=".5" fill="currentColor"/><rect x="9" y="6" width="5.5" height="1.3" rx=".5" fill="currentColor"/><rect x="1.5" y="10.6" width="13" height="1.3" rx=".5" fill="currentColor"/><rect x="1.5" y="13.2" width="13" height="1.3" rx=".5" fill="currentColor"/></svg>',
+  topbottom:
+    '<svg width="14" height="14" viewBox="0 0 16 16" aria-hidden="true"><rect x="1.5" y="1.5" width="13" height="1.3" rx=".5" fill="currentColor"/><rect x="1.5" y="3.9" width="13" height="1.3" rx=".5" fill="currentColor"/><rect x="4.5" y="6.4" width="7" height="3.2" rx="1" fill="currentColor"/><rect x="1.5" y="10.8" width="13" height="1.3" rx=".5" fill="currentColor"/><rect x="1.5" y="13.2" width="13" height="1.3" rx=".5" fill="currentColor"/></svg>',
+  behind:
+    '<svg width="14" height="14" viewBox="0 0 16 16" aria-hidden="true"><rect x="3.5" y="3.5" width="9" height="9" rx="1" fill="currentColor" opacity=".35"/><rect x="1.5" y="5.2" width="13" height="1.5" rx=".6" fill="currentColor"/><rect x="1.5" y="8.6" width="13" height="1.5" rx=".6" fill="currentColor"/></svg>',
+  front:
+    '<svg width="14" height="14" viewBox="0 0 16 16" aria-hidden="true"><rect x="1.5" y="5.2" width="13" height="1.5" rx=".6" fill="currentColor" opacity=".35"/><rect x="1.5" y="8.6" width="13" height="1.5" rx=".6" fill="currentColor" opacity=".35"/><rect x="3.5" y="3.5" width="9" height="9" rx="1" fill="currentColor"/></svg>',
+};
+const ALIGN_ICONS: Record<"left" | "center" | "right", string> = {
+  left: '<svg width="14" height="14" viewBox="0 0 16 16" fill="currentColor" aria-hidden="true"><rect x="2" y="3" width="8" height="1.6" rx=".6"/><rect x="2" y="7" width="12" height="1.6" rx=".6"/><rect x="2" y="11" width="8" height="1.6" rx=".6"/></svg>',
+  center: '<svg width="14" height="14" viewBox="0 0 16 16" fill="currentColor" aria-hidden="true"><rect x="4" y="3" width="8" height="1.6" rx=".6"/><rect x="2" y="7" width="12" height="1.6" rx=".6"/><rect x="4" y="11" width="8" height="1.6" rx=".6"/></svg>',
+  right: '<svg width="14" height="14" viewBox="0 0 16 16" fill="currentColor" aria-hidden="true"><rect x="6" y="3" width="8" height="1.6" rx=".6"/><rect x="2" y="7" width="12" height="1.6" rx=".6"/><rect x="6" y="11" width="8" height="1.6" rx=".6"/></svg>',
+};
+
+export function setupImageLayout(deps: ImageLayoutDeps) {
+  const { wrap, doc, scroll, mark, getZoom, reposition } = deps;
+  let img: HTMLImageElement | null = null;
+
+  const bar = document.createElement("div");
+  bar.className = "docxedit-imgbar";
+  bar.hidden = true;
+  const mkBtn = (svg: string, title: string, fn: () => void): HTMLButtonElement => {
+    const b = document.createElement("button");
+    b.type = "button";
+    b.className = "docxedit-imgbar-btn";
+    b.innerHTML = svg;
+    b.title = title;
+    b.setAttribute("aria-label", title);
+    b.addEventListener("mousedown", (e) => e.preventDefault()); // keep the image selected
+    b.addEventListener("click", (e) => {
+      e.stopPropagation();
+      fn();
+    });
+    return b;
+  };
+  // Apply a wrap mode. inline = remove the layout attrs (back in line with text). Switching to
+  // behind/front seeds the offset from where the image currently sits so it does not jump.
+  const setWrap = (mode: "inline" | ImageWrap): void => {
+    if (!img) return;
+    if (mode === "inline") {
+      for (const a of ["data-rdoc-wrap", "data-rdoc-align", "data-rdoc-x", "data-rdoc-y"]) img.removeAttribute(a);
+      img.style.left = img.style.top = "";
+    } else {
+      if ((mode === "behind" || mode === "front") && !img.getAttribute("data-rdoc-wrap")) {
+        const x = img.offsetLeft;
+        const y = img.offsetTop;
+        img.setAttribute("data-rdoc-x", String(x));
+        img.setAttribute("data-rdoc-y", String(y));
+        img.style.left = `${x}px`;
+        img.style.top = `${y}px`;
+      }
+      img.setAttribute("data-rdoc-wrap", mode);
+      if (!img.getAttribute("data-rdoc-align")) img.setAttribute("data-rdoc-align", "left");
+    }
+    mark();
+    reposition();
+    sync();
+    place();
+  };
+  const setAlign = (a: "left" | "center" | "right"): void => {
+    if (!img || !img.getAttribute("data-rdoc-wrap")) return;
+    img.setAttribute("data-rdoc-align", a);
+    mark();
+    reposition();
+    sync();
+    place();
+  };
+  const editAlt = (): void => {
+    if (!img) return;
+    const v = prompt(t("imageAltPrompt"), img.getAttribute("alt") || "");
+    if (v === null) return;
+    img.setAttribute("alt", v);
+    mark();
+  };
+
+  const wrapBtns: Record<string, HTMLButtonElement> = {
+    inline: mkBtn(WRAP_ICONS.inline, t("wrapInline"), () => setWrap("inline")),
+    square: mkBtn(WRAP_ICONS.square, t("wrapSquare"), () => setWrap("square")),
+    topbottom: mkBtn(WRAP_ICONS.topbottom, t("wrapTopBottom"), () => setWrap("topbottom")),
+    behind: mkBtn(WRAP_ICONS.behind, t("wrapBehind"), () => setWrap("behind")),
+    front: mkBtn(WRAP_ICONS.front, t("wrapFront"), () => setWrap("front")),
+  };
+  const sep = document.createElement("span");
+  sep.className = "docxedit-imgbar-sep";
+  const alignBtns: Record<string, HTMLButtonElement> = {
+    left: mkBtn(ALIGN_ICONS.left, t("alignLeft"), () => setAlign("left")),
+    center: mkBtn(ALIGN_ICONS.center, t("alignCenter"), () => setAlign("center")),
+    right: mkBtn(ALIGN_ICONS.right, t("alignRight"), () => setAlign("right")),
+  };
+  const sep2 = document.createElement("span");
+  sep2.className = "docxedit-imgbar-sep";
+  const altBtn = document.createElement("button");
+  altBtn.type = "button";
+  altBtn.className = "docxedit-imgbar-btn docxedit-imgbar-alt";
+  altBtn.textContent = t("altText");
+  altBtn.title = t("imageAltPrompt");
+  altBtn.addEventListener("mousedown", (e) => e.preventDefault());
+  altBtn.addEventListener("click", (e) => {
+    e.stopPropagation();
+    editAlt();
+  });
+  bar.append(wrapBtns.inline!, wrapBtns.square!, wrapBtns.topbottom!, wrapBtns.behind!, wrapBtns.front!, sep, alignBtns.left!, alignBtns.center!, alignBtns.right!, sep2, altBtn);
+  wrap.appendChild(bar);
+
+  // Reflect the image's current wrap/align on the buttons; hide alignment for behind/front.
+  const sync = (): void => {
+    const w = img?.getAttribute("data-rdoc-wrap") ?? "inline";
+    for (const [k, b] of Object.entries(wrapBtns)) b.classList.toggle("is-on", k === w);
+    const aligned = w === "square" || w === "topbottom" || w === "tight";
+    sep.hidden = !aligned;
+    for (const b of Object.values(alignBtns)) b.hidden = !aligned;
+    const a = img?.getAttribute("data-rdoc-align") ?? "left";
+    for (const [k, b] of Object.entries(alignBtns)) b.classList.toggle("is-on", k === a);
+  };
+  // Position the bar just above the image (or below if there is no room), clamped to the view.
+  const place = (): void => {
+    if (!img || !wrap.contains(img)) {
+      bar.hidden = true;
+      return;
+    }
+    bar.hidden = false;
+    const ir = img.getBoundingClientRect();
+    const bw = bar.offsetWidth || 220;
+    const bh = bar.offsetHeight || 32;
+    let left = Math.max(8, Math.min(ir.left, window.innerWidth - bw - 8));
+    let top = ir.top - bh - 6;
+    if (top < 8) top = ir.bottom + 6;
+    bar.style.left = `${left}px`;
+    bar.style.top = `${top}px`;
+  };
+
+  // Drag a behind/front image to reposition it (offsets are in the doc's own px, so divide the
+  // screen delta by the zoom). Other wrap modes flow with the text and are not draggable.
+  let drag: { startX: number; startY: number; baseX: number; baseY: number } | null = null;
+  const onDown = (e: PointerEvent): void => {
+    if (!img || img !== e.target) return;
+    const mode = img.getAttribute("data-rdoc-wrap");
+    if (mode !== "behind" && mode !== "front") return;
+    e.preventDefault();
+    drag = { startX: e.clientX, startY: e.clientY, baseX: Number(img.getAttribute("data-rdoc-x")) || 0, baseY: Number(img.getAttribute("data-rdoc-y")) || 0 };
+    try { img.setPointerCapture(e.pointerId); } catch { /* no pointer */ }
+  };
+  const onMove = (e: PointerEvent): void => {
+    if (!drag || !img) return;
+    const z = getZoom() || 1;
+    const x = Math.round(drag.baseX + (e.clientX - drag.startX) / z);
+    const y = Math.round(drag.baseY + (e.clientY - drag.startY) / z);
+    img.setAttribute("data-rdoc-x", String(x));
+    img.setAttribute("data-rdoc-y", String(y));
+    img.style.left = `${x}px`;
+    img.style.top = `${y}px`;
+    place();
+  };
+  const onUp = (e: PointerEvent): void => {
+    if (!drag) return;
+    drag = null;
+    try { img?.releasePointerCapture(e.pointerId); } catch { /* not captured */ }
+    reposition();
+    mark();
+  };
+  doc.addEventListener("pointerdown", onDown);
+  doc.addEventListener("pointermove", onMove);
+  doc.addEventListener("pointerup", onUp);
+  scroll.addEventListener("scroll", place);
+
+  const onSelect = (next: HTMLImageElement | null): void => {
+    img = next;
+    if (!img) {
+      bar.hidden = true;
+      return;
+    }
+    sync();
+    place();
+  };
+  const teardown = (): void => {
+    doc.removeEventListener("pointerdown", onDown);
+    doc.removeEventListener("pointermove", onMove);
+    doc.removeEventListener("pointerup", onUp);
+    scroll.removeEventListener("scroll", place);
+    bar.remove();
+  };
+  return { onSelect, reposition: place, teardown };
+}

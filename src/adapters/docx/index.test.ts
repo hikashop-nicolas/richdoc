@@ -236,6 +236,82 @@ describe("docx <-> html", () => {
     expect(Array.from(files2["word/media/image1.png"])).toEqual(Array.from(png));
   });
 
+  // A floating image: a w:drawing whose container is wp:anchor (with a wrap + position),
+  // rendered out of line and editable via the image toolbar (data-rdoc-* attributes).
+  const PNG = new Uint8Array([0x89, 0x50, 0x4e, 0x47, 1, 2, 3, 4]);
+  const anchorImg = (wrapEl: string, posH: string, behind = "0") =>
+    '<w:r><w:drawing><wp:anchor behindDoc="' + behind + '" xmlns:wp="http://schemas.openxmlformats.org/drawingml/2006/wordprocessingDrawing">' +
+    posH +
+    '<wp:positionV relativeFrom="paragraph"><wp:posOffset>476250</wp:posOffset></wp:positionV>' +
+    '<wp:extent cx="1143000" cy="571500"/>' + wrapEl +
+    '<wp:docPr id="1" name="Image 1" descr="a cat"/>' +
+    '<a:graphic xmlns:a="http://schemas.openxmlformats.org/drawingml/2006/main"><a:graphicData uri="x">' +
+    '<pic:pic xmlns:pic="http://schemas.openxmlformats.org/drawingml/2006/picture"><pic:blipFill>' +
+    '<a:blip r:embed="rId100"/></pic:blipFill></pic:pic></a:graphicData></a:graphic></wp:anchor></w:drawing></w:r>';
+  const imgDocx = (drawing: string) =>
+    zipSync({
+      "[Content_Types].xml": strToU8("<Types/>"),
+      "_rels/.rels": strToU8("<Relationships/>"),
+      "word/document.xml": strToU8(`<?xml version="1.0"?>
+<w:document xmlns:w="http://schemas.openxmlformats.org/wordprocessingml/2006/main" xmlns:r="http://schemas.openxmlformats.org/officeDocument/2006/relationships"><w:body>
+ <w:p><w:r><w:t>text</w:t></w:r>${drawing}</w:p>
+</w:body></w:document>`),
+      "word/_rels/document.xml.rels": strToU8(
+        `<Relationships xmlns="http://schemas.openxmlformats.org/package/2006/relationships"><Relationship Id="rId100" Type="x" Target="media/image1.png"/></Relationships>`,
+      ),
+      "word/media/image1.png": PNG,
+    });
+
+  it("reads a floating image's wrap mode, alignment and alt text", () => {
+    const html = docxToHtml(imgDocx(anchorImg('<wp:wrapSquare wrapText="bothSides"/>', '<wp:positionH relativeFrom="column"><wp:align>right</wp:align></wp:positionH>')));
+    expect(html).toContain('data-rdoc-wrap="square"');
+    expect(html).toContain('data-rdoc-align="right"');
+    expect(html).toContain('alt="a cat"');
+  });
+
+  it("round-trips a floating image's wrap through an edit", () => {
+    const docx = imgDocx(anchorImg('<wp:wrapSquare wrapText="bothSides"/>', '<wp:positionH relativeFrom="column"><wp:align>right</wp:align></wp:positionH>'));
+    const html = docxToHtml(docx);
+    const xml = strFromU8(unzipSync(htmlToDocx(html.replace("text", "TEXT"), docx))["word/document.xml"]);
+    expect(xml).toContain("wp:anchor");
+    expect(xml).toContain("wp:wrapSquare");
+    expect(xml).toContain("<wp:align>right</wp:align>");
+    expect(xml).toContain("rId100"); // the original picture relationship is preserved
+  });
+
+  it("converts an inline image to wrap text when the toolbar sets a wrap mode", () => {
+    const inline =
+      '<w:r><w:drawing><wp:inline xmlns:wp="http://schemas.openxmlformats.org/drawingml/2006/wordprocessingDrawing">' +
+      '<wp:extent cx="1143000" cy="571500"/>' +
+      '<a:graphic xmlns:a="http://schemas.openxmlformats.org/drawingml/2006/main"><a:graphicData uri="x">' +
+      '<pic:pic xmlns:pic="http://schemas.openxmlformats.org/drawingml/2006/picture"><pic:blipFill>' +
+      '<a:blip r:embed="rId100"/></pic:blipFill></pic:pic></a:graphicData></a:graphic></wp:inline></w:drawing></w:r>';
+    const docx = imgDocx(inline);
+    const html = docxToHtml(docx);
+    expect(html).not.toContain("data-rdoc-wrap"); // starts inline
+    const edited = html.replace("<img ", '<img data-rdoc-wrap="square" data-rdoc-align="left" ');
+    const xml = strFromU8(unzipSync(htmlToDocx(edited, docx))["word/document.xml"]);
+    expect(xml).toContain("wp:anchor");
+    expect(xml).toContain("wp:wrapSquare");
+  });
+
+  it("embeds a new floating image as a wp:anchor with a wrap", () => {
+    const out = htmlToDocx('<p><img src="data:image/png;base64,iVBORw0KGgo=" width="120" height="80" data-rdoc-wrap="topbottom" data-rdoc-align="center"></p>', makeDocx());
+    const xml = strFromU8(unzipSync(out)["word/document.xml"]);
+    expect(xml).toContain("wp:anchor");
+    expect(xml).toContain("wp:wrapTopAndBottom");
+  });
+
+  it("reads a behind-text image's offset and writes behindDoc back", () => {
+    const docx = imgDocx(anchorImg("<wp:wrapNone/>", '<wp:positionH relativeFrom="column"><wp:posOffset>952500</wp:posOffset></wp:positionH>', "1"));
+    const html = docxToHtml(docx);
+    expect(html).toContain('data-rdoc-wrap="behind"');
+    expect(html).toContain('data-rdoc-x="100"'); // 952500 EMU = 100px
+    const xml = strFromU8(unzipSync(htmlToDocx(html, docx))["word/document.xml"]);
+    expect(xml).toContain('behindDoc="1"');
+    expect(xml).toContain("wp:wrapNone");
+  });
+
   it("shows manual page breaks (and Word's auto breaks) and round-trips the manual one", () => {
     const doc = `<?xml version="1.0"?>
 <w:document xmlns:w="http://schemas.openxmlformats.org/wordprocessingml/2006/main"><w:body>
