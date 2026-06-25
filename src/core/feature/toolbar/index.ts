@@ -616,6 +616,68 @@ export function setupToolbar(deps: ToolbarDeps) {
     fieldsMenu.hidden = !fieldsMenu.hidden;
   });
 
+  // --- Ordered-list numbering: restart / continue / start-at on the list at the caret -------
+  const currentOl = (): HTMLOListElement | null => {
+    const n = window.getSelection()?.anchorNode as Node | null;
+    const el = n ? (n.nodeType === 3 ? n.parentElement : (n as Element)) : null;
+    const ol = el?.closest?.("ol") as HTMLOListElement | null;
+    return ol && regions.some((r) => r.contains(ol)) ? ol : null;
+  };
+  const setListStart = (ol: HTMLOListElement, start: number): void => {
+    if (start > 1) ol.setAttribute("start", String(start));
+    else ol.removeAttribute("start"); // restart at 1 = no start attribute
+    mark();
+    syncToolbarState();
+  };
+  const restartList = () => { const ol = currentOl(); if (ol) setListStart(ol, 1); };
+  const continueList = () => {
+    const ol = currentOl();
+    if (!ol) return;
+    let prev = ol.previousElementSibling; // the previous ordered list in the body
+    while (prev && prev.tagName !== "OL") prev = prev.previousElementSibling;
+    if (!prev) return;
+    const prevStart = parseInt(prev.getAttribute("start") || "1", 10) || 1;
+    const prevCount = Array.from(prev.children).filter((c) => c.tagName === "LI").length;
+    setListStart(ol, prevStart + prevCount);
+  };
+  const startAtList = () => {
+    const ol = currentOl();
+    if (!ol) return;
+    const v = prompt(t("listStartPrompt"), ol.getAttribute("start") || "1");
+    if (v === null) return;
+    const n = parseInt(v, 10);
+    setListStart(ol, Number.isFinite(n) && n > 0 ? n : 1);
+  };
+  const listMenu = document.createElement("div");
+  listMenu.className = "docxedit-menu";
+  listMenu.hidden = true;
+  for (const it of [
+    { label: t("listRestart"), fn: restartList },
+    { label: t("listContinue"), fn: continueList },
+    { label: t("listStartAt"), fn: startAtList },
+  ]) {
+    const b = document.createElement("button");
+    b.type = "button";
+    b.className = "docxedit-menu-item";
+    b.textContent = it.label;
+    b.addEventListener("mousedown", (e) => e.preventDefault());
+    b.addEventListener("click", (e) => {
+      e.stopPropagation();
+      it.fn();
+      listMenu.hidden = true;
+    });
+    listMenu.appendChild(b);
+  }
+  const listNumBtn = iconBtn(numberIcon + caret, t("listNumbering"), () => {});
+  listNumBtn.addEventListener("click", (e) => {
+    e.stopPropagation();
+    const r = listNumBtn.getBoundingClientRect();
+    const wr = wrap.getBoundingClientRect();
+    listMenu.style.left = `${r.left - wr.left}px`;
+    listMenu.style.top = `${r.bottom - wr.top + 2}px`;
+    listMenu.hidden = !listMenu.hidden;
+  });
+
   // Reflect the caret's formatting in the controls: the font / size pickers track the text
   // under the caret, bold/italic/underline/alignment show their pressed state, and the named
   // style dropdowns are refreshed by the styles module. rAF-coalesced on selection change.
@@ -715,6 +777,7 @@ export function setupToolbar(deps: ToolbarDeps) {
     styleGroup.has ? sep() : null,
     iconBtn(bulletIcon, withSc(t("bulleted"), "L", { shift: true }), () => exec("insertUnorderedList")),
     iconBtn(numberIcon, withSc(t("numbered"), "7", { shift: true }), () => exec("insertOrderedList")),
+    listNumBtn,
     caps.alignment ? sep() : null,
     alignLeftBtn,
     alignCenterBtn,
@@ -755,10 +818,11 @@ export function setupToolbar(deps: ToolbarDeps) {
     if (!tablePicker.hidden && !tablePicker.contains(e.target as Node) && !tableBtn.contains(e.target as Node)) tablePicker.hidden = true;
     if (!lineSpacingMenu.hidden && !lineSpacingMenu.contains(e.target as Node) && !lineSpacingBtn.contains(e.target as Node)) lineSpacingMenu.hidden = true;
     if (!fieldsMenu.hidden && !fieldsMenu.contains(e.target as Node) && !fieldsBtn.contains(e.target as Node)) fieldsMenu.hidden = true;
+    if (!listMenu.hidden && !listMenu.contains(e.target as Node) && !listNumBtn.contains(e.target as Node)) listMenu.hidden = true;
   };
   document.addEventListener("click", closeOverflow);
   toolbar.append(...toolbarItems, moreBtn);
-  wrap.append(overflow, styleGroup.menu, insertGroup.menu, tablePicker, lineSpacingMenu, fieldsMenu);
+  wrap.append(overflow, styleGroup.menu, insertGroup.menu, tablePicker, lineSpacingMenu, fieldsMenu, listMenu);
 
   const fits = () => toolbar.scrollWidth <= toolbar.clientWidth + 1;
   const layoutToolbar = () => {

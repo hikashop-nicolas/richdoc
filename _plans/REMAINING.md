@@ -13,8 +13,9 @@ context (a paragraph, or the document body) is regenerated from the edited HTML.
 ## A. Editable (modelled, round-trips)
 
 - Paragraphs, headings (H1-H3), nested ordered/unordered lists, with ordered-list
-  numbering preserved: each list restarts independently, an explicit start number
-  round-trips, and a list that continues an earlier one keeps its running count
+  numbering preserved and authorable: each list restarts independently, an explicit
+  start round-trips, and a list that continues an earlier one keeps its running
+  count. A list-numbering menu sets restart-at-1 / continue-previous / start-at-N
   (docx per-list `numId` + `startOverride`; odt list-style `start-value` /
   `continue-numbering`).
 - Run formatting: bold, italic, underline, strike, super/subscript, text colour,
@@ -59,13 +60,10 @@ because their context is regenerated. This is the work for "feature complete".
 3. **Tab stops (`w:tabs`).** Dropped from any paragraph that is edited. Needs a
    model + ruler tab markers (browsers do not render custom tab stops natively, so
    this is real work).
-4. **List numbering authoring.** Start / restart / continue now round-trip (see
-   bucket A), but there is no UI yet to *set* them: a control to restart an ordered
-   list at 1, continue the previous one, or set an explicit start value.
-5. **Style editing depth.** The style dialog covers the common properties;
+4. **Style editing depth.** The style dialog covers the common properties;
    `w:basedOn` inheritance is flattened when a style is edited, and tab stops,
    borders and the long tail of style properties are not exposed.
-6. **Image layout fine detail.** Wrap + alignment + behind/front offset round-trip,
+5. **Image layout fine detail.** Wrap + alignment + behind/front offset round-trip,
    but the offset is approximate (mapped to a CSS-positioned element, not a Word
    layout engine), the toolbar exposes "wrap" as square (a file's `wrapTight` is
    preserved on read but authored as square), and distT/distB wrap padding uses a

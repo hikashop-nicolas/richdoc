@@ -101,6 +101,47 @@ describe("shared engine mount", () => {
     ed.destroy();
   });
 
+  it("authors ordered-list numbering via the list-numbering menu", () => {
+    // Two separate ordered lists (distinct numIds, each starting at 1).
+    const numbering = `<?xml version="1.0"?><w:numbering xmlns:w="http://schemas.openxmlformats.org/wordprocessingml/2006/main">` +
+      '<w:abstractNum w:abstractNumId="0"><w:lvl w:ilvl="0"><w:start w:val="1"/><w:numFmt w:val="decimal"/></w:lvl></w:abstractNum>' +
+      '<w:abstractNum w:abstractNumId="1"><w:lvl w:ilvl="0"><w:start w:val="1"/><w:numFmt w:val="decimal"/></w:lvl></w:abstractNum>' +
+      '<w:num w:numId="1"><w:abstractNumId w:val="0"/></w:num><w:num w:numId="2"><w:abstractNumId w:val="1"/></w:num></w:numbering>';
+    const li = (numId: string, text: string) =>
+      `<w:p><w:pPr><w:numPr><w:ilvl w:val="0"/><w:numId w:val="${numId}"/></w:numPr></w:pPr><w:r><w:t>${text}</w:t></w:r></w:p>`;
+    const docx = zipSync({
+      "[Content_Types].xml": strToU8("<Types/>"),
+      "_rels/.rels": strToU8("<Relationships/>"),
+      "word/document.xml": strToU8(
+        `<?xml version="1.0"?><w:document xmlns:w="http://schemas.openxmlformats.org/wordprocessingml/2006/main"><w:body>${li("1", "a")}${li("1", "b")}<w:p><w:r><w:t>gap</w:t></w:r></w:p>${li("2", "c")}</w:body></w:document>`,
+      ),
+      "word/_rels/document.xml.rels": strToU8(`<Relationships xmlns="http://schemas.openxmlformats.org/package/2006/relationships"></Relationships>`),
+      "word/numbering.xml": strToU8(numbering),
+    });
+    const host = document.createElement("div");
+    document.body.appendChild(host); // attached so the caret selection registers
+    const ed = createDocxEditor(host, docx);
+    const ols = host.querySelectorAll(".docxedit-doc ol");
+    expect(ols).toHaveLength(2); // two independent lists, both starting at 1
+    expect(ols[1]!.getAttribute("start")).toBeNull();
+    // Put the caret in the second list and choose "Continue previous list".
+    const li2 = ols[1]!.querySelector("li")!;
+    const range = document.createRange();
+    range.selectNodeContents(li2);
+    range.collapse(true);
+    const sel = getSelection()!;
+    sel.removeAllRanges();
+    sel.addRange(range);
+    const btn = [...host.querySelectorAll("button")].find((b) => b.title === "List numbering")!;
+    btn.click();
+    const item = [...host.querySelectorAll(".docxedit-menu-item")].find((b) => b.textContent === "Continue previous list")!;
+    item.click();
+    expect(ols[1]!.getAttribute("start")).toBe("3"); // first list has 2 items -> continue at 3
+    expect(ed.isDirty()).toBe(true);
+    ed.destroy();
+    host.remove();
+  });
+
   it("returns the original bytes unchanged when nothing was edited", async () => {
     const host = document.createElement("div");
     const ed = createOdtEditor(host, ODT);

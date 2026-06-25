@@ -135,6 +135,11 @@ const en: Dict = {
   wrapFront: "In front of text",
   altText: "Alt",
   imageAltPrompt: "Describe this image (alt text):",
+  listNumbering: "List numbering",
+  listRestart: "Restart at 1",
+  listContinue: "Continue previous list",
+  listStartAt: "Start at number…",
+  listStartPrompt: "Start numbering at:",
 };
 
 const fr: Dict = {
@@ -267,6 +272,11 @@ const fr: Dict = {
   wrapFront: "Devant le texte",
   altText: "Alt",
   imageAltPrompt: "Décrivez cette image (texte alternatif) :",
+  listNumbering: "Numérotation de la liste",
+  listRestart: "Recommencer à 1",
+  listContinue: "Continuer la liste précédente",
+  listStartAt: "Commencer au numéro…",
+  listStartPrompt: "Commencer la numérotation à :",
 };
 
 const LOCALES: Record<string, Dict> = { en, fr };
