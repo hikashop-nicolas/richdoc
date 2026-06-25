@@ -239,6 +239,11 @@
 .docxedit-doc img.sel { outline: 2px solid #6e7bff; outline-offset: 1px; }
 .docxedit-table td { border: 1px solid #999; }
 .docxedit-img-ph { display: inline-block; padding: 2px 8px; border: 1px dashed #aaa; color: #777; font-size: .85em; }
+/* Tabs: a real tab character whose width is the browser's tab stop. Default stops are every
+   0.5in (tab-size); a paragraph's custom stops (data-rdoc-tabstops) round-trip but render at
+   the default positions. The character is preserved so copy/paste yields a real tab. */
+.docxedit-doc { tab-size: 48px; -moz-tab-size: 48px; }
+.docx-tab { white-space: pre; display: inline; }
 
 /* Floating images: how an image sits relative to the text (data-rdoc-wrap, set by the image
    toolbar). The doc is a positioned, isolated stacking context so behind-text images paint

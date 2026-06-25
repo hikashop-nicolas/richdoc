@@ -368,6 +368,35 @@ describe("odt ordered-list numbering", () => {
   });
 });
 
+describe("odt tabs (text:tab + tab stops)", () => {
+  const ROOT =
+    'xmlns:office="urn:oasis:names:tc:opendocument:xmlns:office:1.0" ' +
+    'xmlns:text="urn:oasis:names:tc:opendocument:xmlns:text:1.0" ' +
+    'xmlns:style="urn:oasis:names:tc:opendocument:xmlns:style:1.0" ' +
+    'xmlns:fo="urn:oasis:names:tc:opendocument:xmlns:xsl-fo-compatible:1.0"';
+
+  it("round-trips a tab character and the paragraph's tab stops", () => {
+    const content = `<?xml version="1.0"?><office:document-content ${ROOT}>` +
+      "<office:automatic-styles>" +
+      '<style:style style:name="P1" style:family="paragraph"><style:paragraph-properties><style:tab-stops>' +
+      '<style:tab-stop style:position="3.81cm"/>' +
+      '<style:tab-stop style:position="11.43cm" style:type="right" style:leader-style="dotted" style:leader-text="."/>' +
+      "</style:tab-stops></style:paragraph-properties></style:style>" +
+      "</office:automatic-styles><office:body><office:text>" +
+      '<text:p text:style-name="P1">a<text:tab/>b</text:p>' +
+      "</office:text></office:body></office:document-content>";
+    const html = odtToHtml(makeOdt(content));
+    expect(html).toContain('data-docx-tab="1"');
+    expect(html).toContain("data-rdoc-tabstops");
+    const xml = strFromU8(unzipSync(htmlToOdt(html.replace(">a<", ">A<"), makeOdt(content)))["content.xml"]);
+    expect(xml).toContain("<text:tab"); // tab character round-trips
+    expect(xml).toContain("style:tab-stops");
+    expect(xml).toMatch(/style:position="3.81cm"/); // 3.81cm = 144px, back to 3.81cm
+    expect(xml).toMatch(/style:type="right"/);
+    expect(xml).toMatch(/style:leader-style="dotted"/);
+  });
+});
+
 describe("odt comments (office:annotation)", () => {
   const ROOT =
     'xmlns:office="urn:oasis:names:tc:opendocument:xmlns:office:1.0" ' +

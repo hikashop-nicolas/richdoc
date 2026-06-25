@@ -71,8 +71,52 @@ export function setupShortcuts(deps: ShortcutDeps) {
   };
   for (const r of regions) r.addEventListener("keydown", onShortcut);
 
+  // Tab inserts a real tab (an atomic, non-editable span carrying a tab character so copy/paste
+  // yields a tab); Shift+Tab removes a tab immediately before the caret, else moves focus normally.
+  const insertTab = () => {
+    getActiveEl().focus();
+    const sel = window.getSelection();
+    if (!sel || !sel.rangeCount) return;
+    const range = sel.getRangeAt(0);
+    range.deleteContents();
+    const span = document.createElement("span");
+    span.className = "docx-tab";
+    span.setAttribute("data-docx-tab", "1");
+    span.contentEditable = "false";
+    span.textContent = "\t";
+    range.insertNode(span);
+    range.setStartAfter(span);
+    range.collapse(true);
+    sel.removeAllRanges();
+    sel.addRange(range);
+    mark();
+  };
+  const onTab = (e: KeyboardEvent) => {
+    if (e.key !== "Tab" || e.metaKey || e.ctrlKey || e.altKey) return;
+    if (e.shiftKey) {
+      const sel = window.getSelection();
+      const range = sel && sel.rangeCount ? sel.getRangeAt(0) : null;
+      if (!range || !range.collapsed) return;
+      const c = range.startContainer;
+      const prev = c.nodeType === 1 && range.startOffset > 0 ? c.childNodes[range.startOffset - 1] : c.previousSibling;
+      const el = prev && prev.nodeType === 1 ? (prev as HTMLElement) : null;
+      if (el && el.getAttribute("data-docx-tab")) {
+        e.preventDefault();
+        el.remove();
+        mark();
+      }
+      return; // no preceding tab: let Shift+Tab move focus as usual
+    }
+    e.preventDefault();
+    insertTab();
+  };
+  for (const r of regions) r.addEventListener("keydown", onTab);
+
   const teardown = () => {
-    for (const r of regions) r.removeEventListener("keydown", onShortcut);
+    for (const r of regions) {
+      r.removeEventListener("keydown", onShortcut);
+      r.removeEventListener("keydown", onTab);
+    }
   };
   return { teardown };
 }

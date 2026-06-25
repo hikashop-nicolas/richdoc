@@ -63,6 +63,35 @@ interface RCtx {
   paraBreaks: Map<string, ParaBreak>; // paragraph style-name -> section break (the odt sectPr equivalent)
   listStarts: Map<string, number>; // list style-name -> level-1 start number
   listRun: { last: number }; // running end-count of the last level-1 ordered list (for continue-numbering)
+  tabStops: Map<string, TabStop[]>; // paragraph style-name -> custom tab stops (px)
+}
+
+/** A paragraph's custom tab stops, shared (as JSON) with the editor and the docx adapter. */
+interface TabStop {
+  pos: number; // px
+  val: string; // left | center | right | decimal
+  leader?: string; // "dot" for a dotted leader
+}
+const ODT_TAB_TYPE: Record<string, string> = { left: "left", center: "center", right: "right", char: "decimal" };
+
+/** Index paragraph-family styles' tab stops (style:tab-stops), in px. */
+function collectTabStops(doc: Document, lenToPx: (v: string | null) => number | undefined): Map<string, TabStop[]> {
+  const map = new Map<string, TabStop[]>();
+  for (const st of Array.from(doc.getElementsByTagName("style:style"))) {
+    if (st.getAttribute("style:family") !== "paragraph") continue;
+    const name = st.getAttribute("style:name");
+    const tabs = st.getElementsByTagName("style:tab-stops")[0];
+    if (!name || !tabs) continue;
+    const stops = Array.from(tabs.getElementsByTagName("style:tab-stop"))
+      .map((tb) => ({
+        pos: Math.round(lenToPx(tb.getAttribute("style:position")) ?? 0),
+        val: ODT_TAB_TYPE[tb.getAttribute("style:type") ?? "left"] ?? "left",
+        leader: tb.getAttribute("style:leader-style") && tb.getAttribute("style:leader-style") !== "none" ? "dot" : undefined,
+      }))
+      .filter((s) => s.pos > 0);
+    if (stops.length) map.set(name, stops);
+  }
+  return map;
 }
 
 /** A paragraph style's section break: a page break before/after and/or a new page master. */
@@ -500,7 +529,7 @@ function inlineToHtml(el: Element, ctx: RCtx): string {
         html += "<br>";
         break;
       case "text:tab":
-        html += "    ";
+        html += `<span class="docx-tab" data-docx-tab="1" contenteditable="false">\t</span>`;
         break;
       case "text:s": {
         const n = parseInt(child.getAttribute("text:c") ?? "1", 10) || 1;
@@ -617,11 +646,14 @@ function blockToHtml(el: Element, ctx: RCtx): string {
   const odtPageBreak = `<span class="docx-pagebreak docx-pagebreak-auto" contenteditable="false" data-docx-pagebreak="auto" data-label="${escapeAttr(t("pageBreak"))}"></span>`;
   const before = beforePage ? odtPageBreak : "";
   const after = afterPage ? odtPageBreak : "";
+  // Custom tab stops from the paragraph's own or parent style, preserved as data-rdoc-tabstops.
+  const stops = ctx.tabStops.get(sn) ?? ctx.tabStops.get(ctx.autoParent.get(sn) ?? "");
+  const tabAttr = stops && stops.length ? ` data-rdoc-tabstops="${escapeAttr(JSON.stringify(stops))}"` : "";
   switch (el.tagName) {
     case "text:h": {
       const lvl = Math.min(3, Math.max(1, parseInt(el.getAttribute("text:outline-level") ?? "1", 10) || 1));
       const inner = inlineToHtml(el, ctx);
-      return `${before}<h${lvl}${alignAttr()}${breakAttr}>${inner || "<br>"}</h${lvl}>${after}`;
+      return `${before}<h${lvl}${alignAttr()}${breakAttr}${tabAttr}>${inner || "<br>"}</h${lvl}>${after}`;
     }
     case "text:list":
       return listToHtml(el, ctx);
@@ -629,7 +661,7 @@ function blockToHtml(el: Element, ctx: RCtx): string {
       return odtTableHtml(el, ctx);
     case "text:p": {
       const inner = inlineToHtml(el, ctx);
-      return `${before}<p${alignAttr()}${namedAttr()}${breakAttr}>${inner || "<br>"}</p>${after}`;
+      return `${before}<p${alignAttr()}${namedAttr()}${breakAttr}${tabAttr}>${inner || "<br>"}</p>${after}`;
     }
     default:
       // Tables, tracked-changes, sequence-decls, sections, ... preserved verbatim.
@@ -644,7 +676,7 @@ function readHeaderFooter(files: Record<string, Uint8Array>): { header: string; 
   const doc = new DOMParser().parseFromString(strFromU8(raw), "application/xml");
   const master = doc.getElementsByTagName("style:master-page")[0];
   if (!master) return { header: "", footer: "" };
-  const ctx: RCtx = { files, styles: collectTextStyles(doc), paras: collectParaStyles(doc), cellStyles: collectCellStyles(doc), tableMargins: collectTableMargins(doc), listStyles: collectListStyles(doc), namedStyles: new Set(), autoParent: new Map(), namedCharStyles: new Set(), textAutoParent: new Map(), threads: [], rangedNames: new Set(), openComment: new Set(), changes: new Map(), openIns: new Set(), graphicStyles: collectGraphicStyles(doc), paraBreaks: collectParaBreaks(doc), listStarts: collectListStarts(doc), listRun: { last: 0 } };
+  const ctx: RCtx = { files, styles: collectTextStyles(doc), paras: collectParaStyles(doc), cellStyles: collectCellStyles(doc), tableMargins: collectTableMargins(doc), listStyles: collectListStyles(doc), namedStyles: new Set(), autoParent: new Map(), namedCharStyles: new Set(), textAutoParent: new Map(), threads: [], rangedNames: new Set(), openComment: new Set(), changes: new Map(), openIns: new Set(), graphicStyles: collectGraphicStyles(doc), paraBreaks: collectParaBreaks(doc), listStarts: collectListStarts(doc), listRun: { last: 0 }, tabStops: collectTabStops(doc, lenToPx) };
   const render = (tag: string): string => {
     const el = master.getElementsByTagName(tag)[0];
     if (!el) return "";
@@ -694,14 +726,16 @@ export function odtToParts(bytes: Uint8Array): { body: string; comments: Comment
   const graphicStyles = collectGraphicStyles(doc);
   const paraBreaks = collectParaBreaks(doc);
   const listStarts = collectListStarts(doc);
+  const tabStops = collectTabStops(doc, lenToPx);
   const stylesRaw = files["styles.xml"];
   if (stylesRaw) {
     const sdoc = new DOMParser().parseFromString(strFromU8(stylesRaw), "application/xml");
     for (const [k, v] of collectGraphicStyles(sdoc)) if (!graphicStyles.has(k)) graphicStyles.set(k, v);
     for (const [k, v] of collectParaBreaks(sdoc)) if (!paraBreaks.has(k)) paraBreaks.set(k, v);
     for (const [k, v] of collectListStarts(sdoc)) if (!listStarts.has(k)) listStarts.set(k, v);
+    for (const [k, v] of collectTabStops(sdoc, lenToPx)) if (!tabStops.has(k)) tabStops.set(k, v);
   }
-  const ctx: RCtx = { files, styles: collectTextStyles(doc), paras: collectParaStyles(doc), cellStyles: collectCellStyles(doc), tableMargins: collectTableMargins(doc), listStyles: collectListStyles(doc), namedStyles: ps.namedPara, autoParent: collectAutoParents(doc, "paragraph"), namedCharStyles: ps.namedChar, textAutoParent: collectAutoParents(doc, "text"), threads: [], rangedNames, openComment: new Set(), changes: readChanges(body), openIns: new Set(), graphicStyles, paraBreaks, listStarts, listRun: { last: 0 } };
+  const ctx: RCtx = { files, styles: collectTextStyles(doc), paras: collectParaStyles(doc), cellStyles: collectCellStyles(doc), tableMargins: collectTableMargins(doc), listStyles: collectListStyles(doc), namedStyles: ps.namedPara, autoParent: collectAutoParents(doc, "paragraph"), namedCharStyles: ps.namedChar, textAutoParent: collectAutoParents(doc, "text"), threads: [], rangedNames, openComment: new Set(), changes: readChanges(body), openIns: new Set(), graphicStyles, paraBreaks, listStarts, listRun: { last: 0 }, tabStops };
   let html = "";
   for (const block of Array.from(body.children)) {
     if (block.tagName === "text:tracked-changes") continue; // metadata, parsed into ctx.changes

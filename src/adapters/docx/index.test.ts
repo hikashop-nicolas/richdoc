@@ -312,6 +312,22 @@ describe("docx <-> html", () => {
     expect(xml).toContain("wp:wrapNone");
   });
 
+  it("round-trips a tab character and the paragraph's custom tab stops", () => {
+    const doc = `<?xml version="1.0"?>
+<w:document xmlns:w="http://schemas.openxmlformats.org/wordprocessingml/2006/main"><w:body>
+ <w:p><w:pPr><w:tabs><w:tab w:val="left" w:pos="2160"/><w:tab w:val="right" w:pos="6480" w:leader="dot"/></w:tabs></w:pPr><w:r><w:t>a</w:t><w:tab/><w:t>b</w:t></w:r></w:p>
+</w:body></w:document>`;
+    const html = docxToHtml(makeDocx(doc));
+    expect(html).toContain('data-docx-tab="1"'); // the tab character is shown as an atomic span
+    expect(html).toContain("data-rdoc-tabstops"); // the paragraph's stops are preserved
+    const xml = strFromU8(unzipSync(htmlToDocx(html.replace(">a<", ">A<"), makeDocx(doc)))["word/document.xml"]);
+    expect(xml).toContain("<w:tab/>"); // the tab character round-trips
+    expect(xml).toMatch(/<w:tabs>/); // the custom stops round-trip
+    expect(xml).toMatch(/w:pos="2160"/); // 2160 twips = 144px, back to 2160
+    expect(xml).toMatch(/w:leader="dot"/);
+    expect(xml).toContain("A");
+  });
+
   it("preserves a mid-document section break through an edit (no flattening)", () => {
     // Section one ends at its paragraph (w:pPr/w:sectPr, next-page, portrait); the trailing
     // body sectPr governs section two (landscape).

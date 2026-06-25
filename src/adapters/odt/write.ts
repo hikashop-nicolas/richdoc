@@ -10,6 +10,17 @@ import { applyFrameLayout } from "./image-layout";
 
 const pxToCm = (px: number): string => `${Math.round((px / (96 / 2.54)) * 1000) / 1000}cm`;
 
+/** Parse the data-rdoc-tabstops JSON into a tab-stop list, or undefined. */
+const parseTabStops = (s: string | null): { pos: number; val?: string; leader?: string }[] | undefined => {
+  if (!s) return undefined;
+  try {
+    const a = JSON.parse(s);
+    return Array.isArray(a) && a.length ? a : undefined;
+  } catch {
+    return undefined;
+  }
+};
+
 /** Ensure <office:automatic-styles> exists, returning it. The new node is placed before
    `beforeTag` (office:body in content.xml, office:master-styles in styles.xml). */
 function ensureAutoStyles(doc: Document, beforeTag = "office:body"): Element {
@@ -63,7 +74,7 @@ function styleFor(doc: Document, auto: Element, created: Map<string, string>, f:
 /** Create (once) a paragraph style for an alignment and return its name. The breakBefore /
     breakAfter / masterPage fields carry a section break (a new page, optionally with a
     different page master) so editing a paragraph does not drop it. */
-function paraStyleFor(doc: Document, auto: Element, created: Map<string, string>, p: { align?: string; indentPx?: number; lineHeight?: number; spaceBeforePx?: number; spaceAfterPx?: number; parent?: string; breakBefore?: string; breakAfter?: string; masterPage?: string }): string | null {
+function paraStyleFor(doc: Document, auto: Element, created: Map<string, string>, p: { align?: string; indentPx?: number; lineHeight?: number; spaceBeforePx?: number; spaceAfterPx?: number; parent?: string; breakBefore?: string; breakAfter?: string; masterPage?: string; tabStops?: { pos: number; val?: string; leader?: string }[] }): string | null {
   const a = p.align ? ODF_ALIGN[p.align] : undefined;
   const align = a && a !== "left" ? a : undefined;
   const indentPx = p.indentPx && p.indentPx > 0 ? Math.round(p.indentPx) : undefined;
@@ -71,9 +82,10 @@ function paraStyleFor(doc: Document, auto: Element, created: Map<string, string>
   const before = p.spaceBeforePx; // may be 0 (explicit "no space"); undefined = not set
   const after = p.spaceAfterPx;
   const { breakBefore, breakAfter, masterPage } = p;
-  // With no direct formatting and no section break, the caller references the named style directly.
-  if (!align && !indentPx && !lineHeight && before === undefined && after === undefined && !breakBefore && !breakAfter && !masterPage) return null;
-  const key = `p_${align ?? ""}_${indentPx ?? ""}_${lineHeight ?? ""}_${before ?? ""}_${after ?? ""}_${p.parent ?? ""}_${breakBefore ?? ""}_${breakAfter ?? ""}_${masterPage ?? ""}`;
+  const tabStops = p.tabStops && p.tabStops.length ? p.tabStops : undefined;
+  // With no direct formatting and no section break / tabs, the caller references the named style.
+  if (!align && !indentPx && !lineHeight && before === undefined && after === undefined && !breakBefore && !breakAfter && !masterPage && !tabStops) return null;
+  const key = `p_${align ?? ""}_${indentPx ?? ""}_${lineHeight ?? ""}_${before ?? ""}_${after ?? ""}_${p.parent ?? ""}_${breakBefore ?? ""}_${breakAfter ?? ""}_${masterPage ?? ""}_${tabStops ? JSON.stringify(tabStops) : ""}`;
   const existing = created.get(key);
   if (existing) return existing;
   const name = `OT_p${created.size}`;
@@ -90,6 +102,23 @@ function paraStyleFor(doc: Document, auto: Element, created: Map<string, string>
   if (after !== undefined) pp.setAttributeNS(NS.fo, "fo:margin-bottom", pxToCm(after));
   if (breakBefore) pp.setAttributeNS(NS.fo, "fo:break-before", breakBefore);
   if (breakAfter) pp.setAttributeNS(NS.fo, "fo:break-after", breakAfter);
+  if (tabStops) {
+    const ts = doc.createElementNS(NS.style, "style:tab-stops");
+    const ODT_TYPE: Record<string, string> = { left: "left", center: "center", right: "right", decimal: "char" };
+    for (const s of tabStops) {
+      const tb = doc.createElementNS(NS.style, "style:tab-stop");
+      tb.setAttributeNS(NS.style, "style:position", pxToCm(s.pos || 0));
+      const type = ODT_TYPE[s.val || "left"] ?? "left";
+      if (type !== "left") tb.setAttributeNS(NS.style, "style:type", type);
+      if (type === "char") tb.setAttributeNS(NS.style, "style:char", ".");
+      if (s.leader) {
+        tb.setAttributeNS(NS.style, "style:leader-style", "dotted");
+        tb.setAttributeNS(NS.style, "style:leader-text", ".");
+      }
+      ts.appendChild(tb);
+    }
+    pp.appendChild(ts);
+  }
   st.appendChild(pp);
   auto.appendChild(st);
   created.set(key, name);
@@ -252,6 +281,10 @@ function htmlInlineToOdf(node: Node, parent: Element, f: Fmt, ctx: OdfCtx): void
     if (stash) {
       const node2 = importPassthrough(ctx.doc, stash);
       if (node2) parent.appendChild(node2);
+      continue;
+    }
+    if (el.getAttribute("data-docx-tab")) {
+      parent.appendChild(ctx.doc.createElementNS(NS.text, "text:tab"));
       continue;
     }
     if (tag === "br") {
@@ -674,6 +707,7 @@ function htmlBlockToOdf(node: Node, ctx: OdfCtx): Element | null {
       breakBefore: el.getAttribute("data-odt-break-before") || undefined,
       breakAfter: el.getAttribute("data-odt-break-after") || undefined,
       masterPage: el.getAttribute("data-odt-masterpage") || undefined,
+      tabStops: parseTabStops(el.getAttribute("data-rdoc-tabstops")),
     });
     // direct formatting -> an automatic style (parented to the named one); otherwise the named style itself
     if (name) block.setAttributeNS(NS.text, "text:style-name", name);

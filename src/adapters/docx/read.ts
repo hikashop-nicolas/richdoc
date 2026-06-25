@@ -467,7 +467,7 @@ function runToHtml(run: Element): string {
     if (node.nodeType !== 1) continue;
     const el = node as Element;
     if (el.tagName === "w:t" || el.tagName === "w:delText") text += escapeHtml(el.textContent ?? "");
-    else if (el.tagName === "w:tab") text += "    ";
+    else if (el.tagName === "w:tab") text += '<span class="docx-tab" data-docx-tab="1" contenteditable="false">\t</span>';
     else if (el.tagName === "w:br") {
       if (el.getAttribute("w:type") === "page") {
         flush();
@@ -584,6 +584,7 @@ interface PInfo {
   revDate?: string;
   sectPr?: string; // a mid-document section break (w:pPr/w:sectPr), preserved verbatim
   sectBreak?: boolean; // that section starts a new page (type != continuous) -> show a page break
+  tabStops?: string; // JSON [{pos,val,leader}] of the paragraph's custom tab stops (w:tabs)
 }
 function paragraphInfo(p: Element, numbering: Map<string, boolean>): PInfo {
   const pPr = p.getElementsByTagName("w:pPr")[0];
@@ -611,6 +612,14 @@ function paragraphInfo(p: Element, numbering: Map<string, boolean>): PInfo {
   // sectPr is a child of w:body and handled separately). Preserve it so editing keeps sections.
   const sectEl = pPr ? Array.from(pPr.children).find((c) => c.tagName === "w:sectPr") : undefined;
   const sectType = sectEl?.getElementsByTagName("w:type")[0]?.getAttribute("w:val");
+  // Custom tab stops (w:pPr/w:tabs); skip "clear" entries. Preserved so an edit keeps them.
+  const tabsEl = pPr ? Array.from(pPr.children).find((c) => c.tagName === "w:tabs") : undefined;
+  const stops = tabsEl
+    ? Array.from(tabsEl.getElementsByTagName("w:tab"))
+        .filter((tb) => (tb.getAttribute("w:val") ?? "left") !== "clear")
+        .map((tb) => ({ pos: Math.round(twipToPx(tb.getAttribute("w:pos")) ?? 0), val: tb.getAttribute("w:val") ?? "left", leader: tb.getAttribute("w:leader") ?? undefined }))
+        .filter((s) => s.pos > 0)
+    : [];
   return {
     heading,
     isList: !!numPr,
@@ -630,6 +639,7 @@ function paragraphInfo(p: Element, numbering: Map<string, boolean>): PInfo {
     revDate: mark?.getAttribute("w:date") ?? undefined,
     sectPr: sectEl ? serializePassthrough(sectEl) : undefined,
     sectBreak: sectEl ? sectType !== "continuous" : undefined,
+    tabStops: stops.length ? JSON.stringify(stops) : undefined,
   };
 }
 function blockStyleAttr(info: PInfo): string {
@@ -643,8 +653,9 @@ function blockStyleAttr(info: PInfo): string {
   const style = parts.length ? ` style="${parts.join(";")}"` : "";
   const styleAttr = info.styleId ? ` data-rdoc-style="${escapeAttr(info.styleId)}"` : "";
   const sectAttr = info.sectPr ? ` data-docx-sectpr="${escapeAttr(info.sectPr)}"` : "";
-  if (!info.revPara) return style + styleAttr + sectAttr;
-  return `${style}${styleAttr}${sectAttr} class="docx-para-${info.revPara}" data-rev-para="${info.revPara}" data-rev-author="${escapeAttr(info.revAuthor ?? "")}" data-rev-date="${escapeAttr(info.revDate ?? "")}"`;
+  const tabAttr = info.tabStops ? ` data-rdoc-tabstops="${escapeAttr(info.tabStops)}"` : "";
+  if (!info.revPara) return style + styleAttr + sectAttr + tabAttr;
+  return `${style}${styleAttr}${sectAttr}${tabAttr} class="docx-para-${info.revPara}" data-rev-para="${info.revPara}" data-rev-author="${escapeAttr(info.revAuthor ?? "")}" data-rev-date="${escapeAttr(info.revDate ?? "")}"`;
 }
 
 /** Build nested <ul>/<ol> from a flat list of items carrying their nesting level (w:ilvl).

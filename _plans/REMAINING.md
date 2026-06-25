@@ -33,6 +33,10 @@ context (a paragraph, or the document body) is regenerated from the edited HTML.
 - Header / footer (the default one), with live page-number / page-count / TOC
   fields.
 - Inline images, hyperlinks.
+- **Tabs**: a tab character round-trips (docx `w:tab`, odt `text:tab`) and renders at
+  tab stops (the browser's `tab-size`, i.e. the default 0.5in grid); Tab inserts one,
+  Shift+Tab removes it; copy/paste yields a real tab. A paragraph's custom tab stops
+  are preserved through edits.
 - **Floating / anchored images + text wrap**: inline, wrap (square), break
   (top-and-bottom), behind text, in front of text; alignment; alt text; behind /
   front are draggable to position. An on-select image toolbar drives it; docx maps
@@ -60,9 +64,11 @@ because their context is regenerated. This is the work for "feature complete".
 2. **Columns (`w:cols`).** Preserved for a single section (it rides the trailing
    sectPr) but not authorable, and authored sections (C1) would need a per-section
    column control.
-3. **Tab stops (`w:tabs`).** Dropped from any paragraph that is edited. Needs a
-   model + ruler tab markers (browsers do not render custom tab stops natively, so
-   this is real work).
+3. **Tab-stop positioning + authoring.** Tabs and a paragraph's custom stops now
+   round-trip (see bucket A), but custom stop *positions* render at the default 0.5in
+   grid (preserved on save, not shown at their real x), and right / center / decimal
+   alignment is approximated as left. A ruler to add/move stops and honour their
+   alignment is the remaining work (browsers don't render arbitrary stops natively).
 4. **Style authoring depth.** Editing now preserves a style's other properties and
    its inheritance (see bucket A), but the dialog still only *authors* the common
    properties; tab stops, borders and the long tail cannot yet be set from the UI

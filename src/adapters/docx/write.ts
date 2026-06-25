@@ -316,6 +316,12 @@ function appendInline(ctx: DocxCtx, node: Node, parent: Element, f: Fmt, del = f
       if (pb !== "auto") parent.appendChild(pageBreakRun(ctx));
       continue; // auto markers are display-only; Word recreates them
     }
+    if (el.getAttribute("data-docx-tab")) {
+      const r = ctx.doc.createElementNS(W, "w:r");
+      r.appendChild(ctx.doc.createElementNS(W, "w:tab"));
+      parent.appendChild(r);
+      continue;
+    }
     if (tag === "br") {
       const r = ctx.doc.createElementNS(W, "w:r");
       r.appendChild(ctx.doc.createElementNS(W, "w:br"));
@@ -375,7 +381,8 @@ function makeParagraph(ctx: DocxCtx, src: HTMLElement, opts: { heading?: number;
   const revPara = src.getAttribute("data-rev-para"); // "ins" | "del" paragraph-mark revision
   const namedStyle = !opts.heading ? src.getAttribute("data-rdoc-style") : null; // a non-heading named style
   const sectXml = src.getAttribute("data-docx-sectpr"); // a mid-document section break to re-emit
-  if (opts.heading || namedStyle || opts.listNumId || jc || revPara || sectXml || indentPx > 0 || lineHeight > 0 || hasBefore || hasAfter) {
+  const tabStops = src.getAttribute("data-rdoc-tabstops"); // custom tab stops (JSON), schema-ordered before spacing
+  if (opts.heading || namedStyle || opts.listNumId || jc || revPara || sectXml || tabStops || indentPx > 0 || lineHeight > 0 || hasBefore || hasAfter) {
     const pPr = ctx.doc.createElementNS(W, "w:pPr");
     if (opts.heading || namedStyle) {
       const st = ctx.doc.createElementNS(W, "w:pStyle");
@@ -390,6 +397,22 @@ function makeParagraph(ctx: DocxCtx, src: HTMLElement, opts: { heading?: number;
       numId.setAttributeNS(W, "w:val", opts.listNumId);
       numPr.append(ilvl, numId);
       pPr.appendChild(numPr);
+    }
+    if (tabStops) {
+      try {
+        const stops = JSON.parse(tabStops) as { pos: number; val?: string; leader?: string }[];
+        if (Array.isArray(stops) && stops.length) {
+          const tabs = ctx.doc.createElementNS(W, "w:tabs");
+          for (const s of stops) {
+            const tb = ctx.doc.createElementNS(W, "w:tab");
+            tb.setAttributeNS(W, "w:val", s.val || "left");
+            tb.setAttributeNS(W, "w:pos", String(Math.round((s.pos || 0) * 15)));
+            if (s.leader) tb.setAttributeNS(W, "w:leader", s.leader);
+            tabs.appendChild(tb);
+          }
+          pPr.appendChild(tabs);
+        }
+      } catch { /* malformed: skip */ }
     }
     // schema order: w:spacing and w:ind come before w:jc; line + before/after share one element
     if (lineHeight > 0 || hasBefore || hasAfter) {
