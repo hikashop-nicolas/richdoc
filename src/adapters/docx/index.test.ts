@@ -700,3 +700,50 @@ describe("run formatting: strike, superscript, subscript", () => {
     expect(html).toContain("<sub>c</sub>");
   });
 });
+
+describe("list fidelity: nesting and ordered/bullet", () => {
+  it("writes numbering.xml with a bullet and an ordered list and registers the part", () => {
+    const out = htmlToDocx("<ul><li>a</li></ul><ol><li>b</li></ol>", makeDocx());
+    const files = unzipSync(out);
+    const num = strFromU8(files["word/numbering.xml"]!);
+    expect(num).toMatch(/w:numFmt[^>]*w:val="bullet"/);
+    expect(num).toMatch(/w:numFmt[^>]*w:val="decimal"/);
+    // the part is declared and related so Word opens it
+    expect(strFromU8(files["[Content_Types].xml"]!)).toContain("/word/numbering.xml");
+    expect(strFromU8(files["word/_rels/document.xml.rels"]!)).toContain("numbering.xml");
+    // both list types reference a numId via numPr
+    const doc = strFromU8(files["word/document.xml"]!);
+    expect(doc).toMatch(/w:numId/);
+  });
+
+  it("round-trips a nested list, preserving levels and ordered/bullet kind", () => {
+    const html = "<ul><li>top<ol><li>sub1</li><li>sub2</li></ol></li><li>top2</li></ul>";
+    const out = htmlToDocx(html, makeDocx());
+    const doc = strFromU8(unzipSync(out)["word/document.xml"]!);
+    // a level-1 paragraph exists (nested item)
+    expect(doc).toMatch(/w:ilvl[^>]*w:val="1"/);
+    const back = docxToHtml(out);
+    // nested ordered list survives inside the outer unordered list
+    expect(back).toMatch(/<ul>[\s\S]*<ol>[\s\S]*sub1[\s\S]*<\/ol>[\s\S]*<\/ul>/);
+    expect(back).toContain("top2");
+  });
+
+  it("reuses an existing numbering.xml rather than duplicating numIds", () => {
+    const existingNum = `<?xml version="1.0"?>
+<w:numbering xmlns:w="http://schemas.openxmlformats.org/wordprocessingml/2006/main">
+ <w:abstractNum w:abstractNumId="0"><w:lvl w:ilvl="0"><w:numFmt w:val="bullet"/></w:lvl></w:abstractNum>
+ <w:abstractNum w:abstractNumId="1"><w:lvl w:ilvl="0"><w:numFmt w:val="decimal"/></w:lvl></w:abstractNum>
+ <w:num w:numId="1"><w:abstractNumId w:val="0"/></w:num>
+ <w:num w:numId="2"><w:abstractNumId w:val="1"/></w:num>
+</w:numbering>`;
+    const base = unzipSync(makeDocx());
+    base["word/numbering.xml"] = strToU8(existingNum);
+    const out = htmlToDocx("<ul><li>a</li></ul><ol><li>b</li></ol>", zipSync(base));
+    const num = strFromU8(unzipSync(out)["word/numbering.xml"]!);
+    // no new w:num beyond the two that already existed
+    expect((num.match(/<w:num /g) ?? []).length).toBe(2);
+    const doc = strFromU8(unzipSync(out)["word/document.xml"]!);
+    expect(doc).toMatch(/w:numId[^>]*w:val="1"/); // bullet reused
+    expect(doc).toMatch(/w:numId[^>]*w:val="2"/); // ordered reused
+  });
+});

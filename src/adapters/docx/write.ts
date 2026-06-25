@@ -17,7 +17,7 @@ interface DocxCtx {
   relsAdded: boolean;
   nextRid: number;
   nextRevId: number; // next w:ins/w:del revision id
-  listNumId: string | null;
+  listIds: { bullet: string; ordered: string } | null; // resolved/created list numbering ids (lazy)
   files: Record<string, Uint8Array>; // the archive, so new media/content-types can be added
 }
 
@@ -231,6 +231,7 @@ function appendInline(ctx: DocxCtx, node: Node, parent: Element, f: Fmt, del = f
     if (child.nodeType !== 1) continue;
     const el = child as HTMLElement;
     const tag = el.tagName.toLowerCase();
+    if (tag === "ul" || tag === "ol" || tag === "li") continue; // nested lists are emitted as block paragraphs, not inline
     // A field (page number / count): a w:fldSimple whose cached result is the displayed text.
     if (el.classList.contains("docx-field")) {
       const fld = ctx.doc.createElementNS(W, "w:fldSimple");
@@ -328,25 +329,26 @@ function appendInline(ctx: DocxCtx, node: Node, parent: Element, f: Fmt, del = f
   }
 }
 
-function makeParagraph(ctx: DocxCtx, src: HTMLElement, opts: { heading?: number; list?: boolean }): Element {
+function makeParagraph(ctx: DocxCtx, src: HTMLElement, opts: { heading?: number; list?: boolean; listLevel?: number; listOrdered?: boolean }): Element {
   const p = ctx.doc.createElementNS(W, "w:p");
   const jc = JC_BY_ALIGN[src.style.textAlign || ""];
   const indentPx = parseFloat(src.style.marginLeft) || 0;
   const lineHeight = parseFloat(src.style.lineHeight) || 0; // unitless multiple
   const revPara = src.getAttribute("data-rev-para"); // "ins" | "del" paragraph-mark revision
-  if (opts.heading || (opts.list && ctx.listNumId) || jc || revPara || indentPx > 0 || lineHeight > 0) {
+  const listIds = opts.list ? ensureListNumbering(ctx) : null;
+  if (opts.heading || listIds || jc || revPara || indentPx > 0 || lineHeight > 0) {
     const pPr = ctx.doc.createElementNS(W, "w:pPr");
     if (opts.heading) {
       const st = ctx.doc.createElementNS(W, "w:pStyle");
       st.setAttributeNS(W, "w:val", `Heading${opts.heading}`);
       pPr.appendChild(st);
     }
-    if (opts.list && ctx.listNumId) {
+    if (listIds) {
       const numPr = ctx.doc.createElementNS(W, "w:numPr");
       const ilvl = ctx.doc.createElementNS(W, "w:ilvl");
-      ilvl.setAttributeNS(W, "w:val", "0");
+      ilvl.setAttributeNS(W, "w:val", String(opts.listLevel ?? 0));
       const numId = ctx.doc.createElementNS(W, "w:numId");
-      numId.setAttributeNS(W, "w:val", ctx.listNumId);
+      numId.setAttributeNS(W, "w:val", opts.listOrdered ? listIds.ordered : listIds.bullet);
       numPr.append(ilvl, numId);
       pPr.appendChild(numPr);
     }
@@ -615,6 +617,20 @@ function buildNewTable(ctx: DocxCtx, tableEl: HTMLElement): Element {
   return tbl;
 }
 
+/** Flatten a (possibly nested) <ul>/<ol> into list paragraphs, carrying the nesting depth as
+    w:ilvl and the list type as the numId; recurses into nested lists inside each <li>. */
+function appendList(ctx: DocxCtx, body: Element, listEl: Element, depth: number): void {
+  const ordered = listEl.tagName.toLowerCase() === "ol";
+  for (const li of Array.from(listEl.children)) {
+    if (li.tagName.toLowerCase() !== "li") continue;
+    body.appendChild(makeParagraph(ctx, li as HTMLElement, { list: true, listLevel: Math.min(8, depth), listOrdered: ordered }));
+    for (const child of Array.from(li.children)) {
+      const ct = child.tagName.toLowerCase();
+      if (ct === "ul" || ct === "ol") appendList(ctx, body, child, depth + 1);
+    }
+  }
+}
+
 function appendBlock(ctx: DocxCtx, body: Element, node: Node): void {
   if (node.nodeType === 3) {
     if (!(node.textContent ?? "").trim()) return;
@@ -655,10 +671,7 @@ function appendBlock(ctx: DocxCtx, body: Element, node: Node): void {
     return;
   }
   if (tag === "ul" || tag === "ol") {
-    for (const li of Array.from(el.children)) {
-      if (li.tagName.toLowerCase() !== "li") continue;
-      body.appendChild(makeParagraph(ctx, li as HTMLElement, { list: true }));
-    }
+    appendList(ctx, body, el, 0);
     return;
   }
   const hm = /^h([1-6])$/.exec(tag);
@@ -710,11 +723,94 @@ function appendTOC(ctx: DocxCtx, body: Element, el: HTMLElement): void {
   });
 }
 
-function firstNumId(file: Uint8Array | undefined): string | null {
-  if (!file) return null;
-  const doc = new DOMParser().parseFromString(strFromU8(file), "application/xml");
-  const num = doc.getElementsByTagName("w:num")[0];
-  return num?.getAttributeNS(W, "numId") ?? num?.getAttribute("w:numId") ?? null;
+// A 9-level abstractNum: bullets (•/◦/▪) or numbers (decimal/letter/roman), 0.5in indent steps.
+function abstractNumXml(absId: number, bullet: boolean): string {
+  let lvls = "";
+  for (let l = 0; l < 9; l++) {
+    const left = 720 * (l + 1);
+    const fmt = bullet ? "bullet" : ["decimal", "lowerLetter", "lowerRoman"][l % 3];
+    const text = bullet ? ["•", "◦", "▪"][l % 3] : `%${l + 1}.`;
+    lvls += `<w:lvl w:ilvl="${l}"><w:start w:val="1"/><w:numFmt w:val="${fmt}"/><w:lvlText w:val="${text}"/><w:lvlJc w:val="left"/><w:pPr><w:ind w:left="${left}" w:hanging="360"/></w:pPr></w:lvl>`;
+  }
+  return `<w:abstractNum w:abstractNumId="${absId}">${lvls}</w:abstractNum>`;
+}
+
+/** Register word/numbering.xml in [Content_Types].xml and document.xml.rels (when newly created). */
+function registerNumberingPart(files: Record<string, Uint8Array>): void {
+  const ct = files["[Content_Types].xml"];
+  if (ct) {
+    const d = new DOMParser().parseFromString(strFromU8(ct), "application/xml");
+    if (!Array.from(d.getElementsByTagName("Override")).some((o) => o.getAttribute("PartName") === "/word/numbering.xml")) {
+      const ov = d.createElementNS(d.documentElement!.namespaceURI, "Override");
+      ov.setAttribute("PartName", "/word/numbering.xml");
+      ov.setAttribute("ContentType", "application/vnd.openxmlformats-officedocument.wordprocessingml.numbering+xml");
+      d.documentElement!.appendChild(ov);
+      files["[Content_Types].xml"] = strToU8(new XMLSerializer().serializeToString(d));
+    }
+  }
+  const key = "word/_rels/document.xml.rels";
+  const d = files[key]
+    ? new DOMParser().parseFromString(strFromU8(files[key]!), "application/xml")
+    : new DOMParser().parseFromString(`<Relationships xmlns="${PKG}"></Relationships>`, "application/xml");
+  if (!Array.from(d.getElementsByTagName("Relationship")).some((r) => (r.getAttribute("Type") ?? "").endsWith("/numbering"))) {
+    let max = 0;
+    for (const r of Array.from(d.getElementsByTagName("Relationship"))) {
+      const m = /^rId(\d+)$/.exec(r.getAttribute("Id") ?? "");
+      if (m) max = Math.max(max, Number(m[1]));
+    }
+    const rel = d.createElementNS(PKG, "Relationship");
+    rel.setAttribute("Id", `rId${max + 1}`);
+    rel.setAttribute("Type", "http://schemas.openxmlformats.org/officeDocument/2006/relationships/numbering");
+    rel.setAttribute("Target", "numbering.xml");
+    d.documentElement!.appendChild(rel);
+    files[key] = strToU8(new XMLSerializer().serializeToString(d));
+  }
+}
+
+/** Resolve a bullet and an ordered numId, reusing existing ones or adding them to (or creating)
+    word/numbering.xml. Cached on the context so it runs once per save. */
+function ensureListNumbering(ctx: DocxCtx): { bullet: string; ordered: string } {
+  if (ctx.listIds) return ctx.listIds;
+  const files = ctx.files;
+  const existing = files["word/numbering.xml"];
+  let numDoc = existing ? new DOMParser().parseFromString(strFromU8(existing), "application/xml") : null;
+  let bullet: string | undefined;
+  let ordered: string | undefined;
+  if (numDoc) {
+    const absFmt = new Map<string, string>();
+    for (const an of Array.from(numDoc.getElementsByTagName("w:abstractNum"))) {
+      const id = an.getAttributeNS(W, "abstractNumId") ?? an.getAttribute("w:abstractNumId");
+      if (id) absFmt.set(id, an.getElementsByTagName("w:numFmt")[0]?.getAttribute("w:val") ?? "");
+    }
+    for (const num of Array.from(numDoc.getElementsByTagName("w:num"))) {
+      const id = num.getAttributeNS(W, "numId") ?? num.getAttribute("w:numId");
+      const fmt = absFmt.get(num.getElementsByTagName("w:abstractNumId")[0]?.getAttribute("w:val") ?? "");
+      if (!id) continue;
+      if (fmt === "bullet") bullet ??= id;
+      else if (fmt && fmt !== "none") ordered ??= id;
+    }
+  }
+  if (bullet && ordered) return (ctx.listIds = { bullet, ordered });
+  // Create what is missing (and the part itself if absent).
+  const created = !numDoc;
+  if (!numDoc) numDoc = new DOMParser().parseFromString(`<w:numbering xmlns:w="${W}"></w:numbering>`, "application/xml");
+  const root = numDoc.documentElement!;
+  const ids = (tag: string, attr: string) => Array.from(numDoc!.getElementsByTagName(tag)).map((e) => Number(e.getAttribute(attr))).filter((n) => Number.isFinite(n));
+  let nextAbs = Math.max(-1, ...ids("w:abstractNum", "w:abstractNumId")) + 1;
+  let nextNum = Math.max(0, ...ids("w:num", "w:numId")) + 1;
+  const importFrag = (xml: string): Element => numDoc!.importNode(new DOMParser().parseFromString(`<r xmlns:w="${W}">${xml}</r>`, "application/xml").documentElement!.firstElementChild!, true) as Element;
+  const addList = (isBullet: boolean): string => {
+    const absId = nextAbs++;
+    const numId = String(nextNum++);
+    root.insertBefore(importFrag(abstractNumXml(absId, isBullet)), numDoc!.getElementsByTagName("w:num")[0] ?? null);
+    root.appendChild(importFrag(`<w:num w:numId="${numId}"><w:abstractNumId w:val="${absId}"/></w:num>`));
+    return numId;
+  };
+  if (!bullet) bullet = addList(true);
+  if (!ordered) ordered = addList(false);
+  files["word/numbering.xml"] = strToU8(new XMLSerializer().serializeToString(numDoc));
+  if (created) registerNumberingPart(files);
+  return (ctx.listIds = { bullet, ordered });
 }
 
 const relsPathFor = (partPath: string): string => {
@@ -752,7 +848,7 @@ function rebuildPart(files: Record<string, Uint8Array>, partPath: string, html: 
     relsAdded: false,
     nextRid: 1,
     nextRevId: maxRev + 1,
-    listNumId: firstNumId(files["word/numbering.xml"]),
+    listIds: null,
     files,
   };
   if (ctx.rels) {
@@ -810,7 +906,7 @@ function createHeaderFooterPart(files: Record<string, Uint8Array>, kind: "header
   const partDoc = new DOMParser().parseFromString(`<${isHeader ? "w:hdr" : "w:ftr"} ${decls}></${isHeader ? "w:hdr" : "w:ftr"}>`, "application/xml");
   const container = partDoc.documentElement!;
   const relsDoc = new DOMParser().parseFromString(`<Relationships xmlns="${PKG}"></Relationships>`, "application/xml");
-  const ctx: DocxCtx = { doc: partDoc, rels: relsDoc, relsAdded: false, nextRid: 1, nextRevId: 1, listNumId: firstNumId(files["word/numbering.xml"]), files };
+  const ctx: DocxCtx = { doc: partDoc, rels: relsDoc, relsAdded: false, nextRid: 1, nextRevId: 1, listIds: null, files };
   const htmlDoc = new DOMParser().parseFromString(html || "<p><br></p>", "text/html");
   for (const node of Array.from(htmlDoc.body.childNodes)) appendBlock(ctx, container, node);
   if (!container.firstChild) container.appendChild(partDoc.createElementNS(W, "w:p"));

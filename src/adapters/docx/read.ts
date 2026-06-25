@@ -541,6 +541,7 @@ interface PInfo {
   heading: number; // 0 = not a heading
   isList: boolean;
   ordered: boolean;
+  level: number; // list nesting level (w:ilvl), 0 = top
   align?: string; // CSS text-align
   indentPx?: number; // w:ind left indent, in px
   lineHeight?: number; // w:spacing line (auto rule), as a multiple
@@ -558,6 +559,7 @@ function paragraphInfo(p: Element, numbering: Map<string, boolean>): PInfo {
   if (hm) heading = Number(hm[1]);
   const numPr = pPr?.getElementsByTagName("w:numPr")[0];
   const numId = numPr?.getElementsByTagName("w:numId")[0]?.getAttribute("w:val") ?? "";
+  const level = Math.max(0, Math.min(8, Number(numPr?.getElementsByTagName("w:ilvl")[0]?.getAttribute("w:val")) || 0));
   const jc = pPr?.getElementsByTagName("w:jc")[0]?.getAttribute("w:val") ?? "";
   const ind = pPr?.getElementsByTagName("w:ind")[0];
   const indentPx = twipToPx(ind?.getAttribute("w:left") ?? ind?.getAttribute("w:start"));
@@ -572,6 +574,7 @@ function paragraphInfo(p: Element, numbering: Map<string, boolean>): PInfo {
     heading,
     isList: !!numPr,
     ordered: numbering.get(numId) ?? false,
+    level,
     align: JC_TO_ALIGN[jc],
     indentPx: indentPx && indentPx > 0 ? Math.round(indentPx) : undefined,
     lineHeight,
@@ -593,15 +596,34 @@ function blockStyleAttr(info: PInfo): string {
   return `${style} class="docx-para-${info.revPara}" data-rev-para="${info.revPara}" data-rev-author="${escapeAttr(info.revAuthor ?? "")}" data-rev-date="${escapeAttr(info.revDate ?? "")}"`;
 }
 
+/** Build nested <ul>/<ol> from a flat list of items carrying their nesting level (w:ilvl).
+    A deeper item opens new lists inside the current <li>; a shallower one closes them. */
+function buildNestedList(items: { level: number; ordered: boolean; li: string }[]): string {
+  let html = "";
+  const open: string[] = []; // stack of open list tags
+  for (const it of items) {
+    const depth = it.level + 1; // number of lists that should be open
+    while (open.length > depth) html += `</li></${open.pop()}>`;
+    if (open.length === depth) html += "</li>"; // sibling at the same level
+    while (open.length < depth) {
+      const tag = it.ordered ? "ol" : "ul";
+      html += `<${tag}>`;
+      open.push(tag);
+    }
+    html += `<li${it.li}`;
+  }
+  while (open.length) html += `</li></${open.pop()}>`;
+  return html;
+}
+
 /** Render a block container (w:body or a header/footer root) to HTML. */
 function renderBlocks(container: Element, ctx: RenderCtx): string {
   let html = "";
-  let listItems: string[] = [];
-  let listOrdered = false;
+  let listBuf: { level: number; ordered: boolean; li: string }[] = [];
   const flushList = () => {
-    if (!listItems.length) return;
-    html += `<${listOrdered ? "ol" : "ul"}>${listItems.join("")}</${listOrdered ? "ol" : "ul"}>`;
-    listItems = [];
+    if (!listBuf.length) return;
+    html += buildNestedList(listBuf);
+    listBuf = [];
   };
   for (const node of Array.from(container.children)) {
     if (node.tagName === "w:tbl") {
@@ -621,8 +643,7 @@ function renderBlocks(container: Element, ctx: RenderCtx): string {
     const info = paragraphInfo(node, ctx.numbering);
     const inner = inlineToHtml(node, ctx);
     if (info.isList) {
-      listOrdered = info.ordered;
-      listItems.push(`<li${blockStyleAttr(info)}>${inner || "<br>"}</li>`);
+      listBuf.push({ level: info.level, ordered: info.ordered, li: `${blockStyleAttr(info)}>${inner || "<br>"}` });
       continue;
     }
     flushList();

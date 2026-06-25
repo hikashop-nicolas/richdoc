@@ -325,12 +325,48 @@ export function setupToolbar(deps: ToolbarDeps) {
     '<rect x="2" y="2.5" width="12" height="1.6" rx=".6"/><rect x="7" y="6" width="7" height="1.6" rx=".6"/>' +
     '<rect x="7" y="9.4" width="7" height="1.6" rx=".6"/><rect x="2" y="12.9" width="12" height="1.6" rx=".6"/>' +
     (dir > 0 ? '<path d="M2 6.2l2.6 1.9L2 10z"/>' : '<path d="M4.6 6.2L2 8.1l2.6 1.9z"/>') + "</svg>";
+  const STEP = 48; // 0.5in
+  const marginAdjust = (b: HTMLElement, dir: 1 | -1) => {
+    const next = Math.max(0, (parseFloat(b.style.marginLeft) || 0) + dir * STEP);
+    b.style.marginLeft = next ? `${next}px` : "";
+  };
+  // Indent a list item by sinking it into a sublist on its previous sibling (real nesting,
+  // so it round-trips as w:ilvl / a deeper text:list rather than a margin).
+  const indentLi = (li: HTMLElement) => {
+    const prev = li.previousElementSibling as HTMLElement | null;
+    if (!prev || prev.tagName !== "LI") return marginAdjust(li, 1); // first item can't nest
+    const parentTag = (li.parentElement?.tagName ?? "UL").toLowerCase();
+    let sub = prev.lastElementChild as HTMLElement | null;
+    if (!sub || (sub.tagName !== "UL" && sub.tagName !== "OL")) {
+      sub = li.ownerDocument.createElement(parentTag);
+      prev.appendChild(sub);
+    }
+    sub.appendChild(li);
+  };
+  const outdentLi = (li: HTMLElement) => {
+    const parentList = li.parentElement as HTMLElement | null;
+    const grandLi = parentList?.parentElement as HTMLElement | null;
+    if (!parentList || !grandLi || grandLi.tagName !== "LI") return marginAdjust(li, -1); // already top level
+    const outerList = grandLi.parentElement as HTMLElement;
+    // following siblings stay nested under the outdented item, preserving their depth
+    let next: Element | null = li.nextElementSibling;
+    if (next) {
+      const newSub = li.ownerDocument.createElement(parentList.tagName.toLowerCase());
+      while (next) {
+        const after: Element | null = next.nextElementSibling;
+        newSub.appendChild(next);
+        next = after;
+      }
+      li.appendChild(newSub);
+    }
+    outerList.insertBefore(li, grandLi.nextElementSibling);
+    if (!parentList.children.length) parentList.remove();
+  };
   const adjustIndent = (dir: 1 | -1) => {
     getActiveEl().focus();
-    const STEP = 48; // 0.5in
     for (const b of selectedBlocks()) {
-      const next = Math.max(0, (parseFloat(b.style.marginLeft) || 0) + dir * STEP);
-      b.style.marginLeft = next ? `${next}px` : "";
+      if (b.tagName === "LI") dir === 1 ? indentLi(b) : outdentLi(b);
+      else marginAdjust(b, dir);
     }
     mark();
   };

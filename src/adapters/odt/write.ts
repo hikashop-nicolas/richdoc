@@ -191,6 +191,7 @@ function htmlInlineToOdf(node: Node, parent: Element, f: Fmt, ctx: OdfCtx): void
     if (child.nodeType !== 1) continue;
     const el = child as HTMLElement;
     const tag = el.tagName.toLowerCase();
+    if (tag === "ul" || tag === "ol" || tag === "li") continue; // nested lists handled by htmlListToOdf, not inline
     const stash = el.getAttribute("data-odt-xml");
     if (stash) {
       const node2 = importPassthrough(ctx.doc, stash);
@@ -282,16 +283,53 @@ function htmlInlineToOdf(node: Node, parent: Element, f: Fmt, ctx: OdfCtx): void
   }
 }
 
+/** A 10-level list style, all-number or all-bullet, cached on the context. Each text:list
+    element carries the style matching its own tag, so nesting ol/ul in any order round-trips. */
+function listStyleFor(ctx: OdfCtx, ordered: boolean): string {
+  const key = ordered ? "list:ordered" : "list:bullet";
+  const cached = ctx.created.get(key);
+  if (cached) return cached;
+  const name = ordered ? "OT_LO" : "OT_LB";
+  const ls = ctx.doc.createElementNS(NS.text, "text:list-style");
+  ls.setAttributeNS(NS.style, "style:name", name);
+  for (let l = 1; l <= 10; l++) {
+    const lvl = ctx.doc.createElementNS(NS.text, ordered ? "text:list-level-style-number" : "text:list-level-style-bullet");
+    lvl.setAttributeNS(NS.text, "text:level", String(l));
+    if (ordered) {
+      lvl.setAttributeNS(NS.style, "style:num-format", "1");
+      lvl.setAttributeNS(NS.style, "style:num-suffix", ".");
+    } else {
+      lvl.setAttributeNS(NS.text, "text:bullet-char", ["•", "◦", "▪"][(l - 1) % 3]);
+    }
+    const lp = ctx.doc.createElementNS(NS.style, "style:list-level-properties");
+    lp.setAttributeNS(NS.text, "text:list-level-position-and-space-mode", "label-alignment");
+    const la = ctx.doc.createElementNS(NS.style, "style:list-level-label-alignment");
+    la.setAttributeNS(NS.text, "text:label-followed-by", "listtab");
+    la.setAttributeNS(NS.fo, "fo:margin-left", `${l * 0.635}cm`);
+    la.setAttributeNS(NS.fo, "fo:text-indent", "-0.635cm");
+    lp.appendChild(la);
+    lvl.appendChild(lp);
+    ls.appendChild(lvl);
+  }
+  ctx.auto.appendChild(ls);
+  ctx.created.set(key, name);
+  return name;
+}
+
 function htmlListToOdf(el: HTMLElement, ctx: OdfCtx): Element {
+  const ordered = el.tagName.toLowerCase() === "ol";
   const list = ctx.doc.createElementNS(NS.text, "text:list");
+  list.setAttributeNS(NS.text, "text:style-name", listStyleFor(ctx, ordered));
   for (const li of Array.from(el.children)) {
     if (li.tagName.toLowerCase() !== "li") continue;
     const item = ctx.doc.createElementNS(NS.text, "text:list-item");
-    const nested = li.querySelector(":scope > ul, :scope > ol");
     const p = ctx.doc.createElementNS(NS.text, "text:p");
     htmlInlineToOdf(li, p, FMT0, ctx);
     item.appendChild(p);
-    if (nested) item.appendChild(htmlListToOdf(nested as HTMLElement, ctx));
+    for (const nested of Array.from(li.children)) {
+      const nt = nested.tagName.toLowerCase();
+      if (nt === "ul" || nt === "ol") item.appendChild(htmlListToOdf(nested as HTMLElement, ctx));
+    }
     list.appendChild(item);
   }
   return list;

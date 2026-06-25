@@ -1,16 +1,17 @@
 # richdoc - remaining gaps
 
-The DOCX_CAPABILITIES_PLAN workstreams W1-W6 and W3 are all shipped (page sizes,
+The DOCX_CAPABILITIES_PLAN workstreams W1-W7 are all shipped (page sizes,
 orientation, vertical/RTL writing with paginated tategaki + header/footer + rulers,
 editable tables with borders/resize/merge/indent, run formatting, paragraph indent +
-line spacing), plus extras the plan did not list (cell border colour/style/width,
-table column/row/indent resize with graduated rulers + magnet, and fields: page
-number / count / table of contents). What is left:
+line spacing, and nested ordered/unordered lists), plus extras the plan did not list
+(cell border colour/style/width, table column/row/indent resize with graduated rulers
++ magnet, and fields: page number / count / table of contents). What is left:
 
 ## Modelled-but-incomplete
-- **W7 - list fidelity**: ordered/unordered lists are best-effort. Nesting levels and
-  restart/continue numbering are not modelled (`w:numPr`/`w:ilvl`/`w:numId`, odt
-  `text:list-level`). Edited lists flatten to one level.
+- **List restart/continue numbering**: nesting levels and ordered/bullet kind now
+  round-trip (w:numPr/w:ilvl/w:numId, odt per-level list styles), and the indent /
+  outdent buttons create real nesting. Restart-at-N and continue-previous-list are
+  still not modelled; every ordered list restarts at 1.
 - **Paragraph spacing before/after**: `w:spacing @w:before/@w:after` (odt
   `fo:margin-top/bottom`) is normalised away when a paragraph is regenerated. Line
   spacing and indent are modelled; before/after spacing is not.

@@ -46,6 +46,7 @@ interface RCtx {
   paras: Map<string, PFmt>;
   cellStyles: Map<string, CellBorders>;
   tableMargins: Map<string, number>; // table style-name -> left indent (px)
+  listStyles: Map<string, boolean[]>; // list style-name -> per-level ordered flag
   threads: CommentThread[]; // comments collected while rendering, for the panel
   rangedNames: Set<string>; // annotation names that have a matching annotation-end
   openComment: Set<string>; // comment ranges currently open (reopened per paragraph)
@@ -214,6 +215,23 @@ function collectCellStyles(doc: Document): Map<string, CellBorders> {
   return map;
 }
 
+/** Map list-style-name -> per-level ordered flag (index = level-1): number style = ordered,
+    bullet style = unordered. Lets the reader emit <ol> vs <ul> at each nesting depth. */
+function collectListStyles(doc: Document): Map<string, boolean[]> {
+  const map = new Map<string, boolean[]>();
+  for (const ls of Array.from(doc.getElementsByTagName("text:list-style"))) {
+    const name = ls.getAttribute("style:name");
+    if (!name) continue;
+    const levels: boolean[] = [];
+    for (const lvl of Array.from(ls.children)) {
+      const n = Number(lvl.getAttribute("text:level")) || levels.length + 1;
+      levels[n - 1] = lvl.tagName === "text:list-level-style-number";
+    }
+    map.set(name, levels);
+  }
+  return map;
+}
+
 /** Map table style-name -> left indent (px) from fo:margin-left on the table style. */
 function collectTableMargins(doc: Document): Map<string, number> {
   const map = new Map<string, number>();
@@ -326,18 +344,22 @@ function inlineToHtml(el: Element, ctx: RCtx): string {
   return html;
 }
 
-function listToHtml(el: Element, ctx: RCtx): string {
+function listToHtml(el: Element, ctx: RCtx, level = 1, styleName = ""): string {
+  // A nested text:list usually omits the style-name; inherit the outer one to resolve the level.
+  const style = el.getAttribute("text:style-name") || styleName;
+  const ordered = ctx.listStyles.get(style)?.[level - 1] ?? false;
   let items = "";
   for (const li of Array.from(el.children)) {
     if (li.tagName !== "text:list-item") continue;
     let inner = "";
     for (const block of Array.from(li.children)) {
-      if (block.tagName === "text:list") inner += listToHtml(block, ctx);
+      if (block.tagName === "text:list") inner += listToHtml(block, ctx, level + 1, style);
       else inner += inlineToHtml(block, ctx);
     }
     items += `<li>${inner || "<br>"}</li>`;
   }
-  return `<ul>${items}</ul>`;
+  const tag = ordered ? "ol" : "ul";
+  return `<${tag}>${items}</${tag}>`;
 }
 
 /** Render a table:table to an editable HTML table (cells editable, structure locked and
@@ -414,7 +436,7 @@ function readHeaderFooter(files: Record<string, Uint8Array>): { header: string; 
   const doc = new DOMParser().parseFromString(strFromU8(raw), "application/xml");
   const master = doc.getElementsByTagName("style:master-page")[0];
   if (!master) return { header: "", footer: "" };
-  const ctx: RCtx = { files, styles: collectTextStyles(doc), paras: collectParaStyles(doc), cellStyles: collectCellStyles(doc), tableMargins: collectTableMargins(doc), threads: [], rangedNames: new Set(), openComment: new Set(), changes: new Map(), openIns: new Set() };
+  const ctx: RCtx = { files, styles: collectTextStyles(doc), paras: collectParaStyles(doc), cellStyles: collectCellStyles(doc), tableMargins: collectTableMargins(doc), listStyles: collectListStyles(doc), threads: [], rangedNames: new Set(), openComment: new Set(), changes: new Map(), openIns: new Set() };
   const render = (tag: string): string => {
     const el = master.getElementsByTagName(tag)[0];
     if (!el) return "";
@@ -458,7 +480,7 @@ export function odtToParts(bytes: Uint8Array): { body: string; comments: Comment
       .map((e) => e.getAttribute("office:name"))
       .filter((n): n is string => !!n),
   );
-  const ctx: RCtx = { files, styles: collectTextStyles(doc), paras: collectParaStyles(doc), cellStyles: collectCellStyles(doc), tableMargins: collectTableMargins(doc), threads: [], rangedNames, openComment: new Set(), changes: readChanges(body), openIns: new Set() };
+  const ctx: RCtx = { files, styles: collectTextStyles(doc), paras: collectParaStyles(doc), cellStyles: collectCellStyles(doc), tableMargins: collectTableMargins(doc), listStyles: collectListStyles(doc), threads: [], rangedNames, openComment: new Set(), changes: readChanges(body), openIns: new Set() };
   let html = "";
   for (const block of Array.from(body.children)) {
     if (block.tagName === "text:tracked-changes") continue; // metadata, parsed into ctx.changes

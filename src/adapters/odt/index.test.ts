@@ -549,3 +549,24 @@ describe("odt run formatting: strike, superscript, subscript", () => {
     expect(html).toContain("<sub>c</sub>");
   });
 });
+
+describe("odt list fidelity: nesting and ordered/bullet", () => {
+  it("writes a number list style for <ol> and a bullet style for <ul>", () => {
+    const out = htmlToOdt("<ul><li>a</li></ul><ol><li>b</li></ol>", makeOdt());
+    const content = strFromU8(unzipSync(out)["content.xml"]);
+    expect(content).toContain("text:list-level-style-bullet");
+    expect(content).toContain("text:list-level-style-number");
+    // each list element carries a style-name
+    expect(content).toMatch(/<text:list [^>]*text:style-name="OT_L[BO]"/);
+  });
+
+  it("round-trips a nested list, preserving ordered/bullet kind at each level", () => {
+    const html = "<ol><li>top<ul><li>sub</li></ul></li></ol>";
+    const out = htmlToOdt(html, makeOdt());
+    const back = odtToHtml(out);
+    // outer ordered, inner unordered, no flattening or duplication
+    expect(back).toMatch(/<ol>[\s\S]*<ul>[\s\S]*sub[\s\S]*<\/ul>[\s\S]*<\/ol>/);
+    // "sub" appears exactly once (not duplicated inline + as a nested item)
+    expect((back.match(/sub/g) ?? []).length).toBe(1);
+  });
+});
