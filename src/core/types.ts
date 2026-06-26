@@ -61,6 +61,10 @@ export interface RichDoc {
   footer: string;
   headerPath?: string; // adapter-specific key of the header part, for write-back
   footerPath?: string;
+  /** Distinct per-section header/footer parts, keyed by an opaque key that a section's boundary
+      paragraph carries (data-rdoc-secheaderkey / data-rdoc-secfooterkey). `path` is the
+      adapter-specific write-back key (docx: the real part path; odt: "header@<master>"). */
+  sectionBands?: Record<string, { html: string; path: string }>;
   comments: CommentThread[];
   fontCss?: string; // @font-face rules for embedded fonts
   fontUrls?: string[]; // blob URLs to revoke on destroy

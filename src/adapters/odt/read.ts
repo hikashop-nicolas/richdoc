@@ -65,6 +65,7 @@ interface RCtx {
   listRun: { last: number }; // running end-count of the last level-1 ordered list (for continue-numbering)
   tabStops: Map<string, TabStop[]>; // paragraph style-name -> custom tab stops (px)
   masterGeoms: Map<string, string>; // master-page name -> JSON page geometry (for per-section rendering)
+  masterBands?: Map<string, { header: string; footer: string }>; // master-page name -> its header/footer HTML
 }
 
 /** Page geometry (compact JSON) from a style:page-layout-properties element, for per-section
@@ -675,6 +676,10 @@ function blockToHtml(el: Element, ctx: RCtx): string {
   // A new page master begins a section: surface its geometry so the section renders at that size.
   const secGeom = own.master ? ctx.masterGeoms.get(own.master) : undefined;
   if (secGeom) breakAttr += ` data-rdoc-secstart="${escapeAttr(secGeom)}"`;
+  // Distinct per-section header/footer: key into sectionBands when this section's master has one.
+  const mBands = own.master ? ctx.masterBands?.get(own.master) : undefined;
+  if (mBands?.header) breakAttr += ` data-rdoc-secheaderkey="oh:${escapeAttr(own.master!)}"`;
+  if (mBands?.footer) breakAttr += ` data-rdoc-secfooterkey="of:${escapeAttr(own.master!)}"`;
   const odtPageBreak = `<span class="docx-pagebreak docx-pagebreak-auto" contenteditable="false" data-docx-pagebreak="auto" data-label="${escapeAttr(t("pageBreak"))}"></span>`;
   const before = beforePage ? odtPageBreak : "";
   const after = afterPage ? odtPageBreak : "";
@@ -702,21 +707,33 @@ function blockToHtml(el: Element, ctx: RCtx): string {
 }
 
 /** Header/footer HTML, read from the master page in styles.xml. */
-function readHeaderFooter(files: Record<string, Uint8Array>): { header: string; footer: string } {
+/** Header/footer HTML per master page (the default master plus any a section switches to). */
+function collectMasterBands(files: Record<string, Uint8Array>): Map<string, { header: string; footer: string }> {
+  const out = new Map<string, { header: string; footer: string }>();
   const raw = files["styles.xml"];
-  if (!raw) return { header: "", footer: "" };
+  if (!raw) return out;
   const doc = new DOMParser().parseFromString(strFromU8(raw), "application/xml");
-  const master = doc.getElementsByTagName("style:master-page")[0];
-  if (!master) return { header: "", footer: "" };
   const ctx: RCtx = { files, styles: collectTextStyles(doc), paras: collectParaStyles(doc), cellStyles: collectCellStyles(doc), tableMargins: collectTableMargins(doc), listStyles: collectListStyles(doc), namedStyles: new Set(), autoParent: new Map(), namedCharStyles: new Set(), textAutoParent: new Map(), threads: [], rangedNames: new Set(), openComment: new Set(), changes: new Map(), openIns: new Set(), graphicStyles: collectGraphicStyles(doc, lenToPx), paraBreaks: collectParaBreaks(doc), listStarts: collectListStarts(doc), listRun: { last: 0 }, tabStops: collectTabStops(doc, lenToPx), masterGeoms: collectMasterGeoms(files["styles.xml"], lenToPx) };
-  const render = (tag: string): string => {
+  const render = (master: Element, tag: string): string => {
     const el = master.getElementsByTagName(tag)[0];
     if (!el) return "";
     let html = "";
     for (const block of Array.from(el.children)) html += blockToHtml(block, ctx);
     return html;
   };
-  return { header: render("style:header"), footer: render("style:footer") };
+  for (const master of Array.from(doc.getElementsByTagName("style:master-page"))) {
+    const name = master.getAttribute("style:name");
+    if (name) out.set(name, { header: render(master, "style:header"), footer: render(master, "style:footer") });
+  }
+  return out;
+}
+function readHeaderFooter(files: Record<string, Uint8Array>): { header: string; footer: string } {
+  const raw = files["styles.xml"];
+  if (!raw) return { header: "", footer: "" };
+  const doc = new DOMParser().parseFromString(strFromU8(raw), "application/xml");
+  const first = doc.getElementsByTagName("style:master-page")[0]; // the body's master is the default
+  const name = first?.getAttribute("style:name");
+  return (name && collectMasterBands(files).get(name)) || { header: "", footer: "" };
 }
 
 /** Parse an .odt into the editable body HTML, the comment threads, and header/footer. */
@@ -744,9 +761,17 @@ function parsePageGeometry(files: Record<string, Uint8Array>): PageGeometry | un
   return { widthPx: Math.round(w), heightPx: Math.round(h), margin: { top: m("top"), right: m("right"), bottom: m("bottom"), left: m("left") }, vertical, rtl, columns, columnGapPx: columns ? Math.round(lenToPx(gapAttr) ?? 36) : undefined };
 }
 
-export function odtToParts(bytes: Uint8Array): { body: string; comments: CommentThread[]; header: string; footer: string; page?: PageGeometry; paragraphStyles?: { id: string; name: string }[]; characterStyles?: { id: string; name: string }[]; styleDefs?: { id: string; kind: "paragraph" | "character"; css: Record<string, string> }[]; styleCss?: string } {
+export function odtToParts(bytes: Uint8Array): { body: string; comments: CommentThread[]; header: string; footer: string; sectionBands?: Record<string, { html: string; path: string }>; page?: PageGeometry; paragraphStyles?: { id: string; name: string }[]; characterStyles?: { id: string; name: string }[]; styleDefs?: { id: string; kind: "paragraph" | "character"; css: Record<string, string> }[]; styleCss?: string } {
   const files = unzipSync(bytes);
   const { header, footer } = readHeaderFooter(files);
+  // Per-master header/footer HTML, so a section that switches master shows its own. Keyed for the
+  // engine as oh:/of:<master>; the write-back path is header@/footer@<master>.
+  const masterBands = collectMasterBands(files);
+  const sectionBands: Record<string, { html: string; path: string }> = {};
+  for (const [name, b] of masterBands) {
+    if (b.header) sectionBands[`oh:${name}`] = { html: b.header, path: `header@${name}` };
+    if (b.footer) sectionBands[`of:${name}`] = { html: b.footer, path: `footer@${name}` };
+  }
   const page = parsePageGeometry(files);
   const ps = readOdtStyles(files["styles.xml"]);
   const content = files["content.xml"];
@@ -773,13 +798,13 @@ export function odtToParts(bytes: Uint8Array): { body: string; comments: Comment
     for (const [k, v] of collectListStarts(sdoc)) if (!listStarts.has(k)) listStarts.set(k, v);
     for (const [k, v] of collectTabStops(sdoc, lenToPx)) if (!tabStops.has(k)) tabStops.set(k, v);
   }
-  const ctx: RCtx = { files, styles: collectTextStyles(doc), paras: collectParaStyles(doc), cellStyles: collectCellStyles(doc), tableMargins: collectTableMargins(doc), listStyles: collectListStyles(doc), namedStyles: ps.namedPara, autoParent: collectAutoParents(doc, "paragraph"), namedCharStyles: ps.namedChar, textAutoParent: collectAutoParents(doc, "text"), threads: [], rangedNames, openComment: new Set(), changes: readChanges(body), openIns: new Set(), graphicStyles, paraBreaks, listStarts, listRun: { last: 0 }, tabStops, masterGeoms: collectMasterGeoms(files["styles.xml"], lenToPx) };
+  const ctx: RCtx = { files, styles: collectTextStyles(doc), paras: collectParaStyles(doc), cellStyles: collectCellStyles(doc), tableMargins: collectTableMargins(doc), listStyles: collectListStyles(doc), namedStyles: ps.namedPara, autoParent: collectAutoParents(doc, "paragraph"), namedCharStyles: ps.namedChar, textAutoParent: collectAutoParents(doc, "text"), threads: [], rangedNames, openComment: new Set(), changes: readChanges(body), openIns: new Set(), graphicStyles, paraBreaks, listStarts, listRun: { last: 0 }, tabStops, masterGeoms: collectMasterGeoms(files["styles.xml"], lenToPx), masterBands };
   let html = "";
   for (const block of Array.from(body.children)) {
     if (block.tagName === "text:tracked-changes") continue; // metadata, parsed into ctx.changes
     html += blockToHtml(block, ctx);
   }
-  return { body: html || "<p><br></p>", comments: ctx.threads, header, footer, page, paragraphStyles: ps.paragraphStyles, characterStyles: ps.characterStyles, styleDefs: ps.styleDefs, styleCss: ps.css };
+  return { body: html || "<p><br></p>", comments: ctx.threads, header, footer, sectionBands, page, paragraphStyles: ps.paragraphStyles, characterStyles: ps.characterStyles, styleDefs: ps.styleDefs, styleCss: ps.css };
 }
 
 /** Convert an .odt's body to HTML. Returns "" if there is no editable text body. */

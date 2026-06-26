@@ -35,6 +35,7 @@ export function createOdtAdapter(bytes: Uint8Array): Adapter {
         footer: parts.footer,
         headerPath: parts.header ? "header" : undefined,
         footerPath: parts.footer ? "footer" : undefined,
+        sectionBands: parts.sectionBands,
         comments: parts.comments,
         page: parts.page,
         paragraphStyles: parts.paragraphStyles,

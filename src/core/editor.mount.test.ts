@@ -301,6 +301,41 @@ describe("shared engine mount", () => {
     host.remove();
   });
 
+  it("renders + saves distinct per-section headers (docx)", async () => {
+    const { strFromU8, unzipSync } = await import("fflate");
+    const a4 = '<w:pgSz w:w="11906" w:h="16838"/><w:pgMar w:top="1440" w:right="1440" w:bottom="1440" w:left="1440"/>';
+    const doc = `<?xml version="1.0"?><w:document xmlns:w="http://schemas.openxmlformats.org/wordprocessingml/2006/main" xmlns:r="http://schemas.openxmlformats.org/officeDocument/2006/relationships"><w:body>` +
+      "<w:p><w:r><w:t>One</w:t></w:r></w:p>" +
+      `<w:p><w:pPr><w:sectPr><w:headerReference w:type="default" r:id="rId1"/>${a4}<w:type w:val="nextPage"/></w:sectPr></w:pPr><w:r><w:t>EndOne</w:t></w:r></w:p>` +
+      "<w:p><w:r><w:t>Two</w:t></w:r></w:p>" +
+      `<w:sectPr><w:headerReference w:type="default" r:id="rId2"/>${a4}</w:sectPr></w:body></w:document>`;
+    const hdr = (txt: string) => `<?xml version="1.0"?><w:hdr xmlns:w="http://schemas.openxmlformats.org/wordprocessingml/2006/main"><w:p><w:r><w:t>${txt}</w:t></w:r></w:p></w:hdr>`;
+    const docx = zipSync({
+      "[Content_Types].xml": strToU8('<?xml version="1.0"?><Types xmlns="http://schemas.openxmlformats.org/package/2006/content-types"><Override PartName="/word/header1.xml" ContentType="application/vnd.openxmlformats-officedocument.wordprocessingml.header+xml"/><Override PartName="/word/header2.xml" ContentType="application/vnd.openxmlformats-officedocument.wordprocessingml.header+xml"/></Types>'),
+      "_rels/.rels": strToU8("<Relationships/>"),
+      "word/document.xml": strToU8(doc),
+      "word/header1.xml": strToU8(hdr("HEADER ONE")),
+      "word/header2.xml": strToU8(hdr("HEADER TWO")),
+      "word/_rels/document.xml.rels": strToU8('<?xml version="1.0"?><Relationships xmlns="http://schemas.openxmlformats.org/package/2006/relationships"><Relationship Id="rId1" Type="http://schemas.openxmlformats.org/officeDocument/2006/relationships/header" Target="header1.xml"/><Relationship Id="rId2" Type="http://schemas.openxmlformats.org/officeDocument/2006/relationships/header" Target="header2.xml"/></Relationships>'),
+    });
+    const host = document.createElement("div");
+    document.body.appendChild(host);
+    const ed = createDocxEditor(host, docx);
+    const headers = [...host.querySelectorAll(".docxedit-hf-clone")];
+    expect(headers.some((c) => c.textContent === "HEADER ONE")).toBe(true); // section 1's own header
+    expect(headers.some((c) => c.textContent === "HEADER TWO")).toBe(true); // section 2's (the default)
+    // Edit section 1's header; only header1.xml should change, header2.xml stays.
+    const h1 = headers.find((c) => c.textContent === "HEADER ONE") as HTMLElement;
+    h1.textContent = "HEADER ONE EDITED";
+    h1.dispatchEvent(new Event("input", { bubbles: true }));
+    const out = unzipSync(await ed.getBytes());
+    expect(strFromU8(out["word/header1.xml"]!)).toContain("HEADER ONE EDITED");
+    expect(strFromU8(out["word/header2.xml"]!)).toContain("HEADER TWO");
+    expect(strFromU8(out["word/header2.xml"]!)).not.toContain("EDITED");
+    ed.destroy();
+    host.remove();
+  });
+
   it("inserts a section break and authors the new section (docx)", async () => {
     const { strFromU8, unzipSync } = await import("fflate");
     const doc = `<?xml version="1.0"?><w:document xmlns:w="http://schemas.openxmlformats.org/wordprocessingml/2006/main"><w:body>` +
@@ -360,6 +395,45 @@ describe("shared engine mount", () => {
     (host.querySelector(".docxedit-pagesetup .docxedit-dialog-primary") as HTMLElement).click();
     const xml = strFromU8(unzipSync(await ed.getBytes())["styles.xml"]!);
     expect(xml).toContain('fo:column-count="2"');
+    ed.destroy();
+    host.remove();
+  });
+
+  it("renders + saves distinct per-section headers (odt)", async () => {
+    const { strFromU8, unzipSync } = await import("fflate");
+    const styles =
+      '<?xml version="1.0"?><office:document-styles xmlns:office="urn:oasis:names:tc:opendocument:xmlns:office:1.0" ' +
+      'xmlns:style="urn:oasis:names:tc:opendocument:xmlns:style:1.0" xmlns:fo="urn:oasis:names:tc:opendocument:xmlns:xsl-fo-compatible:1.0" xmlns:text="urn:oasis:names:tc:opendocument:xmlns:text:1.0"><office:automatic-styles>' +
+      '<style:page-layout style:name="pm1"><style:page-layout-properties fo:page-width="21cm" fo:page-height="29.7cm"/></style:page-layout>' +
+      '<style:page-layout style:name="pm2"><style:page-layout-properties fo:page-width="21cm" fo:page-height="29.7cm"/></style:page-layout>' +
+      "</office:automatic-styles><office:master-styles>" +
+      '<style:master-page style:name="Standard" style:page-layout-name="pm1"><style:header><text:p>STD HEADER</text:p></style:header></style:master-page>' +
+      '<style:master-page style:name="Custom" style:page-layout-name="pm2"><style:header><text:p>CUSTOM HEADER</text:p></style:header></style:master-page>' +
+      "</office:master-styles></office:document-styles>";
+    const content =
+      '<?xml version="1.0"?><office:document-content xmlns:office="urn:oasis:names:tc:opendocument:xmlns:office:1.0" ' +
+      'xmlns:text="urn:oasis:names:tc:opendocument:xmlns:text:1.0" xmlns:style="urn:oasis:names:tc:opendocument:xmlns:style:1.0">' +
+      '<office:automatic-styles><style:style style:name="P2" style:family="paragraph" style:master-page-name="Custom"/></office:automatic-styles>' +
+      '<office:body><office:text><text:p>One</text:p><text:p text:style-name="P2">Two</text:p></office:text></office:body></office:document-content>';
+    const odt = zipSync({
+      mimetype: [strToU8("application/vnd.oasis.opendocument.text"), { level: 0 }],
+      "content.xml": strToU8(content),
+      "styles.xml": strToU8(styles),
+      "META-INF/manifest.xml": strToU8("<m/>"),
+    });
+    const host = document.createElement("div");
+    document.body.appendChild(host);
+    const ed = createOdtEditor(host, odt);
+    const headers = [...host.querySelectorAll(".docxedit-hf-clone")];
+    expect(headers.some((c) => c.textContent === "STD HEADER")).toBe(true); // section 1 (default master)
+    expect(headers.some((c) => c.textContent === "CUSTOM HEADER")).toBe(true); // section 2 (custom master)
+    // Edit the custom section's header; its master changes, the default master is untouched.
+    const cust = headers.find((c) => c.textContent === "CUSTOM HEADER") as HTMLElement;
+    cust.textContent = "CUSTOM HEADER EDITED";
+    cust.dispatchEvent(new Event("input", { bubbles: true }));
+    const xml = strFromU8(unzipSync(await ed.getBytes())["styles.xml"]!);
+    expect(xml).toContain("CUSTOM HEADER EDITED");
+    expect(xml).toContain("STD HEADER");
     ed.destroy();
     host.remove();
   });

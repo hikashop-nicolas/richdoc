@@ -104,6 +104,13 @@ export function createRichEditor(container: HTMLElement, adapter: Adapter, optio
   };
   let header = band("docxedit-header", t("header"), parts.header);
   let footer = band("docxedit-footer", t("footer"), parts.footer);
+  // Distinct per-section header/footer source bands, keyed by the key a section's boundary
+  // paragraph carries (data-rdoc-sec*key). Each is editable + saved back to its own part.
+  const secBands = new Map<string, { el: HTMLElement; path: string }>();
+  for (const [key, { html, path }] of Object.entries(parts.sectionBands ?? {})) {
+    const el = band("docxedit-header", t("header"), html);
+    if (el) secBands.set(key, { el, path });
+  }
   // A band counts as empty when it has no text and no image, so an abandoned new one
   // (created by a double-click but never typed in) is dropped instead of being saved.
   const isBandEmpty = (el: HTMLElement): boolean => !el.textContent?.trim() && !el.querySelector("img");
@@ -126,6 +133,7 @@ export function createRichEditor(container: HTMLElement, adapter: Adapter, optio
     page.append(pagelayer, doc, hflayer);
     if (header) measure.appendChild(header);
     if (footer) measure.appendChild(footer);
+    for (const { el } of secBands.values()) measure.appendChild(el); // off-screen, for measuring
     page.appendChild(measure);
   } else {
     if (header) page.appendChild(header);
@@ -634,27 +642,41 @@ export function createRichEditor(container: HTMLElement, adapter: Adapter, optio
     const parseGeom = (s: string | null): SecGeom => {
       try { return { ...docGeom(), ...JSON.parse(s ?? "") }; } catch { return docGeom(); }
     };
-    const sections: { blocks: HTMLElement[]; geom: SecGeom }[] = [];
+    // Each section resolves its own header/footer source band: a keyed per-section band when its
+    // boundary paragraph names one (data-rdoc-sec*key), else the document default. Distinct
+    // sections therefore edit + save distinct header/footer parts.
+    const resolveBand = (key: string | null, fallback: HTMLElement | null): HTMLElement | null =>
+      key && secBands.has(key) ? secBands.get(key)!.el : fallback;
+    type Section = { blocks: HTMLElement[]; geom: SecGeom; headerEl: HTMLElement | null; footerEl: HTMLElement | null };
+    const sections: Section[] = [];
     let run: HTMLElement[] = [];
     let runGeom = docGeom();
+    let runHKey: string | null = null;
+    let runFKey: string | null = null;
+    const pushRun = () => {
+      if (run.length) sections.push({ blocks: run, geom: runGeom, headerEl: resolveBand(runHKey, header), footerEl: resolveBand(runFKey, footer) });
+      run = [];
+    };
     for (const b of blocks) {
       const start = b.getAttribute("data-rdoc-secstart");
       if (start) {
-        if (run.length) {
-          sections.push({ blocks: run, geom: runGeom });
-          run = [];
-        }
+        pushRun(); // close the previous run with its own keys
         runGeom = parseGeom(start); // this block begins a section with this geometry
+        runHKey = b.getAttribute("data-rdoc-secheaderkey");
+        runFKey = b.getAttribute("data-rdoc-secfooterkey");
       }
       run.push(b);
       const brk = b.getAttribute("data-rdoc-secbreak");
       if (brk) {
-        sections.push({ blocks: run, geom: parseGeom(brk) }); // this block ends a section
+        // Trailing convention: this block ends the section and carries its keys.
+        sections.push({ blocks: run, geom: parseGeom(brk), headerEl: resolveBand(b.getAttribute("data-rdoc-secheaderkey"), header), footerEl: resolveBand(b.getAttribute("data-rdoc-secfooterkey"), footer) });
         run = [];
         runGeom = docGeom();
+        runHKey = null;
+        runFKey = null;
       }
     }
-    if (run.length) sections.push({ blocks: run, geom: runGeom });
+    pushRun();
 
     const maxW = Math.max(geometry.widthPx, ...sections.map((s) => s.geom.w));
     pagelayer.replaceChildren();
@@ -664,13 +686,12 @@ export function createRichEditor(container: HTMLElement, adapter: Adapter, optio
 
     const stale = (Array.from(doc.children) as HTMLElement[]).filter((c) => c.classList.contains(SECPAGE) || c.classList.contains("docxedit-pagespacer"));
     const EPS = 2;
-    // Header/footer band heights for a given content width (0 when the band is absent/empty). Each
-    // section reserves this space at its top/bottom so the body does not overlap the bands.
-    const hasHeader = !!header && !isBandEmpty(header);
-    const hasFooter = !!footer && !isBandEmpty(footer);
-    const bandHeights = (contentWidth: number): { hH: number; fH: number } => {
+    // A section reserves space at its top/bottom for its header/footer band (0 when absent/empty)
+    // so the body does not overlap them.
+    const bandH = (el: HTMLElement | null, contentWidth: number): number => {
+      if (!el || isBandEmpty(el)) return 0;
       measure.style.width = `${contentWidth}px`;
-      return { hH: hasHeader ? header!.offsetHeight : 0, fH: hasFooter ? footer!.offsetHeight : 0 };
+      return el.offsetHeight;
     };
     const newBox = (g: SecGeom, hH: number, fH: number): HTMLElement => {
       const b = document.createElement("div");
@@ -695,12 +716,14 @@ export function createRichEditor(container: HTMLElement, adapter: Adapter, optio
     const overflowed = (b: HTMLElement, g: SecGeom): boolean =>
       g.cols && g.cols > 1 ? b.scrollWidth > b.clientWidth + EPS : b.scrollHeight > b.clientHeight + EPS;
 
-    const boxMeta: { box: HTMLElement; g: SecGeom; hH: number; fH: number }[] = [];
+    const boxMeta: { box: HTMLElement; g: SecGeom; fH: number; headerEl: HTMLElement | null; footerEl: HTMLElement | null }[] = [];
     for (const sec of sections) {
-      const { hH, fH } = bandHeights(sec.geom.w - sec.geom.ml - sec.geom.mr);
+      const cw = sec.geom.w - sec.geom.ml - sec.geom.mr;
+      const hH = bandH(sec.headerEl, cw);
+      const fH = bandH(sec.footerEl, cw);
       let box = newBox(sec.geom, hH, fH);
       doc.appendChild(box);
-      boxMeta.push({ box, g: sec.geom, hH, fH });
+      boxMeta.push({ box, g: sec.geom, fH, headerEl: sec.headerEl, footerEl: sec.footerEl });
       for (const block of sec.blocks) {
         box.appendChild(block);
         if (overflowed(box, sec.geom) && box.children.length > 1) {
@@ -708,32 +731,30 @@ export function createRichEditor(container: HTMLElement, adapter: Adapter, optio
           finalize(box, sec.geom);
           box = newBox(sec.geom, hH, fH);
           doc.appendChild(box);
-          boxMeta.push({ box, g: sec.geom, hH, fH });
+          boxMeta.push({ box, g: sec.geom, fH, headerEl: sec.headerEl, footerEl: sec.footerEl });
           box.appendChild(block); // a lone oversized block stays even if it still overflows
         }
       }
       finalize(box, sec.geom);
     }
     for (const old of stale) old.remove();
-    // Header/footer clones, positioned over each section box (page-numbered cumulatively). The
-    // bands are the document default, shared across sections (Word's "link to previous" default).
-    if (hasHeader || hasFooter) {
-      const dx = doc.offsetLeft, dy = doc.offsetTop;
-      const total = boxMeta.length;
-      boxMeta.forEach(({ box, g, fH }, i) => {
-        const cw = g.w - g.ml - g.mr;
-        if (hasHeader) {
-          const hc = mkClone(header!, `top:${dy + box.offsetTop + g.mt}px;left:${dx + box.offsetLeft + g.ml}px;width:${cw}px`);
-          setCloneFields(hc, i + 1, total);
-          hflayer.appendChild(hc);
-        }
-        if (hasFooter) {
-          const fc = mkClone(footer!, `top:${dy + box.offsetTop + g.h - g.mb - fH}px;left:${dx + box.offsetLeft + g.ml}px;width:${cw}px`);
-          setCloneFields(fc, i + 1, total);
-          hflayer.appendChild(fc);
-        }
-      });
-    }
+    // Header/footer clones, positioned over each section box (page-numbered cumulatively). Each box
+    // clones its own section's bands, so distinct sections show distinct headers/footers.
+    const dx = doc.offsetLeft, dy = doc.offsetTop;
+    const total = boxMeta.length;
+    boxMeta.forEach(({ box, g, fH, headerEl, footerEl }, i) => {
+      const cw = g.w - g.ml - g.mr;
+      if (headerEl && !isBandEmpty(headerEl)) {
+        const hc = mkClone(headerEl, `top:${dy + box.offsetTop + g.mt}px;left:${dx + box.offsetLeft + g.ml}px;width:${cw}px`);
+        setCloneFields(hc, i + 1, total);
+        hflayer.appendChild(hc);
+      }
+      if (footerEl && !isBandEmpty(footerEl)) {
+        const fc = mkClone(footerEl, `top:${dy + box.offsetTop + g.h - g.mb - fH}px;left:${dx + box.offsetLeft + g.ml}px;width:${cw}px`);
+        setCloneFields(fc, i + 1, total);
+        hflayer.appendChild(fc);
+      }
+    });
     page.style.minHeight = "";
     decorateFields(0, 0, false); // refresh field text (page-number fields show no count here)
     if (caretBlock && caretBlock.isConnected) placeCaret(caretBlock, caretOffset);
@@ -973,6 +994,8 @@ export function createRichEditor(container: HTMLElement, adapter: Adapter, optio
       // has none, so fall back to the "header"/"footer" sentinel the adapters create from.
       if (header && !isBandEmpty(header)) editedParts.push({ path: parts.headerPath ?? "header", html: header.innerHTML });
       if (footer && !isBandEmpty(footer)) editedParts.push({ path: parts.footerPath ?? "footer", html: footer.innerHTML });
+      for (const { el, path } of secBands.values()) if (!isBandEmpty(el)) editedParts.push({ path, html: el.innerHTML }); // distinct per-section bands
+
       return adapter.write(cleanBody(), editedParts, getEdits(), geometryDirty ? geometry : undefined, newStyles);
     },
     destroy() {

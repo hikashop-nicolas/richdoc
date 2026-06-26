@@ -578,7 +578,16 @@ interface PInfo {
   sectPr?: string; // a mid-document section break (w:pPr/w:sectPr), preserved verbatim
   sectBreak?: boolean; // that section starts a new page (type != continuous) -> show a page break
   secGeom?: string; // JSON page geometry of the section ending here, for per-section rendering
+  secHeaderRid?: string; // r:id of this section's header part (keys into sectionBands)
+  secFooterRid?: string; // r:id of this section's footer part
   tabStops?: string; // JSON [{pos,val,leader}] of the paragraph's custom tab stops (w:tabs)
+}
+/** The r:id of a section's default header/footer reference (keys per-section header/footer). */
+function refRid(sectPr: Element | undefined, tag: string): string | undefined {
+  if (!sectPr) return undefined;
+  const refs = Array.from(sectPr.getElementsByTagName(tag));
+  const pick = refs.find((r) => (r.getAttribute("w:type") ?? "default") === "default") ?? refs[0];
+  return pick?.getAttributeNS(R, "id") ?? pick?.getAttribute("r:id") ?? undefined;
 }
 function paragraphInfo(p: Element, numbering: Map<string, boolean>): PInfo {
   const pPr = p.getElementsByTagName("w:pPr")[0];
@@ -634,6 +643,8 @@ function paragraphInfo(p: Element, numbering: Map<string, boolean>): PInfo {
     sectPr: sectEl ? serializePassthrough(sectEl) : undefined,
     sectBreak: sectEl ? sectType !== "continuous" : undefined,
     secGeom: sectEl ? secGeomJson(sectEl) : undefined,
+    secHeaderRid: refRid(sectEl, "w:headerReference"),
+    secFooterRid: refRid(sectEl, "w:footerReference"),
     tabStops: stops.length ? JSON.stringify(stops) : undefined,
   };
 }
@@ -655,9 +666,12 @@ function blockStyleAttr(info: PInfo): string {
   const styleAttr = info.styleId ? ` data-rdoc-style="${escapeAttr(info.styleId)}"` : "";
   const sectAttr = info.sectPr ? ` data-docx-sectpr="${escapeAttr(info.sectPr)}"` : "";
   const secGeomAttr = info.secGeom ? ` data-rdoc-secbreak="${escapeAttr(info.secGeom)}"` : "";
+  const secHKey = info.secHeaderRid ? ` data-rdoc-secheaderkey="${escapeAttr(info.secHeaderRid)}"` : "";
+  const secFKey = info.secFooterRid ? ` data-rdoc-secfooterkey="${escapeAttr(info.secFooterRid)}"` : "";
   const tabAttr = info.tabStops ? ` data-rdoc-tabstops="${escapeAttr(info.tabStops)}"` : "";
-  if (!info.revPara) return style + styleAttr + sectAttr + secGeomAttr + tabAttr;
-  return `${style}${styleAttr}${sectAttr}${secGeomAttr}${tabAttr} class="docx-para-${info.revPara}" data-rev-para="${info.revPara}" data-rev-author="${escapeAttr(info.revAuthor ?? "")}" data-rev-date="${escapeAttr(info.revDate ?? "")}"`;
+  const sec = sectAttr + secGeomAttr + secHKey + secFKey;
+  if (!info.revPara) return style + styleAttr + sec + tabAttr;
+  return `${style}${styleAttr}${sec}${tabAttr} class="docx-para-${info.revPara}" data-rev-para="${info.revPara}" data-rev-author="${escapeAttr(info.revAuthor ?? "")}" data-rev-date="${escapeAttr(info.revDate ?? "")}"`;
 }
 
 /** Build nested <ul>/<ol> from a flat list of items carrying their nesting level (w:ilvl).
@@ -774,6 +788,7 @@ export interface DocxParts {
   footer: string;
   headerPath?: string; // archive key of the header part, for write-back
   footerPath?: string;
+  sectionBands?: Record<string, { html: string; path: string }>; // per-section header/footer by r:id
   comments: CommentThread[]; // top-level threads in document order, replies nested
   page?: PageGeometry; // page size/margins from w:sectPr, for the paginated view
   paragraphStyles?: { id: string; name: string }[]; // named paragraph styles, for the picker
@@ -946,6 +961,18 @@ export function docxToParts(bytes: Uint8Array): DocxParts {
   const sectPr = Array.from(body.getElementsByTagName("w:sectPr")).pop();
   const headerTarget = refTarget(sectPr, "w:headerReference", rels);
   const footerTarget = refTarget(sectPr, "w:footerReference", rels);
+  // Distinct per-section header/footer parts, keyed by r:id (matching data-rdoc-sec*key on the
+  // boundary paragraphs). Every header/footer reference in any sectPr resolves here.
+  const sectionBands: Record<string, { html: string; path: string }> = {};
+  for (const sp of Array.from(body.getElementsByTagName("w:sectPr"))) {
+    for (const tag of ["w:headerReference", "w:footerReference"] as const) {
+      const rid = refRid(sp, tag);
+      if (!rid || sectionBands[rid]) continue;
+      const target = rels.get(rid);
+      const path = partKey(target, files);
+      if (target && path) sectionBands[rid] = { html: renderRefPart(files, target), path };
+    }
+  }
 
   // Group comments into threads via commentsExtended.xml (replies under their parent).
   const parents = readCommentParents(files["word/commentsExtended.xml"]);
@@ -993,6 +1020,7 @@ export function docxToParts(bytes: Uint8Array): DocxParts {
     footer: renderRefPart(files, footerTarget),
     headerPath: partKey(headerTarget, files),
     footerPath: partKey(footerTarget, files),
+    sectionBands,
     comments: threads,
     page: parsePageGeometry(sectPr),
     paragraphStyles: ps.paragraphStyles,

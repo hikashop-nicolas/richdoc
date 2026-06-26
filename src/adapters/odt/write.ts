@@ -757,13 +757,16 @@ function ensureMasterPage(doc: Document): Element | null {
   return master;
 }
 
-/** Write edited header/footer HTML back into the master page in styles.xml. */
+/** Write edited header/footer HTML back into the master pages in styles.xml. A part path is
+    "header"/"footer" for the default master, or "header@<master>"/"footer@<master>" for a
+    distinct per-section master. */
 function applyHeaderFooter(files: Record<string, Uint8Array>, parts: { path: string; html: string }[]): void {
-  const hf = parts.filter((p) => p.path === "header" || p.path === "footer");
+  const hf = parts.filter((p) => /^(header|footer)(@|$)/.test(p.path));
   if (!hf.length || !files["styles.xml"]) return;
   const doc = new DOMParser().parseFromString(strFromU8(files["styles.xml"]), "application/xml");
-  const master = ensureMasterPage(doc);
-  if (!master) return;
+  const defaultMaster = ensureMasterPage(doc);
+  const byName = (name: string): Element | null =>
+    Array.from(doc.getElementsByTagName("style:master-page")).find((m) => m.getAttribute("style:name") === name) ?? null;
   const ctx: OdfCtx = {
     doc,
     auto: ensureAutoStyles(doc, "office:master-styles"),
@@ -776,7 +779,11 @@ function applyHeaderFooter(files: Record<string, Uint8Array>, parts: { path: str
     changes: [],
   };
   for (const p of hf) {
-    const tag = p.path === "header" ? "style:header" : "style:footer";
+    const at = p.path.indexOf("@");
+    const role = at < 0 ? p.path : p.path.slice(0, at); // "header" | "footer"
+    const master = at < 0 ? defaultMaster : byName(p.path.slice(at + 1));
+    if (!master) continue;
+    const tag = role === "header" ? "style:header" : "style:footer";
     let el = master.getElementsByTagName(tag)[0];
     if (!el) {
       el = doc.createElementNS(NS.style, tag);

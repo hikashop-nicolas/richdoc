@@ -16,13 +16,18 @@ byte-for-byte (gated on data-rdoc-secedited). Capability flag: caps.sections =
 "trailing" (docx, geometry on the section's last paragraph) | "leading" (odt, on its
 first paragraph) | false.
 
-Phase 3 (header/footer on section pages) DONE for the shared/inherited case: the document
-header/footer renders, edits and saves on every section page box (space reserved at each
-box's top/bottom; clones positioned over each box, page-numbered cumulatively). This matches
-Word's "link to previous" default. Still pending: *distinct* per-section header/footer
-content (different header per section), which needs reading/writing multiple header/footer
-parts (docx) / per-master style:header/style:footer (odt) plus one editable band per section.
-The per-section ruler is also still display-only.
+Phase 3 (per-section header/footer) DONE, including DISTINCT content per section. Each section
+resolves its own header/footer source band: the reader emits opaque keys on the boundary
+paragraph (data-rdoc-secheaderkey / data-rdoc-secfooterkey) and a sectionBands map (key ->
+{html, path}); the engine builds one editable band per key and clones the right band over each
+section box (page-numbered cumulatively, space reserved at top/bottom); getBytes emits each
+band with its path. docx keys by the header/footer r:id, path = the real part (rebuildPart);
+odt keys by oh:/of:<master>, path = header@/footer@<master> (applyHeaderFooter routes to that
+master). A section without its own band falls back to the document default (Word's
+link-to-previous). Untouched parts/sections stay byte-for-byte.
+
+Still pending: an inserted section break inherits the default header/footer (no new part/master
+is minted yet), and the per-section ruler is display-only.
 
 Goal: render each section at its own page geometry, so e.g. an A4 portrait section
 followed by an A3 landscape section displays correctly in the editor (not just

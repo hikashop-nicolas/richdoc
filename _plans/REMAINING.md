@@ -68,10 +68,10 @@ context (a paragraph, or the document body) is regenerated from the edited HTML.
   caret (the new section inherits the current setup), and the **Page setup dialog** edits the
   section the caret is in. Both formats: docx regenerates that section's `w:sectPr` from its
   geometry (merging onto the preserved original); odt creates / updates a per-section
-  page-layout + master-page. Untouched sections still round-trip byte-for-byte. The document
-  header/footer renders, edits and saves on every section page (Word's link-to-previous
-  default); *distinct* per-section header content is still pending (see C1). Design in
-  `_plans/SECTIONS_PLAN.md`.
+  page-layout + master-page. Untouched sections still round-trip byte-for-byte. Each section
+  renders, edits and saves its own header/footer (docx multiple header/footer parts; odt
+  per-master `style:header`/`style:footer`), falling back to the document default (Word's
+  link-to-previous) when it has none. Design in `_plans/SECTIONS_PLAN.md`.
 
 ---
 
@@ -80,14 +80,16 @@ context (a paragraph, or the document body) is regenerated from the edited HTML.
 These are the only things that do not round-trip once the document is edited,
 because their context is regenerated. This is the work for "feature complete".
 
-1. **Sections: distinct per-section header/footer + ruler.** Section rendering, insertion,
-   authoring and header/footer rendering are done (bucket A): the document header/footer now
-   renders + edits + saves on every section page (Word's "link to previous" default, shared
-   across sections). What remains: (a) *distinct* per-section header/footer content (a
-   different header per section), which needs reading/writing multiple header/footer parts
-   (docx) / per-master `style:header`/`style:footer` (odt) and one editable band per section;
-   and (b) the per-section ruler is still display-only (drag-to-set margins edits the document
-   section only) and vertical (tategaki) pages show no ruler. See `_plans/SECTIONS_PLAN.md`.
+1. **Sections: per-section ruler + distinct header on inserted sections.** Section rendering,
+   insertion, page-setup authoring and header/footer are all done (bucket A), including
+   *distinct* per-section header/footer content: each section reads, renders, edits and saves
+   its own header/footer (docx multiple header/footer parts; odt per-master
+   `style:header`/`style:footer`); a section without its own falls back to the document default
+   (Word's "link to previous"). What remains: (a) an *inserted* section break currently
+   inherits the default header/footer rather than getting its own new part/master, so authoring
+   a brand-new distinct header needs a "break the link" step; and (b) the per-section ruler is
+   still display-only (drag-to-set margins edits the document section only) and vertical
+   (tategaki) pages show no ruler. See `_plans/SECTIONS_PLAN.md`.
 2. **Tab-stop positioning + authoring.** Tabs and a paragraph's custom stops now
    round-trip (see bucket A), but custom stop *positions* render at the default 0.5in
    grid (preserved on save, not shown at their real x), and right / center / decimal
