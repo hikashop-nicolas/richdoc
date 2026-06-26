@@ -1129,18 +1129,26 @@ export function createRichEditor(container: HTMLElement, adapter: Adapter, optio
     // the bottom of the page its reference lands on (paginate accounts for it). Endnotes go to the
     // doc-end notes area (renderNotes), not per page.
     const cw = geometry.widthPx - geometry.margin.left - geometry.margin.right;
-    const FN_SEP = 14; // gap + separator above the footnote area
+    const FN_BASE = 8; // the footnote area's own separator border + top padding
     const footRefs = numberRefs().filter((r) => r.kind === "footnote" && noteBands.has(r.id));
     footnotesPerPage = true;
     const kidIndexOf = (ref: HTMLElement) => kids.findIndex((k) => k.contains(ref));
+    // Build each footnote's row and measure it in a hidden footnote area, so the reserve matches how
+    // the rows actually render (their font, width and paragraph margins), not a bare measurement.
+    const fnRow = new Map<string, HTMLElement>();
     const fnH = new Map<string, number>();
     if (footRefs.length) {
-      measure.style.width = `${cw}px`;
-      for (const fr of footRefs) { const nb = noteBands.get(fr.id)!; measure.appendChild(nb.el); fnH.set(fr.id, nb.el.offsetHeight); }
+      const probe = document.createElement("div");
+      probe.className = "docxedit-fnarea";
+      probe.style.cssText = `top:0;left:0;width:${cw}px;visibility:hidden`;
+      hflayer.appendChild(probe);
+      for (const fr of footRefs) { const row = noteRow(fr.num, fr.id); if (row) { fnRow.set(fr.id, row); probe.appendChild(row); } }
+      for (const fr of footRefs) { const row = fnRow.get(fr.id); if (row) fnH.set(fr.id, row.offsetHeight); }
+      probe.remove();
     }
     const reserveFor = (pob: number[]): number[] => {
       const r: number[] = [];
-      for (const fr of footRefs) { const ki = kidIndexOf(fr.ref); if (ki < 0) continue; const p = pob[ki]!; r[p] = (r[p] || FN_SEP) + (fnH.get(fr.id) ?? 0); }
+      for (const fr of footRefs) { const ki = kidIndexOf(fr.ref); if (ki < 0) continue; const p = pob[ki]!; r[p] = (r[p] || FN_BASE) + (fnH.get(fr.id) ?? 0); }
       return r;
     };
     let reserve = footRefs.length ? reserveFor(paginate(heights, { pageStep, contentHeight }, forceBreakBefore).pageOfBlock) : [];
@@ -1185,7 +1193,7 @@ export function createRichEditor(container: HTMLElement, adapter: Adapter, optio
         const area = document.createElement("div");
         area.className = "docxedit-fnarea";
         area.style.cssText = `top:${p * pageStep + (geometry.heightPx - contentBottomInset) - (reserve[p] || 0)}px;left:${geometry.margin.left}px;width:${cw}px`;
-        for (const fr of frs) { const row = noteRow(fr.num, fr.id); if (row) area.appendChild(row); }
+        for (const fr of frs) { const row = fnRow.get(fr.id); if (row) area.appendChild(row); }
         hflayer.appendChild(area);
       }
     }
