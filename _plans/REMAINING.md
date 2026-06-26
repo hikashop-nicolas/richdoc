@@ -83,11 +83,16 @@ context (a paragraph, or the document body) is regenerated from the edited HTML.
 These are the only things that do not round-trip once the document is edited,
 because their context is regenerated. This is the work for "feature complete".
 
-1. **Sections: vertical-page ruler.** The section model is feature-complete (bucket A):
-   rendering, insertion, per-section page setup, draggable per-section ruler margins, and
-   *distinct* per-section header/footer including a corner "link to previous" chip that mints a
-   section its own header/footer part (docx) / master header (odt) on demand. The only gap left:
-   vertical (tategaki) pages show no ruler at all (the ruler is suppressed for vertical writing).
+1. **Vertical (tategaki) columns + writing-direction authoring.** The section model is
+   feature-complete (bucket A): rendering, insertion, per-section page setup, draggable
+   per-section ruler margins (horizontal AND vertical pages), and *distinct* per-section
+   header/footer with a "link to previous" chip. Vertical writing renders fully (paginated,
+   header/footer, ruler). Two vertical gaps remain: (a) **multi-column vertical text is not
+   rendered** - a section's `w:cols` round-trips (preserved on save) but shows as one vertical
+   flow, because CSS multicol does not fragment `vertical-rl` text into stacked bands (verified);
+   rendering it needs a manual N-band layout. (b) There is **no UI to set the writing direction**
+   (horizontal / vertical / RTL) - it is read from the file only; authoring it would need a Page
+   setup control plus a `w:textDirection` (docx) / `style:writing-mode` (odt) write-back.
    See `_plans/SECTIONS_PLAN.md`.
 2. **Tab-stop positioning + authoring.** Tabs and a paragraph's custom stops now
    round-trip (see bucket A), but custom stop *positions* render at the default 0.5in

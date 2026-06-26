@@ -38,7 +38,10 @@ the section's master via header@<master>). Relink drops the override (docx: buil
 the default ref; odt: reconcileSectionBands deletes the master's header). The chip lives in the
 overlay, outside the editable clone, so it is never saved into the band content.
 
-Only remaining section gap: vertical (tategaki) pages show no ruler.
+Vertical (tategaki) pages now show the draggable ruler too (activePage maps the caret to a card
+by horizontal position). Remaining vertical gaps: multi-column vertical text is not rendered (CSS
+multicol does not fragment vertical-rl into stacked bands; needs a manual N-band layout - w:cols
+still round-trips), and there is no UI to set writing direction (read from the file only).
 
 Goal: render each section at its own page geometry, so e.g. an A4 portrait section
 followed by an A3 landscape section displays correctly in the editor (not just
