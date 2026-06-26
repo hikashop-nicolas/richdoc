@@ -21,6 +21,7 @@ interface DocxCtx {
   listIds: { bullet: string; ordered: string } | null; // resolved/created list numbering ids (lazy)
   orderedBaseUsed?: boolean; // the base ordered numId has been claimed by the first plain list
   files: Record<string, Uint8Array>; // the archive, so new media/content-types can be added
+  sectionBandHtml?: Map<string, string>; // section header/footer key -> HTML, for minting new parts
 }
 
 function addHyperlinkRel(ctx: DocxCtx, target: string): string | null {
@@ -453,7 +454,7 @@ function makeParagraph(ctx: DocxCtx, src: HTMLElement, opts: { heading?: number;
     // geometry was edited / inserted in-editor, regenerate the sectPr from it (merging onto the
     // preserved original); otherwise re-emit the stashed original untouched.
     if (regenSect) {
-      const sect = buildSectPr(ctx, secGeom!, sectXml);
+      const sect = buildSectPr(ctx, secGeom!, sectXml, src.getAttribute("data-rdoc-secheaderkey"), src.getAttribute("data-rdoc-secfooterkey"));
       if (sect) pPr.appendChild(sect);
     } else if (sectXml) {
       const sect = importPassthrough(ctx, sectXml);
@@ -927,8 +928,9 @@ const relsPathFor = (partPath: string): string => {
   return `${partPath.slice(0, slash + 1)}_rels/${partPath.slice(slash + 1)}.rels`;
 };
 
-/** Rebuild one part (document.xml or a header/footer) in-place from its edited HTML. */
-function rebuildPart(files: Record<string, Uint8Array>, partPath: string, html: string): void {
+/** Rebuild one part (document.xml or a header/footer) in-place from its edited HTML. For the body,
+    bandHtml lets buildSectPr mint per-section header/footer parts. */
+function rebuildPart(files: Record<string, Uint8Array>, partPath: string, html: string, bandHtml?: Map<string, string>): void {
   const xml = files[partPath];
   if (!xml) return;
   const doc = new DOMParser().parseFromString(strFromU8(xml), "application/xml");
@@ -959,6 +961,7 @@ function rebuildPart(files: Record<string, Uint8Array>, partPath: string, html: 
     nextRevId: maxRev + 1,
     listIds: null,
     files,
+    sectionBandHtml: bandHtml,
   };
   if (ctx.rels) {
     let max = 0;
@@ -1318,10 +1321,62 @@ function setSectPrGeom(doc: Document, sectPr: Element, g: { w: number; h: number
   cols.setAttributeNS(W, "w:equalWidth", "1");
 }
 
+/** Mint a fresh header/footer part (word/<kind>N.xml) from HTML + a content-type override + a
+    relationship in document.xml.rels (via ctx), returning the new relationship id. */
+function mintHFPart(ctx: DocxCtx, kind: "header" | "footer", html: string): string | null {
+  const isHeader = kind === "header";
+  let n = 1;
+  while (ctx.files[`word/${kind}${n}.xml`]) n++;
+  const partPath = `word/${kind}${n}.xml`;
+  const decls = Object.entries(NS_DECLS).map(([k, v]) => `${k}="${v}"`).join(" ");
+  const partDoc = new DOMParser().parseFromString(`<${isHeader ? "w:hdr" : "w:ftr"} ${decls}></${isHeader ? "w:hdr" : "w:ftr"}>`, "application/xml");
+  const container = partDoc.documentElement!;
+  const relsDoc = new DOMParser().parseFromString(`<Relationships xmlns="${PKG}"></Relationships>`, "application/xml");
+  const pctx: DocxCtx = { doc: partDoc, rels: relsDoc, relsAdded: false, nextRid: 1, nextRevId: 1, listIds: null, files: ctx.files };
+  const htmlDoc = new DOMParser().parseFromString(html || "<p><br></p>", "text/html");
+  for (const node of Array.from(htmlDoc.body.childNodes)) appendBlock(pctx, container, node);
+  if (!container.firstChild) container.appendChild(partDoc.createElementNS(W, "w:p"));
+  ctx.files[partPath] = strToU8(new XMLSerializer().serializeToString(partDoc));
+  if (pctx.relsAdded) ctx.files[`word/_rels/${kind}${n}.xml.rels`] = strToU8(new XMLSerializer().serializeToString(relsDoc));
+  ensureOverride(ctx.files, `/${partPath}`, isHeader ? CT_HEADER : CT_FOOTER);
+  if (!ctx.rels) return null;
+  const rid = `rId${ctx.nextRid++}`;
+  const rel = ctx.rels.createElementNS(PKG, "Relationship");
+  rel.setAttribute("Id", rid);
+  rel.setAttribute("Type", isHeader ? REL_HEADER : REL_FOOTER);
+  rel.setAttribute("Target", `${kind}${n}.xml`);
+  ctx.rels.documentElement!.appendChild(rel);
+  ctx.relsAdded = true;
+  return rid;
+}
+
+/** Reconcile a section's default header/footer reference with its link state: a "new..." key mints
+    a part and points at it; an existing key leaves the (stashed) ref in place; no key removes the
+    default ref so the section links to the previous one. */
+function applyHFRef(ctx: DocxCtx, sectPr: Element, role: "header" | "footer", key: string | null): void {
+  const refTag = role === "header" ? "w:headerReference" : "w:footerReference";
+  const removeDefault = () => {
+    for (const r of Array.from(sectPr.getElementsByTagName(refTag))) {
+      const ty = r.getAttributeNS(W, "type") ?? r.getAttribute("w:type") ?? "default";
+      if (ty === "default") r.parentNode!.removeChild(r);
+    }
+  };
+  if (!key) { removeDefault(); return; }
+  if (!key.startsWith("new")) return; // existing part: its ref rides along on the stashed sectPr
+  const rid = mintHFPart(ctx, role, ctx.sectionBandHtml?.get(key) ?? "<p><br></p>");
+  if (!rid) return;
+  removeDefault();
+  const ref = ctx.doc.createElementNS(W, refTag);
+  ref.setAttributeNS(W, "w:type", "default");
+  ref.setAttributeNS(R, "r:id", rid);
+  sectPr.insertBefore(ref, sectPr.firstChild);
+}
+
 /** Build a w:sectPr for an in-paragraph section break from the edited geometry JSON
     (data-rdoc-secbreak), merging onto the preserved original sectPr when there is one (so header
-    refs, page borders, etc. survive) or a fresh next-page break otherwise. */
-function buildSectPr(ctx: DocxCtx, geomJson: string, stashedXml: string | null): Element | null {
+    refs, page borders, etc. survive) or a fresh next-page break otherwise. headerKey/footerKey
+    carry the section's header/footer link state. */
+function buildSectPr(ctx: DocxCtx, geomJson: string, stashedXml: string | null, headerKey: string | null, footerKey: string | null): Element | null {
   let g: { w: number; h: number; mt: number; mr: number; mb: number; ml: number; cols?: number; colGap?: number };
   try { g = JSON.parse(geomJson); } catch { return null; }
   let sectPr = stashedXml ? importPassthrough(ctx, stashedXml) : null;
@@ -1332,6 +1387,8 @@ function buildSectPr(ctx: DocxCtx, geomJson: string, stashedXml: string | null):
     sectPr.appendChild(type);
   }
   setSectPrGeom(ctx.doc, sectPr, g);
+  applyHFRef(ctx, sectPr, "header", headerKey);
+  applyHFRef(ctx, sectPr, "footer", footerKey);
   return sectPr;
 }
 
@@ -1487,9 +1544,14 @@ export function htmlToDocx(
   opts?: { reactions?: ReactionEdit[]; replies?: ReplyEdit[]; done?: Map<string, boolean>; deletedComments?: string[]; pageGeometry?: PageGeometry; newStyles?: NewStyle[] },
 ): Uint8Array {
   const files = unzipSync(original);
-  rebuildPart(files, "word/document.xml", html);
+  // Per-section header/footer HTML by key, so buildSectPr can mint a new part for an unlinked
+  // section while rebuilding the body.
+  const bandHtml = new Map<string, string>();
+  for (const p of parts ?? []) bandHtml.set(p.path, p.html);
+  rebuildPart(files, "word/document.xml", html, bandHtml);
   if (opts?.newStyles?.length) addNewStyles(files, opts.newStyles);
   for (const p of parts ?? []) {
+    if (/^new(header|footer):/.test(p.path)) continue; // an unlinked section's part: minted in buildSectPr
     // "header" / "footer" are sentinels for a band created in-editor (no existing part).
     if (p.path === "header" || p.path === "footer") createHeaderFooterPart(files, p.path, p.html);
     else rebuildPart(files, p.path, p.html);

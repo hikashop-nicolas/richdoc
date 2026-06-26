@@ -157,6 +157,8 @@ const dict: Dict = {
   edgeBottom: "Bas",
   edgeLeft: "Gauche",
   insertSectionBreak: "Insérer un saut de section",
+  sectionUnlink: "Utiliser un en-tête / pied de page différent pour cette section",
+  sectionLink: "Utiliser le même en-tête / pied de page que la section précédente",
 };
 
 export default dict;

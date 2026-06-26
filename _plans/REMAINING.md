@@ -72,7 +72,9 @@ context (a paragraph, or the document body) is regenerated from the edited HTML.
   page-layout + master-page. Untouched sections still round-trip byte-for-byte. Each section
   renders, edits and saves its own header/footer (docx multiple header/footer parts; odt
   per-master `style:header`/`style:footer`), falling back to the document default (Word's
-  link-to-previous) when it has none. Design in `_plans/SECTIONS_PLAN.md`.
+  link-to-previous) when it has none. A corner chip on a non-main section's header/footer toggles
+  that link: unlinking mints the section its own part (docx) / master header (odt), pre-filled
+  with the inherited content; relinking drops it. Design in `_plans/SECTIONS_PLAN.md`.
 
 ---
 
@@ -81,16 +83,12 @@ context (a paragraph, or the document body) is regenerated from the edited HTML.
 These are the only things that do not round-trip once the document is edited,
 because their context is regenerated. This is the work for "feature complete".
 
-1. **Sections: per-section ruler + distinct header on inserted sections.** Section rendering,
-   insertion, page-setup authoring and header/footer are all done (bucket A), including
-   *distinct* per-section header/footer content: each section reads, renders, edits and saves
-   its own header/footer (docx multiple header/footer parts; odt per-master
-   `style:header`/`style:footer`); a section without its own falls back to the document default
-   (Word's "link to previous"). What remains: (a) an *inserted* section break currently
-   inherits the default header/footer rather than getting its own new part/master, so authoring
-   a brand-new distinct header needs a "break the link" step (planned: a corner toggle on a
-   non-main section's header/footer); and (b) vertical (tategaki) pages still show no ruler. Per-section
-   margins are now draggable on the ruler. See `_plans/SECTIONS_PLAN.md`.
+1. **Sections: vertical-page ruler.** The section model is feature-complete (bucket A):
+   rendering, insertion, per-section page setup, draggable per-section ruler margins, and
+   *distinct* per-section header/footer including a corner "link to previous" chip that mints a
+   section its own header/footer part (docx) / master header (odt) on demand. The only gap left:
+   vertical (tategaki) pages show no ruler at all (the ruler is suppressed for vertical writing).
+   See `_plans/SECTIONS_PLAN.md`.
 2. **Tab-stop positioning + authoring.** Tabs and a paragraph's custom stops now
    round-trip (see bucket A), but custom stop *positions* render at the default 0.5in
    grid (preserved on save, not shown at their real x), and right / center / decimal

@@ -157,6 +157,8 @@ const dict: Dict = {
   edgeBottom: "Bottom",
   edgeLeft: "Left",
   insertSectionBreak: "Insert section break",
+  sectionUnlink: "Use a different header/footer for this section",
+  sectionLink: "Use the same header/footer as the previous section",
 };
 
 export default dict;

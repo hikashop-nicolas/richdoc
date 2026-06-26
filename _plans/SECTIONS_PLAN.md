@@ -30,8 +30,15 @@ Per-section ruler authoring DONE: the margin handles are draggable on every page
 section boxes. A section drag commits through writeSectionGeom (the caret's section, which the
 ruler follows), live-updates the box padding + ruler, and re-buckets on pointerup.
 
-Still pending: an inserted section break inherits the default header/footer (no new part/master
-is minted yet) - planned as a "break the link" corner toggle on a non-main section's header/footer.
+"Break the link" DONE: a corner chip on a non-main section's header/footer (separate chips for
+header and footer) toggles link-to-previous. Unlink mints the section its own band, pre-filled
+with the inherited content (docx: a new headerN.xml part wired via headerReference into that
+section's sectPr, minted in buildSectPr from data-rdoc-sec*key="new..."; odt: a style:header in
+the section's master via header@<master>). Relink drops the override (docx: buildSectPr removes
+the default ref; odt: reconcileSectionBands deletes the master's header). The chip lives in the
+overlay, outside the editable clone, so it is never saved into the band content.
+
+Only remaining section gap: vertical (tategaki) pages show no ruler.
 
 Goal: render each section at its own page geometry, so e.g. an A4 portrait section
 followed by an A3 landscape section displays correctly in the editor (not just

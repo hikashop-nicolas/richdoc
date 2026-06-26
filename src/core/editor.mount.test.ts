@@ -336,6 +336,43 @@ describe("shared engine mount", () => {
     host.remove();
   });
 
+  it("breaks the header link on a section, minting a new part (docx)", async () => {
+    const { strFromU8, unzipSync } = await import("fflate");
+    const a4 = '<w:pgSz w:w="11906" w:h="16838"/><w:pgMar w:top="1440" w:right="1440" w:bottom="1440" w:left="1440"/>';
+    const doc = `<?xml version="1.0"?><w:document xmlns:w="http://schemas.openxmlformats.org/wordprocessingml/2006/main" xmlns:r="http://schemas.openxmlformats.org/officeDocument/2006/relationships"><w:body>` +
+      "<w:p><w:r><w:t>One</w:t></w:r></w:p>" +
+      `<w:p><w:pPr><w:sectPr>${a4}<w:type w:val="nextPage"/></w:sectPr></w:pPr><w:r><w:t>EndOne</w:t></w:r></w:p>` + // section 1: no header ref -> inherits
+      "<w:p><w:r><w:t>Two</w:t></w:r></w:p>" +
+      `<w:sectPr><w:headerReference w:type="default" r:id="rId1"/>${a4}</w:sectPr></w:body></w:document>`;
+    const docx = zipSync({
+      "[Content_Types].xml": strToU8('<?xml version="1.0"?><Types xmlns="http://schemas.openxmlformats.org/package/2006/content-types"><Override PartName="/word/header1.xml" ContentType="application/vnd.openxmlformats-officedocument.wordprocessingml.header+xml"/></Types>'),
+      "_rels/.rels": strToU8("<Relationships/>"),
+      "word/document.xml": strToU8(doc),
+      "word/header1.xml": strToU8('<?xml version="1.0"?><w:hdr xmlns:w="http://schemas.openxmlformats.org/wordprocessingml/2006/main"><w:p><w:r><w:t>DEFAULT HEADER</w:t></w:r></w:p></w:hdr>'),
+      "word/_rels/document.xml.rels": strToU8('<?xml version="1.0"?><Relationships xmlns="http://schemas.openxmlformats.org/package/2006/relationships"><Relationship Id="rId1" Type="http://schemas.openxmlformats.org/officeDocument/2006/relationships/header" Target="header1.xml"/></Relationships>'),
+    });
+    const host = document.createElement("div");
+    document.body.appendChild(host);
+    const ed = createDocxEditor(host, docx);
+    // Section 1 inherits the default header and shows a link chip; click it to make it independent.
+    const chip = host.querySelector(".docxedit-hf-link") as HTMLElement;
+    expect(chip).toBeTruthy();
+    chip.click();
+    // Edit section 1's now-own header (the first header clone in document order).
+    const clone = [...host.querySelectorAll(".docxedit-hf-clone")][0] as HTMLElement;
+    clone.textContent = "SECTION 1 HEADER";
+    clone.dispatchEvent(new Event("input", { bubbles: true }));
+    const out = unzipSync(await ed.getBytes());
+    const headerParts = Object.keys(out).filter((k) => /^word\/header\d+\.xml$/.test(k));
+    expect(headerParts.length).toBe(2); // the original + a newly minted one
+    const texts = headerParts.map((k) => strFromU8(out[k]!));
+    expect(texts.some((t) => t.includes("SECTION 1 HEADER"))).toBe(true);
+    expect(texts.some((t) => t.includes("DEFAULT HEADER"))).toBe(true);
+    expect((strFromU8(out["word/document.xml"]!).match(/headerReference/g) ?? []).length).toBe(2); // section 1 + body
+    ed.destroy();
+    host.remove();
+  });
+
   it("inserts a section break and authors the new section (docx)", async () => {
     const { strFromU8, unzipSync } = await import("fflate");
     const doc = `<?xml version="1.0"?><w:document xmlns:w="http://schemas.openxmlformats.org/wordprocessingml/2006/main"><w:body>` +
@@ -433,6 +470,45 @@ describe("shared engine mount", () => {
     cust.dispatchEvent(new Event("input", { bubbles: true }));
     const xml = strFromU8(unzipSync(await ed.getBytes())["styles.xml"]!);
     expect(xml).toContain("CUSTOM HEADER EDITED");
+    expect(xml).toContain("STD HEADER");
+    ed.destroy();
+    host.remove();
+  });
+
+  it("breaks the header link on a section, writing its master (odt)", async () => {
+    const { strFromU8, unzipSync } = await import("fflate");
+    const styles =
+      '<?xml version="1.0"?><office:document-styles xmlns:office="urn:oasis:names:tc:opendocument:xmlns:office:1.0" ' +
+      'xmlns:style="urn:oasis:names:tc:opendocument:xmlns:style:1.0" xmlns:fo="urn:oasis:names:tc:opendocument:xmlns:xsl-fo-compatible:1.0" xmlns:text="urn:oasis:names:tc:opendocument:xmlns:text:1.0"><office:automatic-styles>' +
+      '<style:page-layout style:name="pm1"><style:page-layout-properties fo:page-width="21cm" fo:page-height="29.7cm"/></style:page-layout>' +
+      '<style:page-layout style:name="pm2"><style:page-layout-properties fo:page-width="21cm" fo:page-height="29.7cm"/></style:page-layout>' +
+      "</office:automatic-styles><office:master-styles>" +
+      '<style:master-page style:name="Standard" style:page-layout-name="pm1"><style:header><text:p>STD HEADER</text:p></style:header></style:master-page>' +
+      '<style:master-page style:name="Custom" style:page-layout-name="pm2"/>' + // section 2's master has no header -> inherits
+      "</office:master-styles></office:document-styles>";
+    const content =
+      '<?xml version="1.0"?><office:document-content xmlns:office="urn:oasis:names:tc:opendocument:xmlns:office:1.0" ' +
+      'xmlns:text="urn:oasis:names:tc:opendocument:xmlns:text:1.0" xmlns:style="urn:oasis:names:tc:opendocument:xmlns:style:1.0">' +
+      '<office:automatic-styles><style:style style:name="P2" style:family="paragraph" style:master-page-name="Custom"/></office:automatic-styles>' +
+      '<office:body><office:text><text:p>One</text:p><text:p text:style-name="P2">Two</text:p></office:text></office:body></office:document-content>';
+    const odt = zipSync({
+      mimetype: [strToU8("application/vnd.oasis.opendocument.text"), { level: 0 }],
+      "content.xml": strToU8(content),
+      "styles.xml": strToU8(styles),
+      "META-INF/manifest.xml": strToU8("<m/>"),
+    });
+    const host = document.createElement("div");
+    document.body.appendChild(host);
+    const ed = createOdtEditor(host, odt);
+    const chip = host.querySelector(".docxedit-hf-link") as HTMLElement; // section 2's header chip
+    expect(chip).toBeTruthy();
+    chip.click();
+    const clone = [...host.querySelectorAll(".docxedit-hf-clone")][1] as HTMLElement; // section 2's header
+    clone.textContent = "SECTION 2 HEADER";
+    clone.dispatchEvent(new Event("input", { bubbles: true }));
+    const xml = strFromU8(unzipSync(await ed.getBytes())["styles.xml"]!);
+    expect((xml.match(/<style:header/g) ?? []).length).toBe(2); // Standard + Custom now each have one
+    expect(xml).toContain("SECTION 2 HEADER");
     expect(xml).toContain("STD HEADER");
     ed.destroy();
     host.remove();

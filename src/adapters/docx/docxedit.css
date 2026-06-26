@@ -228,6 +228,14 @@
 .docxedit-hflayer { position: absolute; inset: 0; z-index: 2; pointer-events: none; }
 .docxedit-hf-clone { position: absolute; box-sizing: border-box; pointer-events: auto; cursor: text; }
 .docxedit-hf-clone:hover { outline: 1px dashed #6e7bff; outline-offset: -1px; }
+/* Corner chip toggling a section's header/footer "link to previous". */
+.docxedit-hf-link {
+  position: absolute; z-index: 4; width: 18px; height: 18px; padding: 0; display: inline-flex;
+  align-items: center; justify-content: center; pointer-events: auto; cursor: pointer;
+  background: #2b2f36; color: #aab2bc; border: 1px solid #4a4f57; border-radius: 4px; opacity: .55;
+}
+.docxedit-hf-link:hover { opacity: 1; border-color: #6e7bff; color: #e6e8ec; }
+.docxedit-hf-link.is-on { color: #6e7bff; opacity: .9; } /* independent (link broken) */
 .docxedit-header.is-editing, .docxedit-footer.is-editing { outline: 2px solid #6e7bff; outline-offset: -2px; border-radius: 2px; }
 .docxedit-doc { padding: var(--rdoc-margin-top, 40px) var(--rdoc-margin-right, 72px) var(--rdoc-margin-bottom, 56px) var(--rdoc-margin-left, 72px); min-height: 200px; outline: none; }
 /* Vertical writing (tategaki): fixed-height page, columns top-to-bottom advancing right-to-left

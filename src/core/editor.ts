@@ -260,6 +260,38 @@ export function createRichEditor(container: HTMLElement, adapter: Adapter, optio
       c.setAttribute("data-odt-break-before", "page");
     }
   };
+  // Toggle a section's header/footer "link to previous": linked = inherits the document default;
+  // independent = its own editable band (pre-filled with the inherited content), saved to its own
+  // part (docx) / master (odt). Only non-main sections (with a boundary paragraph) can toggle.
+  let secBandSeq = 0;
+  const toggleSectionBand = (boundaryEl: HTMLElement, role: "header" | "footer"): void => {
+    const attr = `data-rdoc-sec${role}key`;
+    const existing = boundaryEl.getAttribute(attr);
+    if (existing) {
+      boundaryEl.removeAttribute(attr); // relink: drop the override, fall back to the default
+      secBands.delete(existing);
+    } else {
+      const inherited = (role === "header" ? header : footer)?.innerHTML || "<p><br></p>";
+      let key: string, path: string;
+      if (caps.sections === "leading") {
+        const master = boundaryEl.getAttribute("data-odt-masterpage");
+        if (!master) return; // a leading section always has a master; nothing to attach to otherwise
+        key = `${role === "header" ? "oh" : "of"}:${master}`;
+        path = `${role}@${master}`;
+      } else {
+        key = `new${role}:${++secBandSeq}`; // a fresh part minted on save
+        path = key;
+      }
+      const el = band("docxedit-header", t(role), inherited);
+      if (!el) return;
+      measure.appendChild(el);
+      secBands.set(key, { el, path });
+      boundaryEl.setAttribute(attr, key);
+    }
+    if (caps.sections === "trailing") boundaryEl.setAttribute("data-rdoc-secedited", "1"); // regenerate the sectPr ref
+    reflow();
+    mark();
+  };
 
   // Page view: rulers (margin handles) + zoom + the centred canvas around the page box.
   const { applyZoom, effectiveZoom, zoomSlider, zoomLabel, pageSetupBtn, sectionBreakBtn, teardown: teardownPageView } = setupPageView({
@@ -350,6 +382,22 @@ export function createRichEditor(container: HTMLElement, adapter: Adapter, optio
       }
       reflow();
     });
+    return c;
+  };
+  // A corner chip on a non-main section's header/footer toggling "link to previous" (shared
+  // default vs the section's own band). Lives in the overlay, outside the editable clone.
+  const mkLinkChip = (role: "header" | "footer", boundaryEl: HTMLElement, posCss: string): HTMLElement => {
+    const linked = !boundaryEl.getAttribute(`data-rdoc-sec${role}key`);
+    const c = document.createElement("button");
+    c.type = "button";
+    c.className = `docxedit-hf-link${linked ? "" : " is-on"}`;
+    c.title = linked ? t("sectionUnlink") : t("sectionLink");
+    c.style.cssText = posCss;
+    c.innerHTML = linked
+      ? `<svg width="13" height="13" viewBox="0 0 16 16" fill="none" stroke="currentColor" stroke-width="1.5"><path d="M6.5 9.5l3-3M6 5.5L7.5 4a2.5 2.5 0 0 1 3.5 3.5L9.5 9M10 10.5L8.5 12A2.5 2.5 0 0 1 5 8.5L6.5 7"/></svg>`
+      : `<svg width="13" height="13" viewBox="0 0 16 16" fill="none" stroke="currentColor" stroke-width="1.5"><path d="M6 5.5L7.5 4a2.5 2.5 0 0 1 3.5 3.5L9.5 9M10 10.5L8.5 12A2.5 2.5 0 0 1 5 8.5L6.5 7M2 2l12 12"/></svg>`;
+    c.addEventListener("mousedown", (e) => e.preventDefault()); // keep the caret/selection
+    c.addEventListener("click", (e) => { e.preventDefault(); toggleSectionBand(boundaryEl, role); });
     return c;
   };
   // Fields (page number / count / table of contents). Clone bands get per-page values; body
@@ -647,14 +695,17 @@ export function createRichEditor(container: HTMLElement, adapter: Adapter, optio
     // sections therefore edit + save distinct header/footer parts.
     const resolveBand = (key: string | null, fallback: HTMLElement | null): HTMLElement | null =>
       key && secBands.has(key) ? secBands.get(key)!.el : fallback;
-    type Section = { blocks: HTMLElement[]; geom: SecGeom; headerEl: HTMLElement | null; footerEl: HTMLElement | null };
+    // boundaryEl is the paragraph carrying the section's keys (null for the main section, which
+    // has no break and inherits the document header/footer + cannot toggle its link).
+    type Section = { blocks: HTMLElement[]; geom: SecGeom; headerEl: HTMLElement | null; footerEl: HTMLElement | null; boundaryEl: HTMLElement | null };
     const sections: Section[] = [];
     let run: HTMLElement[] = [];
     let runGeom = docGeom();
     let runHKey: string | null = null;
     let runFKey: string | null = null;
+    let runBoundary: HTMLElement | null = null;
     const pushRun = () => {
-      if (run.length) sections.push({ blocks: run, geom: runGeom, headerEl: resolveBand(runHKey, header), footerEl: resolveBand(runFKey, footer) });
+      if (run.length) sections.push({ blocks: run, geom: runGeom, headerEl: resolveBand(runHKey, header), footerEl: resolveBand(runFKey, footer), boundaryEl: runBoundary });
       run = [];
     };
     for (const b of blocks) {
@@ -664,16 +715,18 @@ export function createRichEditor(container: HTMLElement, adapter: Adapter, optio
         runGeom = parseGeom(start); // this block begins a section with this geometry
         runHKey = b.getAttribute("data-rdoc-secheaderkey");
         runFKey = b.getAttribute("data-rdoc-secfooterkey");
+        runBoundary = b; // leading convention: the section starts here
       }
       run.push(b);
       const brk = b.getAttribute("data-rdoc-secbreak");
       if (brk) {
         // Trailing convention: this block ends the section and carries its keys.
-        sections.push({ blocks: run, geom: parseGeom(brk), headerEl: resolveBand(b.getAttribute("data-rdoc-secheaderkey"), header), footerEl: resolveBand(b.getAttribute("data-rdoc-secfooterkey"), footer) });
+        sections.push({ blocks: run, geom: parseGeom(brk), headerEl: resolveBand(b.getAttribute("data-rdoc-secheaderkey"), header), footerEl: resolveBand(b.getAttribute("data-rdoc-secfooterkey"), footer), boundaryEl: b });
         run = [];
         runGeom = docGeom();
         runHKey = null;
         runFKey = null;
+        runBoundary = null;
       }
     }
     pushRun();
@@ -716,14 +769,16 @@ export function createRichEditor(container: HTMLElement, adapter: Adapter, optio
     const overflowed = (b: HTMLElement, g: SecGeom): boolean =>
       g.cols && g.cols > 1 ? b.scrollWidth > b.clientWidth + EPS : b.scrollHeight > b.clientHeight + EPS;
 
-    const boxMeta: { box: HTMLElement; g: SecGeom; fH: number; headerEl: HTMLElement | null; footerEl: HTMLElement | null }[] = [];
+    type BoxMeta = { box: HTMLElement; g: SecGeom; fH: number; headerEl: HTMLElement | null; footerEl: HTMLElement | null; boundaryEl: HTMLElement | null };
+    const boxMeta: BoxMeta[] = [];
     for (const sec of sections) {
       const cw = sec.geom.w - sec.geom.ml - sec.geom.mr;
       const hH = bandH(sec.headerEl, cw);
       const fH = bandH(sec.footerEl, cw);
+      const meta = { g: sec.geom, fH, headerEl: sec.headerEl, footerEl: sec.footerEl, boundaryEl: sec.boundaryEl };
       let box = newBox(sec.geom, hH, fH);
       doc.appendChild(box);
-      boxMeta.push({ box, g: sec.geom, fH, headerEl: sec.headerEl, footerEl: sec.footerEl });
+      boxMeta.push({ box, ...meta });
       for (const block of sec.blocks) {
         box.appendChild(block);
         if (overflowed(box, sec.geom) && box.children.length > 1) {
@@ -731,7 +786,7 @@ export function createRichEditor(container: HTMLElement, adapter: Adapter, optio
           finalize(box, sec.geom);
           box = newBox(sec.geom, hH, fH);
           doc.appendChild(box);
-          boxMeta.push({ box, g: sec.geom, fH, headerEl: sec.headerEl, footerEl: sec.footerEl });
+          boxMeta.push({ box, ...meta });
           box.appendChild(block); // a lone oversized block stays even if it still overflows
         }
       }
@@ -739,20 +794,25 @@ export function createRichEditor(container: HTMLElement, adapter: Adapter, optio
     }
     for (const old of stale) old.remove();
     // Header/footer clones, positioned over each section box (page-numbered cumulatively). Each box
-    // clones its own section's bands, so distinct sections show distinct headers/footers.
+    // clones its own section's bands; a non-main section also gets a corner chip to link/unlink.
     const dx = doc.offsetLeft, dy = doc.offsetTop;
     const total = boxMeta.length;
-    boxMeta.forEach(({ box, g, fH, headerEl, footerEl }, i) => {
+    boxMeta.forEach(({ box, g, fH, headerEl, footerEl, boundaryEl }, i) => {
       const cw = g.w - g.ml - g.mr;
+      const left = dx + box.offsetLeft + g.ml;
       if (headerEl && !isBandEmpty(headerEl)) {
-        const hc = mkClone(headerEl, `top:${dy + box.offsetTop + g.mt}px;left:${dx + box.offsetLeft + g.ml}px;width:${cw}px`);
+        const top = dy + box.offsetTop + g.mt;
+        const hc = mkClone(headerEl, `top:${top}px;left:${left}px;width:${cw}px`);
         setCloneFields(hc, i + 1, total);
         hflayer.appendChild(hc);
+        if (boundaryEl) hflayer.appendChild(mkLinkChip("header", boundaryEl, `top:${top}px;left:${left + cw - 18}px`));
       }
       if (footerEl && !isBandEmpty(footerEl)) {
-        const fc = mkClone(footerEl, `top:${dy + box.offsetTop + g.h - g.mb - fH}px;left:${dx + box.offsetLeft + g.ml}px;width:${cw}px`);
+        const top = dy + box.offsetTop + g.h - g.mb - fH;
+        const fc = mkClone(footerEl, `top:${top}px;left:${left}px;width:${cw}px`);
         setCloneFields(fc, i + 1, total);
         hflayer.appendChild(fc);
+        if (boundaryEl) hflayer.appendChild(mkLinkChip("footer", boundaryEl, `top:${top}px;left:${left + cw - 18}px`));
       }
     });
     page.style.minHeight = "";

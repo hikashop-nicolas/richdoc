@@ -857,6 +857,25 @@ function setPageLayoutGeom(doc: Document, props: Element, g: { w: number; h: num
   }
 }
 
+/** Remove a section master's style:header/style:footer when its section has linked back to the
+    default (no data-rdoc-sec*key on the boundary paragraph), so a relink sticks on reopen. */
+function reconcileSectionBands(files: Record<string, Uint8Array>, htmlDoc: Document): void {
+  const secs = Array.from(htmlDoc.querySelectorAll("[data-odt-masterpage]"));
+  if (!secs.length || !files["styles.xml"]) return;
+  const doc = new DOMParser().parseFromString(strFromU8(files["styles.xml"]), "application/xml");
+  const byName = (name: string | null): Element | null =>
+    name ? (Array.from(doc.getElementsByTagName("style:master-page")).find((m) => m.getAttribute("style:name") === name) ?? null) : null;
+  let touched = false;
+  const drop = (master: Element, tag: string) => { const e = master.getElementsByTagName(tag)[0]; if (e) { e.parentNode!.removeChild(e); touched = true; } };
+  for (const el of secs) {
+    const master = byName(el.getAttribute("data-odt-masterpage"));
+    if (!master) continue;
+    if (!el.getAttribute("data-rdoc-secheaderkey")) drop(master, "style:header");
+    if (!el.getAttribute("data-rdoc-secfooterkey")) drop(master, "style:footer");
+  }
+  if (touched) files["styles.xml"] = strToU8(new XMLSerializer().serializeToString(doc));
+}
+
 /** Update the first page-layout in styles.xml from the edited document geometry. */
 function applyPageMargins(files: Record<string, Uint8Array>, geometry: PageGeometry): void {
   if (!files["styles.xml"]) return;
@@ -1036,6 +1055,7 @@ export function htmlToOdt(
   if (tc) body.insertBefore(tc, body.firstChild);
   addManifestEntries(files, ctx.pics); // register any images embedded above
   if (opts?.parts) applyHeaderFooter(files, opts.parts); // header/footer -> styles.xml
+  reconcileSectionBands(files, htmlDoc); // drop a relinked section master's header/footer
   if (opts?.page) applyPageMargins(files, opts.page); // margins -> styles.xml page-layout
   applySectionMasters(files, htmlDoc); // per-section page setup -> styles.xml master pages
   if (opts?.newStyles?.length) addOdtStyles(files, opts.newStyles); // authored styles -> styles.xml
