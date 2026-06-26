@@ -11,13 +11,15 @@ export interface FloatBarDeps {
   exec: (cmd: string, val?: string) => void;
   queryState: (cmd: string) => boolean;
   withSc: (title: string, key: string, opts?: { shift?: boolean; alt?: boolean }) => string;
+  /** Vertical (tategaki) writing: stack the bar top-to-bottom beside the caret. */
+  vertical: boolean;
 }
 
 export function setupFloatBar(deps: FloatBarDeps) {
-  const { wrap, regions, getActiveEl, beginFormatChange, exec, queryState, withSc } = deps;
+  const { wrap, regions, getActiveEl, beginFormatChange, exec, queryState, withSc, vertical } = deps;
   const coarse = typeof window.matchMedia === "function" && window.matchMedia("(hover: none), (pointer: coarse)").matches;
   const floatBar = document.createElement("div");
-  floatBar.className = "docxedit-floatbar";
+  floatBar.className = `docxedit-floatbar${vertical ? " is-vertical" : ""}`;
   floatBar.hidden = true;
   let floatHideTimer = 0;
   let floatHovered = false;
@@ -85,8 +87,20 @@ export function setupFloatBar(deps: FloatBarDeps) {
   };
   const showFloatAt = (rect: DOMRect) => {
     floatBar.hidden = false;
-    const bw = floatBar.offsetWidth || 180;
-    const bh = floatBar.offsetHeight || 32;
+    const bw = floatBar.offsetWidth || (vertical ? 30 : 180);
+    const bh = floatBar.offsetHeight || (vertical ? 180 : 32);
+    if (vertical) {
+      // Tategaki: a vertical stack to the right of the caret (flip left if there is no room),
+      // centred along the caret's height.
+      let left = rect.right + 8;
+      if (left + bw > window.innerWidth - 8) left = rect.left - bw - 8;
+      left = Math.max(8, left);
+      let top = rect.top + rect.height / 2 - bh / 2;
+      top = Math.max(8, Math.min(top, window.innerHeight - bh - 8));
+      floatBar.style.left = `${left}px`;
+      floatBar.style.top = `${top}px`;
+      return;
+    }
     let left = rect.left + rect.width / 2 - bw / 2;
     left = Math.max(8, Math.min(left, window.innerWidth - bw - 8));
     let top = rect.top - bh - 8;

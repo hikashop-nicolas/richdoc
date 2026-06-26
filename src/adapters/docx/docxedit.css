@@ -15,6 +15,7 @@
   background: #2b2f36; border: 1px solid #1c1f24; border-radius: 8px; box-shadow: 0 6px 20px rgba(0,0,0,.5);
 }
 .docxedit-floatbar[hidden] { display: none; }
+.docxedit-floatbar.is-vertical { flex-direction: column; } /* tategaki: buttons stacked, beside the caret */
 .docxedit-floatbar-btn {
   font: 13px system-ui, sans-serif; background: #3a3f47; color: #e6e6e6; border: 1px solid #4a4f57; border-radius: 5px;
   height: 26px; min-width: 28px; padding: 2px 6px; cursor: pointer;

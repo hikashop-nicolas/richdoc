@@ -35,13 +35,14 @@ export interface ToolbarDeps {
   styleBar: HTMLElement; // the bottom-bar left slot for the style pickers
   newStyles: NewStyle[]; // styles authored in-session, collected for save
   newStyleCss: HTMLStyleElement; // live <style> for the appearance of in-session styles
+  vertical: boolean; // vertical (tategaki) writing, for the floating bar layout
 }
 
 export function setupToolbar(deps: ToolbarDeps) {
   const {
     toolbar, wrap, doc, regions, caps, options, parts, adapter, getActiveEl, mark, positionCards,
     addThreadCard, setActiveComment, allocId, freshParaId, insertImage, styleBar,
-    newStyles, newStyleCss,
+    newStyles, newStyleCss, vertical,
   } = deps;
 
   // Clicking a toolbar <select> can drop the editor's selection (especially a non-collapsed
@@ -851,7 +852,7 @@ export function setupToolbar(deps: ToolbarDeps) {
   scheduleSync(); // reflect the initial caret position once mounted
 
   // The floating formatting bar and the keyboard shortcuts each live in a sibling module.
-  const floatBar = setupFloatBar({ wrap, regions, getActiveEl, beginFormatChange, exec, queryState, withSc });
+  const floatBar = setupFloatBar({ wrap, regions, getActiveEl, beginFormatChange, exec, queryState, withSc, vertical });
   const shortcuts = setupShortcuts({ regions, caps, getActiveEl, exec, beginFormatChange, styleSel, selectedBlocks, mark, syncToolbarState, insertLink });
 
   const teardown = () => {
