@@ -552,7 +552,9 @@ function inlineToHtml(p: Element, ctx: RenderCtx): string {
     } else if (el.tagName === "w:ins" || el.tagName === "w:del") {
       html += revisionHtml(el, ctx);
     } else if (el.tagName === "w:r") {
+      const noteRef = el.getElementsByTagName("w:footnoteReference")[0] ?? el.getElementsByTagName("w:endnoteReference")[0];
       if (el.getElementsByTagName("w:commentReference").length) html += commentRefHtml(el, ctx);
+      else if (noteRef) html += noteRefHtml(noteRef.getAttribute("w:id") ?? "", noteRef.tagName === "w:endnoteReference" ? "endnote" : "footnote");
       else if (hasDrawing(el)) html += imageHtml(el, ctx);
       else if (!runIsModeled(el)) html += inlinePassthrough(el); // run holds a field char, symbol, footnote ref, ...
       else html += runToHtml(el);
@@ -789,6 +791,29 @@ function renderRefPart(files: Record<string, Uint8Array>, target: string | undef
   return renderBlocks(root, ctx);
 }
 
+// An inline footnote / endnote reference; the visible number is filled by the engine (document
+// order), so this carries only the stable id + kind. contentEditable=false makes it atomic.
+function noteRefHtml(id: string, kind: "footnote" | "endnote"): string {
+  return `<sup class="docx-fnref" data-fn-id="${escapeAttr(id)}" data-fn-kind="${kind}" contenteditable="false"></sup>`;
+}
+
+// Footnote / endnote bodies from word/footnotes.xml or endnotes.xml, keyed by id (skipping the
+// separator / continuation-separator notes, which have id <= 0 or a w:type).
+function readNotes(files: Record<string, Uint8Array>, part: "footnotes" | "endnotes", kind: "footnote" | "endnote"): { id: string; kind: "footnote" | "endnote"; html: string }[] {
+  const raw = files[`word/${part}.xml`];
+  if (!raw) return [];
+  const doc = new DOMParser().parseFromString(strFromU8(raw), "application/xml");
+  const ctx: RenderCtx = { files, rels: readRels(files[`word/_rels/${part}.xml.rels`]), numbering: new Map(), numStart: new Map(), comments: new Map(), openComments: new Set(), commentOrder: [] };
+  const tag = part === "footnotes" ? "w:footnote" : "w:endnote";
+  const out: { id: string; kind: "footnote" | "endnote"; html: string }[] = [];
+  for (const note of Array.from(doc.getElementsByTagName(tag))) {
+    const id = note.getAttribute("w:id");
+    if (!id || Number(id) <= 0 || note.getAttribute("w:type")) continue;
+    out.push({ id, kind, html: renderBlocks(note, ctx) || "<p><br></p>" });
+  }
+  return out;
+}
+
 function refTarget(sectPr: Element | undefined, tag: string, rels: Map<string, string>): string | undefined {
   if (!sectPr) return undefined;
   const refs = Array.from(sectPr.getElementsByTagName(tag));
@@ -804,6 +829,7 @@ export interface DocxParts {
   headerPath?: string; // archive key of the header part, for write-back
   footerPath?: string;
   sectionBands?: Record<string, { html: string; path: string }>; // per-section header/footer by r:id
+  notes?: { id: string; kind: "footnote" | "endnote"; html: string }[]; // footnote/endnote bodies by id
   comments: CommentThread[]; // top-level threads in document order, replies nested
   page?: PageGeometry; // page size/margins from w:sectPr, for the paginated view
   paragraphStyles?: { id: string; name: string }[]; // named paragraph styles, for the picker
@@ -1036,6 +1062,7 @@ export function docxToParts(bytes: Uint8Array): DocxParts {
     headerPath: partKey(headerTarget, files),
     footerPath: partKey(footerTarget, files),
     sectionBands,
+    notes: [...readNotes(files, "footnotes", "footnote"), ...readNotes(files, "endnotes", "endnote")],
     comments: threads,
     page: parsePageGeometry(sectPr),
     paragraphStyles: ps.paragraphStyles,

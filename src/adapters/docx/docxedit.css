@@ -227,6 +227,14 @@
 /* Header/footer layer sits above the body so the repeated clones are clickable; the layer
    itself lets clicks through, only the clones (in the margins) capture them. */
 .docxedit-hflayer { position: absolute; inset: 0; z-index: 2; pointer-events: none; }
+/* Footnote / endnote reference (in the body) + the notes area below the pages. */
+.docx-fnref { color: #6e7bff; cursor: default; font-feature-settings: "sups"; user-select: none; padding: 0 1px; }
+.docxedit-noteslayer { flex: 0 0 auto; width: min(820px, 92%); margin: 4px auto 28px; background: #fff; color: #111; border-top: 2px solid #c2cad3; border-radius: 0 0 4px 4px; padding: 10px 16px; box-shadow: 0 2px 12px rgba(0,0,0,.35); font: 13px/1.5 system-ui, sans-serif; }
+.docxedit-noteslayer[hidden] { display: none; }
+.docxedit-note-row { display: flex; gap: 8px; align-items: baseline; padding: 2px 0; }
+.docxedit-note-num { color: #6e7bff; flex: 0 0 auto; min-width: 18px; text-align: right; user-select: none; }
+.docxedit-note { flex: 1; min-width: 0; outline: none; }
+.docxedit-note:focus { background: #f3f5ff; }
 .docxedit-hf-clone { position: absolute; box-sizing: border-box; pointer-events: auto; cursor: text; }
 .docxedit-hf-clone:hover { outline: 1px dashed #6e7bff; outline-offset: -1px; }
 /* Corner chip toggling a section's header/footer "link to previous". */

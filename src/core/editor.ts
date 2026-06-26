@@ -5,7 +5,7 @@
 
 import { t } from "./i18n";
 import { defaultPageGeometry, paginate } from "./page";
-import type { Adapter, EditorOptions, RichEditor, RichDoc, SecGeom } from "./types";
+import type { Adapter, EditorOptions, RichEditor, RichDoc, SecGeom, Note } from "./types";
 import { setupComments } from "./feature/comments";
 import { setupImages } from "./feature/images";
 import { setupImageLayout } from "./feature/image-layout";
@@ -115,6 +115,19 @@ export function createRichEditor(container: HTMLElement, adapter: Adapter, optio
   for (const [key, { html, path }] of Object.entries(parts.sectionBands ?? {})) {
     const el = band("docxedit-header", t("header"), html);
     if (el) secBands.set(key, { el, path });
+  }
+  // Footnote / endnote bodies, keyed by id. Each is an editable block placed in the notes area
+  // at the bottom of the page holding its reference; editing it is the save source.
+  const noteBands = new Map<string, { el: HTMLElement; kind: "footnote" | "endnote" }>();
+  for (const n of parts.notes ?? []) {
+    const el = document.createElement("div");
+    el.className = "docxedit-note";
+    el.contentEditable = "true";
+    el.spellcheck = false;
+    el.innerHTML = n.html || "<p><br></p>";
+    el.addEventListener("focus", () => { activeEl = el; });
+    el.addEventListener("input", () => mark());
+    noteBands.set(n.id, { el, kind: n.kind });
   }
   // A band counts as empty when it has no text and no image, so an abandoned new one
   // (created by a double-click but never typed in) is dropped instead of being saved.
@@ -321,6 +334,34 @@ export function createRichEditor(container: HTMLElement, adapter: Adapter, optio
   bottomBar.append(bottomLeft, bottomRight);
   wrap.append(toolbar, scroll, bottomBar);
   container.appendChild(wrap);
+
+  // Footnote / endnote area below the pages. References are renumbered in document order and each
+  // referenced note's editable body is shown here (per-page-bottom placement is a later refinement).
+  const noteslayer = document.createElement("div");
+  noteslayer.className = "docxedit-noteslayer";
+  noteslayer.hidden = true;
+  scroll.appendChild(noteslayer);
+  const renderNotes = () => {
+    const refs = Array.from(doc.querySelectorAll<HTMLElement>(".docx-fnref"));
+    let fn = 0, en = 0;
+    const rows: HTMLElement[] = [];
+    for (const ref of refs) {
+      const kind = ref.getAttribute("data-fn-kind") === "endnote" ? "endnote" : "footnote";
+      ref.textContent = String(kind === "endnote" ? ++en : ++fn); // display number, by document order
+      const nb = noteBands.get(ref.getAttribute("data-fn-id") ?? "");
+      if (!nb) continue;
+      const row = document.createElement("div");
+      row.className = "docxedit-note-row";
+      const num = document.createElement("span");
+      num.className = "docxedit-note-num";
+      num.contentEditable = "false";
+      num.textContent = `${ref.textContent}.`;
+      row.append(num, nb.el);
+      rows.push(row);
+    }
+    noteslayer.replaceChildren(...rows);
+    noteslayer.hidden = rows.length === 0;
+  };
 
   // --- Pagination -----------------------------------------------------------
   // Measure top-level block heights, compute page breaks, then draw page cards behind the
@@ -1094,6 +1135,7 @@ export function createRichEditor(container: HTMLElement, adapter: Adapter, optio
   const reflow = () => {
     if (editingBand) return; // don't yank the band currently being edited
     repaginate();
+    renderNotes();
     applyZoom();
     positionCards();
     afterReflow();
@@ -1227,8 +1269,12 @@ export function createRichEditor(container: HTMLElement, adapter: Adapter, optio
       if (header && !isBandEmpty(header)) editedParts.push({ path: parts.headerPath ?? "header", html: header.innerHTML });
       if (footer && !isBandEmpty(footer)) editedParts.push({ path: parts.footerPath ?? "footer", html: footer.innerHTML });
       for (const { el, path } of secBands.values()) if (!isBandEmpty(el)) editedParts.push({ path, html: el.innerHTML }); // distinct per-section bands
+      // Footnote / endnote bodies still referenced in the body, in document order.
+      const refIds = new Set(Array.from(doc.querySelectorAll(".docx-fnref")).map((r) => r.getAttribute("data-fn-id")));
+      const notes: Note[] = [];
+      for (const [id, nb] of noteBands) if (refIds.has(id)) notes.push({ id, kind: nb.kind, html: nb.el.innerHTML });
 
-      return adapter.write(cleanBody(), editedParts, getEdits(), geometryDirty ? geometry : undefined, newStyles);
+      return adapter.write(cleanBody(), editedParts, getEdits(), geometryDirty ? geometry : undefined, newStyles, notes);
     },
     destroy() {
       for (const u of fontUrls) URL.revokeObjectURL(u);

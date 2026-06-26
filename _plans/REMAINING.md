@@ -122,8 +122,10 @@ section box with `w:cols` renders as a single vertical flow). See `_plans/SECTIO
 These round-trip untouched today. Adding an insert/edit UI would make them
 authorable; they are realistic to do, just not yet built.
 
-- Footnotes / endnotes (`w:footnoteReference`; footnotes.xml/endnotes.xml parts
-  preserved) - no insert/edit.
+- Footnotes / endnotes: references render as numbered superscripts and the note bodies are
+  editable + round-trip (docx footnotes.xml / endnotes.xml; odt inline `text:note`). What
+  remains: bottom-of-*page* placement (currently shown in a notes area below the pages), and
+  *inserting* a brand-new note (editing existing ones works). See `_plans/FOOTNOTES_PLAN.md`.
 - Symbols / special characters (`w:sym`) - no insert picker.
 - Bookmarks (`w:bookmarkStart/End`) and cross-references - no insert UI.
 - Complex fields - only PAGE / NUMPAGES / TOC are authored; date, file name,

@@ -66,6 +66,7 @@ interface RCtx {
   tabStops: Map<string, TabStop[]>; // paragraph style-name -> custom tab stops (px)
   masterGeoms: Map<string, string>; // master-page name -> JSON page geometry (for per-section rendering)
   masterBands?: Map<string, { header: string; footer: string }>; // master-page name -> its header/footer HTML
+  notes?: { id: string; kind: "footnote" | "endnote"; html: string }[]; // footnote/endnote bodies, collected inline
 }
 
 /** Page geometry (compact JSON) from a style:page-layout-properties element, for per-section
@@ -567,6 +568,17 @@ function inlineToHtml(el: Element, ctx: RCtx): string {
         html += n > 1 ? " ".repeat(n) : " ";
         break;
       }
+      case "text:note": {
+        // Inline footnote / endnote -> an inline reference + a collected note body (engine renumbers).
+        const kind = child.getAttribute("text:note-class") === "endnote" ? "endnote" : "footnote";
+        const id = child.getAttribute("text:id") || `rdoc-note-${(ctx.notes?.length ?? 0) + 1}`;
+        const body = Array.from(child.children).find((c) => c.tagName === "text:note-body");
+        let bodyHtml = "";
+        if (body) for (const b of Array.from(body.children)) bodyHtml += blockToHtml(b, ctx);
+        ctx.notes?.push({ id, kind, html: bodyHtml || "<p><br></p>" });
+        html += `<sup class="docx-fnref" data-fn-id="${escapeAttr(id)}" data-fn-kind="${kind}" contenteditable="false"></sup>`;
+        break;
+      }
       case "text:ruby": {
         // Furigana: text:ruby-base + text:ruby-text -> an HTML <ruby>base<rt>reading</rt></ruby>.
         const baseEl = Array.from(child.children).find((c) => c.tagName === "text:ruby-base");
@@ -771,7 +783,7 @@ function parsePageGeometry(files: Record<string, Uint8Array>): PageGeometry | un
   return { widthPx: Math.round(w), heightPx: Math.round(h), margin: { top: m("top"), right: m("right"), bottom: m("bottom"), left: m("left") }, vertical, rtl, columns, columnGapPx: columns ? Math.round(lenToPx(gapAttr) ?? 36) : undefined };
 }
 
-export function odtToParts(bytes: Uint8Array): { body: string; comments: CommentThread[]; header: string; footer: string; sectionBands?: Record<string, { html: string; path: string }>; page?: PageGeometry; paragraphStyles?: { id: string; name: string }[]; characterStyles?: { id: string; name: string }[]; styleDefs?: { id: string; kind: "paragraph" | "character"; css: Record<string, string> }[]; styleCss?: string } {
+export function odtToParts(bytes: Uint8Array): { body: string; comments: CommentThread[]; header: string; footer: string; sectionBands?: Record<string, { html: string; path: string }>; notes?: { id: string; kind: "footnote" | "endnote"; html: string }[]; page?: PageGeometry; paragraphStyles?: { id: string; name: string }[]; characterStyles?: { id: string; name: string }[]; styleDefs?: { id: string; kind: "paragraph" | "character"; css: Record<string, string> }[]; styleCss?: string } {
   const files = unzipSync(bytes);
   const { header, footer } = readHeaderFooter(files);
   // Per-master header/footer HTML, so a section that switches master shows its own. Keyed for the
@@ -808,13 +820,13 @@ export function odtToParts(bytes: Uint8Array): { body: string; comments: Comment
     for (const [k, v] of collectListStarts(sdoc)) if (!listStarts.has(k)) listStarts.set(k, v);
     for (const [k, v] of collectTabStops(sdoc, lenToPx)) if (!tabStops.has(k)) tabStops.set(k, v);
   }
-  const ctx: RCtx = { files, styles: collectTextStyles(doc), paras: collectParaStyles(doc), cellStyles: collectCellStyles(doc), tableMargins: collectTableMargins(doc), listStyles: collectListStyles(doc), namedStyles: ps.namedPara, autoParent: collectAutoParents(doc, "paragraph"), namedCharStyles: ps.namedChar, textAutoParent: collectAutoParents(doc, "text"), threads: [], rangedNames, openComment: new Set(), changes: readChanges(body), openIns: new Set(), graphicStyles, paraBreaks, listStarts, listRun: { last: 0 }, tabStops, masterGeoms: collectMasterGeoms(files["styles.xml"], lenToPx), masterBands };
+  const ctx: RCtx = { files, styles: collectTextStyles(doc), paras: collectParaStyles(doc), cellStyles: collectCellStyles(doc), tableMargins: collectTableMargins(doc), listStyles: collectListStyles(doc), namedStyles: ps.namedPara, autoParent: collectAutoParents(doc, "paragraph"), namedCharStyles: ps.namedChar, textAutoParent: collectAutoParents(doc, "text"), threads: [], rangedNames, openComment: new Set(), changes: readChanges(body), openIns: new Set(), graphicStyles, paraBreaks, listStarts, listRun: { last: 0 }, tabStops, masterGeoms: collectMasterGeoms(files["styles.xml"], lenToPx), masterBands, notes: [] };
   let html = "";
   for (const block of Array.from(body.children)) {
     if (block.tagName === "text:tracked-changes") continue; // metadata, parsed into ctx.changes
     html += blockToHtml(block, ctx);
   }
-  return { body: html || "<p><br></p>", comments: ctx.threads, header, footer, sectionBands, page, paragraphStyles: ps.paragraphStyles, characterStyles: ps.characterStyles, styleDefs: ps.styleDefs, styleCss: ps.css };
+  return { body: html || "<p><br></p>", comments: ctx.threads, header, footer, sectionBands, notes: ctx.notes, page, paragraphStyles: ps.paragraphStyles, characterStyles: ps.characterStyles, styleDefs: ps.styleDefs, styleCss: ps.css };
 }
 
 /** Convert an .odt's body to HTML. Returns "" if there is no editable text body. */

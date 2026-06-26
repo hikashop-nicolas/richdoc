@@ -657,6 +657,66 @@ describe("shared engine mount", () => {
     host.remove();
   });
 
+  it("renders, edits and round-trips footnotes (docx)", async () => {
+    const { strFromU8, unzipSync } = await import("fflate");
+    const doc = `<?xml version="1.0"?><w:document xmlns:w="http://schemas.openxmlformats.org/wordprocessingml/2006/main"><w:body>` +
+      "<w:p><w:r><w:t>Body text</w:t></w:r><w:r><w:footnoteReference w:id=\"1\"/></w:r></w:p>" +
+      '<w:sectPr><w:pgSz w:w="11906" w:h="16838"/></w:sectPr></w:body></w:document>';
+    const footnotes = '<?xml version="1.0"?><w:footnotes xmlns:w="http://schemas.openxmlformats.org/wordprocessingml/2006/main">' +
+      '<w:footnote w:type="separator" w:id="-1"><w:p><w:r><w:separator/></w:r></w:p></w:footnote>' +
+      '<w:footnote w:id="1"><w:p><w:r><w:t>Original note</w:t></w:r></w:p></w:footnote></w:footnotes>';
+    const docx = zipSync({
+      "[Content_Types].xml": strToU8("<Types/>"),
+      "_rels/.rels": strToU8("<Relationships/>"),
+      "word/document.xml": strToU8(doc),
+      "word/footnotes.xml": strToU8(footnotes),
+      "word/_rels/document.xml.rels": strToU8(`<Relationships xmlns="http://schemas.openxmlformats.org/package/2006/relationships"></Relationships>`),
+    });
+    const host = document.createElement("div");
+    document.body.appendChild(host);
+    const ed = createDocxEditor(host, docx);
+    const ref = host.querySelector(".docx-fnref");
+    expect(ref?.textContent).toBe("1"); // numbered by order
+    const note = host.querySelector(".docxedit-note") as HTMLElement;
+    expect(note?.textContent).toContain("Original note");
+    note.innerHTML = "<p>Edited note</p>";
+    note.dispatchEvent(new Event("input", { bubbles: true }));
+    const out = unzipSync(await ed.getBytes());
+    expect(strFromU8(out["word/footnotes.xml"]!)).toContain("Edited note");
+    expect(strFromU8(out["word/footnotes.xml"]!)).toContain('w:type="separator"'); // separator kept
+    expect(strFromU8(out["word/document.xml"]!)).toContain("footnoteReference"); // reference preserved
+    ed.destroy();
+    host.remove();
+  });
+
+  it("renders, edits and round-trips footnotes (odt)", async () => {
+    const { strFromU8, unzipSync } = await import("fflate");
+    const content =
+      '<?xml version="1.0"?><office:document-content xmlns:office="urn:oasis:names:tc:opendocument:xmlns:office:1.0" ' +
+      'xmlns:text="urn:oasis:names:tc:opendocument:xmlns:text:1.0"><office:body><office:text>' +
+      '<text:p>Body text<text:note text:note-class="footnote" text:id="ftn1"><text:note-citation>1</text:note-citation>' +
+      "<text:note-body><text:p>Original note</text:p></text:note-body></text:note></text:p>" +
+      "</office:text></office:body></office:document-content>";
+    const odt = zipSync({
+      mimetype: [strToU8("application/vnd.oasis.opendocument.text"), { level: 0 }],
+      "content.xml": strToU8(content),
+      "META-INF/manifest.xml": strToU8("<m/>"),
+    });
+    const host = document.createElement("div");
+    document.body.appendChild(host);
+    const ed = createOdtEditor(host, odt);
+    expect(host.querySelector(".docx-fnref")?.textContent).toBe("1");
+    const note = host.querySelector(".docxedit-note") as HTMLElement;
+    expect(note?.textContent).toContain("Original note");
+    note.innerHTML = "<p>Edited note</p>";
+    note.dispatchEvent(new Event("input", { bubbles: true }));
+    const xml = strFromU8(unzipSync(await ed.getBytes())["content.xml"]!);
+    expect(xml).toContain("text:note");
+    expect(xml).toContain("Edited note");
+    ed.destroy();
+    host.remove();
+  });
+
   it("renders and round-trips furigana / ruby (docx)", async () => {
     const { strFromU8, unzipSync } = await import("fflate");
     const doc = `<?xml version="1.0"?><w:document xmlns:w="http://schemas.openxmlformats.org/wordprocessingml/2006/main"><w:body>` +

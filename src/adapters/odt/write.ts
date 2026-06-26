@@ -3,7 +3,7 @@
 // the read half lives in ./read.
 import { strFromU8, strToU8, unzipSync, zipSync } from "fflate";
 import { firstFontFamily, fontSizeToHalfPt, toHex6, imageLayoutFromEl } from "../../core/util";
-import type { NewStyle, PageGeometry } from "../../core/types";
+import type { NewStyle, Note, PageGeometry } from "../../core/types";
 import { NS, fmtKey, FMT0, ODF_ALIGN, importPassthrough, IMG_MIME } from "./shared";
 import type { Fmt } from "./shared";
 import { applyFrameLayout } from "./image-layout";
@@ -142,6 +142,7 @@ interface OdfCtx {
   rangedIds: Set<string>; // comment ids that wrap a text range (vs a point comment)
   done: Map<string, boolean>; // resolve state keyed by comment paraId
   changes: { id: string; type: "insertion" | "deletion"; author: string; date: string; deleted?: string }[]; // tracked changes to emit
+  notesById?: Map<string, Note>; // footnote/endnote bodies, to rebuild inline text:note from refs
 }
 
 /** Build an office:annotation element for a comment id from its gathered metadata. */
@@ -289,6 +290,27 @@ function htmlInlineToOdf(node: Node, parent: Element, f: Fmt, ctx: OdfCtx): void
     }
     if (tag === "br") {
       parent.appendChild(ctx.doc.createElementNS(NS.text, "text:line-break"));
+      continue;
+    }
+    if (tag === "sup" && el.classList.contains("docx-fnref")) {
+      // Footnote / endnote reference -> an inline text:note (citation + body from the note store).
+      const id = el.getAttribute("data-fn-id") || "";
+      const kind = el.getAttribute("data-fn-kind") === "endnote" ? "endnote" : "footnote";
+      const note = ctx.doc.createElementNS(NS.text, "text:note");
+      note.setAttributeNS(NS.text, "text:note-class", kind);
+      note.setAttributeNS(NS.text, "text:id", id);
+      const cite = ctx.doc.createElementNS(NS.text, "text:note-citation");
+      cite.appendChild(ctx.doc.createTextNode(el.textContent || ""));
+      const body = ctx.doc.createElementNS(NS.text, "text:note-body");
+      const noteHtml = ctx.notesById?.get(id)?.html || "<p><br></p>";
+      const htmlDoc = new DOMParser().parseFromString(noteHtml, "text/html");
+      for (const node of Array.from(htmlDoc.body.childNodes)) {
+        const b = htmlBlockToOdf(node, ctx);
+        if (b) body.appendChild(b);
+      }
+      if (!body.firstChild) body.appendChild(ctx.doc.createElementNS(NS.text, "text:p"));
+      note.append(cite, body);
+      parent.appendChild(note);
       continue;
     }
     if (tag === "ruby") {
@@ -1034,7 +1056,7 @@ function addOdtStyles(files: Record<string, Uint8Array>, styles: NewStyle[]): vo
 export function htmlToOdt(
   html: string,
   original: Uint8Array,
-  opts?: { done?: Map<string, boolean>; parts?: { path: string; html: string }[]; page?: PageGeometry; newStyles?: NewStyle[] },
+  opts?: { done?: Map<string, boolean>; parts?: { path: string; html: string }[]; page?: PageGeometry; newStyles?: NewStyle[]; notes?: Note[] },
 ): Uint8Array {
   const files = unzipSync(original);
   const content = files["content.xml"];
@@ -1061,7 +1083,7 @@ export function htmlToOdt(
   const rangedIds = new Set(
     Array.from(htmlDoc.querySelectorAll(".docx-comment[data-comment-id]")).map((s) => s.getAttribute("data-comment-id") ?? ""),
   );
-  const ctx: OdfCtx = { doc, auto: ensureAutoStyles(doc), created: new Map(), files, pics: [], refMeta, rangedIds, done: opts?.done ?? new Map(), changes: [] };
+  const ctx: OdfCtx = { doc, auto: ensureAutoStyles(doc), created: new Map(), files, pics: [], refMeta, rangedIds, done: opts?.done ?? new Map(), changes: [], notesById: new Map((opts?.notes ?? []).map((n) => [n.id, n])) };
   for (const node of Array.from(htmlDoc.body.childNodes)) {
     const block = htmlBlockToOdf(node, ctx);
     if (block) body.appendChild(block);

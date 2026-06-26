@@ -4,7 +4,7 @@
 // (./read) converts it to HTML, the shared engine edits it, and the write half (./write)
 // rebuilds the archive on save, preserving every other part byte-for-byte.
 import { createRichEditor } from "../../core/editor";
-import type { Adapter, CommentEdits, CommentMarkers, EditorOptions, NewCommentMeta, NewStyle, PageGeometry, RichDoc, RichEditor } from "../../core/types";
+import type { Adapter, CommentEdits, CommentMarkers, EditorOptions, NewCommentMeta, NewStyle, Note, PageGeometry, RichDoc, RichEditor } from "../../core/types";
 import { odtToParts } from "./read";
 import { htmlToOdt } from "./write";
 
@@ -36,6 +36,7 @@ export function createOdtAdapter(bytes: Uint8Array): Adapter {
         headerPath: parts.header ? "header" : undefined,
         footerPath: parts.footer ? "footer" : undefined,
         sectionBands: parts.sectionBands,
+        notes: parts.notes,
         comments: parts.comments,
         page: parts.page,
         paragraphStyles: parts.paragraphStyles,
@@ -44,8 +45,8 @@ export function createOdtAdapter(bytes: Uint8Array): Adapter {
         styleCss: parts.styleCss,
       };
     },
-    write(bodyHtml: string, parts: { path: string; html: string }[], edits: CommentEdits, page?: PageGeometry, newStyles?: NewStyle[]): Uint8Array {
-      return htmlToOdt(bodyHtml, original, { done: edits.done, parts, page, newStyles });
+    write(bodyHtml: string, parts: { path: string; html: string }[], edits: CommentEdits, page?: PageGeometry, newStyles?: NewStyle[], notes?: Note[]): Uint8Array {
+      return htmlToOdt(bodyHtml, original, { done: edits.done, parts, page, newStyles, notes });
     },
     newCommentMarkers(meta: NewCommentMeta): CommentMarkers {
       const cmark = (): HTMLElement => {

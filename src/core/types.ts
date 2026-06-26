@@ -65,6 +65,8 @@ export interface RichDoc {
       paragraph carries (data-rdoc-secheaderkey / data-rdoc-secfooterkey). `path` is the
       adapter-specific write-back key (docx: the real part path; odt: "header@<master>"). */
   sectionBands?: Record<string, { html: string; path: string }>;
+  /** Footnote / endnote bodies, keyed by the id their inline reference (data-fn-id) carries. */
+  notes?: Note[];
   comments: CommentThread[];
   fontCss?: string; // @font-face rules for embedded fonts
   fontUrls?: string[]; // blob URLs to revoke on destroy
@@ -158,6 +160,13 @@ export interface SecGeom {
   rtl?: boolean; // horizontal right-to-left
 }
 
+/** A footnote / endnote body. The inline reference in the body HTML carries the matching id. */
+export interface Note {
+  id: string;
+  kind: "footnote" | "endnote";
+  html: string;
+}
+
 /** A style the user authored in-session, to be added to the document's stylesheet on save.
     `css` uses the same property vocabulary the reader emits (text-align, margin-left "Npx",
     line-height, margin-top/bottom, font-weight, font-style, text-decoration, color "#hex",
@@ -175,7 +184,7 @@ export interface Adapter {
   read(): RichDoc;
   /** Serialize edits. `page` is passed when the user changed the page geometry (margins);
       `newStyles` are styles authored in-session, to add to the stylesheet. */
-  write(bodyHtml: string, parts: { path: string; html: string }[], edits: CommentEdits, page?: PageGeometry, newStyles?: NewStyle[]): Uint8Array;
+  write(bodyHtml: string, parts: { path: string; html: string }[], edits: CommentEdits, page?: PageGeometry, newStyles?: NewStyle[], notes?: Note[]): Uint8Array;
   newCommentMarkers(meta: NewCommentMeta): CommentMarkers;
   capabilities: Capabilities;
 }

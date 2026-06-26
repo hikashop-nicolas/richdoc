@@ -3,7 +3,7 @@
 // read half lives in ./read.
 import { strFromU8, strToU8, unzipSync, zipSync } from "fflate";
 import { toHex6, fontSizeToHalfPt, firstFontFamily, imageLayoutFromEl } from "../../core/util";
-import type { ImageLayout, NewStyle, PageGeometry } from "../../core/types";
+import type { ImageLayout, NewStyle, Note, PageGeometry } from "../../core/types";
 import { W, R, PKG, REL_HYPERLINK, NS_DECLS, FMT0, HL_BY_HEX, JC_BY_ALIGN } from "./shared";
 import type { Fmt } from "./shared";
 import { EMU_PER_PX, makeContainer } from "./image-layout";
@@ -327,6 +327,21 @@ function appendInline(ctx: DocxCtx, node: Node, parent: Element, f: Fmt, del = f
       const r = ctx.doc.createElementNS(W, "w:r");
       r.appendChild(ctx.doc.createElementNS(W, "w:br"));
       parent.appendChild(r);
+      continue;
+    }
+    if (tag === "sup" && el.classList.contains("docx-fnref")) {
+      // Footnote / endnote reference -> a w:footnoteReference / w:endnoteReference run.
+      const kind = el.getAttribute("data-fn-kind") === "endnote" ? "endnote" : "footnote";
+      const run = ctx.doc.createElementNS(W, "w:r");
+      const rPr = ctx.doc.createElementNS(W, "w:rPr");
+      const va = ctx.doc.createElementNS(W, "w:vertAlign");
+      va.setAttributeNS(W, "w:val", "superscript");
+      rPr.appendChild(va);
+      run.appendChild(rPr);
+      const ref = ctx.doc.createElementNS(W, kind === "endnote" ? "w:endnoteReference" : "w:footnoteReference");
+      ref.setAttributeNS(W, "w:id", el.getAttribute("data-fn-id") || "0");
+      run.appendChild(ref);
+      parent.appendChild(run);
       continue;
     }
     if (tag === "ruby") {
@@ -944,6 +959,33 @@ const relsPathFor = (partPath: string): string => {
   const slash = partPath.lastIndexOf("/");
   return `${partPath.slice(0, slash + 1)}_rels/${partPath.slice(slash + 1)}.rels`;
 };
+
+/** Rewrite the normal notes in word/footnotes.xml / endnotes.xml from the edited bodies, keeping
+    the separator / continuation-separator notes (id <= 0 or a w:type). Updates an existing part
+    only (creating one from scratch is for the insert-authoring step). */
+function rebuildNotes(files: Record<string, Uint8Array>, part: "footnotes" | "endnotes", kind: "footnote" | "endnote", notes: Note[]): void {
+  const key = `word/${part}.xml`;
+  if (!files[key]) return;
+  const doc = new DOMParser().parseFromString(strFromU8(files[key]!), "application/xml");
+  const root = doc.documentElement;
+  if (!root) return;
+  const tag = part === "footnotes" ? "w:footnote" : "w:endnote";
+  const kept = Array.from(root.getElementsByTagName(tag)).filter((n) => n.getAttribute("w:type") || Number(n.getAttribute("w:id")) <= 0);
+  while (root.firstChild) root.removeChild(root.firstChild);
+  for (const k of kept) root.appendChild(k);
+  const relsKey = `word/_rels/${part}.xml.rels`;
+  const rels = files[relsKey] ? new DOMParser().parseFromString(strFromU8(files[relsKey]!), "application/xml") : null;
+  for (const n of notes.filter((x) => x.kind === kind)) {
+    const note = doc.createElementNS(W, tag);
+    note.setAttributeNS(W, "w:id", n.id);
+    const ctx: DocxCtx = { doc, rels, relsAdded: false, nextRid: 1, nextRevId: 1, listIds: null, files };
+    const htmlDoc = new DOMParser().parseFromString(n.html || "<p><br></p>", "text/html");
+    for (const node of Array.from(htmlDoc.body.childNodes)) appendBlock(ctx, note, node);
+    if (!note.firstChild) note.appendChild(doc.createElementNS(W, "w:p"));
+    root.appendChild(note);
+  }
+  files[key] = strToU8(new XMLSerializer().serializeToString(doc));
+}
 
 /** Rebuild one part (document.xml or a header/footer) in-place from its edited HTML. For the body,
     bandHtml lets buildSectPr mint per-section header/footer parts. */
@@ -1564,7 +1606,7 @@ export function htmlToDocx(
   html: string,
   original: Uint8Array,
   parts?: { path: string; html: string }[],
-  opts?: { reactions?: ReactionEdit[]; replies?: ReplyEdit[]; done?: Map<string, boolean>; deletedComments?: string[]; pageGeometry?: PageGeometry; newStyles?: NewStyle[] },
+  opts?: { reactions?: ReactionEdit[]; replies?: ReplyEdit[]; done?: Map<string, boolean>; deletedComments?: string[]; pageGeometry?: PageGeometry; newStyles?: NewStyle[]; notes?: Note[] },
 ): Uint8Array {
   const files = unzipSync(original);
   // Per-section header/footer HTML by key, so buildSectPr can mint a new part for an unlinked
@@ -1579,6 +1621,7 @@ export function htmlToDocx(
     if (p.path === "header" || p.path === "footer") createHeaderFooterPart(files, p.path, p.html);
     else rebuildPart(files, p.path, p.html);
   }
+  if (opts?.notes) { rebuildNotes(files, "footnotes", "footnote", opts.notes); rebuildNotes(files, "endnotes", "endnote", opts.notes); }
   applyNewComments(files, html);
   applyReactions(files, opts?.reactions ?? []);
   applyReplies(files, opts?.replies ?? []);
