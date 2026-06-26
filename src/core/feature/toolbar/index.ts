@@ -37,14 +37,14 @@ export interface ToolbarDeps {
   newStyleCss: HTMLStyleElement; // live <style> for the appearance of in-session styles
   vertical: boolean; // vertical (tategaki) writing, for the floating bar layout
   insertSectionBreak: (() => void) | null; // section-break action (Ctrl+Shift+Enter), null if unsupported
-  insertFootnote: () => void; // insert a footnote at the caret
+  insertNote: (kind: "footnote" | "endnote", text: string) => void; // insert a footnote/endnote at the caret
 }
 
 export function setupToolbar(deps: ToolbarDeps) {
   const {
     toolbar, wrap, doc, regions, caps, options, parts, adapter, getActiveEl, mark, positionCards,
     addThreadCard, setActiveComment, allocId, freshParaId, insertImage, styleBar,
-    newStyles, newStyleCss, vertical, insertSectionBreak, insertFootnote,
+    newStyles, newStyleCss, vertical, insertSectionBreak, insertNote,
   } = deps;
 
   // An element counts as an editing host when it is inside the body/header/footer regions, or
@@ -779,10 +779,65 @@ export function setupToolbar(deps: ToolbarDeps) {
     resync: syncToolbarState, sc,
   });
 
+  // Insert-note popup: one "Insert note" button opens it; the user types the note text and picks
+  // footnote (default) or endnote. The body caret is captured when the button is clicked and
+  // restored before inserting, so the note lands where the caret was.
+  const noteOverlay = document.createElement("div");
+  noteOverlay.className = "docxedit-dialog-overlay";
+  noteOverlay.hidden = true;
+  const notePanel = document.createElement("div");
+  notePanel.className = "docxedit-dialog docxedit-noteinsert";
+  const noteTitle = document.createElement("div");
+  noteTitle.className = "docxedit-dialog-title";
+  noteTitle.textContent = t("insertNote");
+  const noteText = document.createElement("textarea");
+  noteText.className = "docxedit-dialog-textarea";
+  noteText.rows = 3;
+  const kindRow = document.createElement("div");
+  kindRow.className = "docxedit-dialog-row docxedit-noteinsert-kind";
+  const mkRadio = (value: "footnote" | "endnote", label: string, checked: boolean) => {
+    const lab = document.createElement("label");
+    lab.className = "docxedit-noteinsert-opt";
+    const input = document.createElement("input");
+    input.type = "radio"; input.name = "rdoc-note-kind"; input.value = value; input.checked = checked;
+    lab.append(input, document.createTextNode(` ${label}`));
+    return { lab, input };
+  };
+  const fnOpt = mkRadio("footnote", t("footnote"), true);
+  const enOpt = mkRadio("endnote", t("endnote"), false);
+  kindRow.append(fnOpt.lab, enOpt.lab);
+  const noteActions = document.createElement("div");
+  noteActions.className = "docxedit-dialog-row docxedit-dialog-actions";
+  const noteCancel = document.createElement("button");
+  noteCancel.type = "button"; noteCancel.className = "docxedit-menu-item"; noteCancel.textContent = t("cancel");
+  const noteInsertBtn = document.createElement("button");
+  noteInsertBtn.type = "button"; noteInsertBtn.className = "docxedit-menu-item docxedit-dialog-primary"; noteInsertBtn.textContent = t("insert");
+  noteActions.append(noteCancel, noteInsertBtn);
+  notePanel.append(noteTitle, noteText, kindRow, noteActions);
+  noteOverlay.appendChild(notePanel);
+  wrap.appendChild(noteOverlay);
+  const closeNote = () => { noteOverlay.hidden = true; };
+  const openNoteDialog = () => {
+    captureSel();
+    noteText.value = "";
+    fnOpt.input.checked = true;
+    noteOverlay.hidden = false;
+    setTimeout(() => noteText.focus(), 0);
+  };
+  noteOverlay.addEventListener("mousedown", (e) => { if (e.target === noteOverlay) closeNote(); });
+  noteCancel.addEventListener("click", closeNote);
+  noteInsertBtn.addEventListener("click", () => {
+    const kind = enOpt.input.checked ? "endnote" : "footnote";
+    const text = noteText.value;
+    closeNote();
+    restoreSel();
+    insertNote(kind, text);
+  });
+
   // Two clusters collapse into a single dropdown button when the toolbar runs out of room:
   // the character-formatting controls ("style"), and the insert controls.
   const styleSrc: (HTMLElement | null)[] = [boldBtn, italicBtn, underlineBtn, strikeBtn, supBtn, subBtn, caps.textColor ? colorInput : null, caps.textColor ? bgWrap : null, caps.fontControls ? fontSel : null, caps.fontControls ? sizeSel : null];
-  const insertSrc: (HTMLElement | null)[] = [caps.images ? iconBtn(imgIcon, t("insertImage"), insertImage) : null, caps.tables ? tableBtn : null, caps.fields ? fieldsBtn : null, caps.comments ? iconBtn(cmtIcon, t("addComment"), addComment) : null, caps.pageBreak ? iconBtn(pbIcon, t("insertPageBreak"), insertPageBreak) : null, linkBtn, iconBtn(footnoteIcon, t("insertFootnote"), insertFootnote), caps.verticalText ? furiganaBtn : null];
+  const insertSrc: (HTMLElement | null)[] = [caps.images ? iconBtn(imgIcon, t("insertImage"), insertImage) : null, caps.tables ? tableBtn : null, caps.fields ? fieldsBtn : null, caps.comments ? iconBtn(cmtIcon, t("addComment"), addComment) : null, caps.pageBreak ? iconBtn(pbIcon, t("insertPageBreak"), insertPageBreak) : null, linkBtn, iconBtn(footnoteIcon, t("insertNote"), openNoteDialog), caps.verticalText ? furiganaBtn : null];
   const styleControls = styleSrc.filter((n): n is HTMLElement => n != null);
   const insertControls = insertSrc.filter((n): n is HTMLElement => n != null);
   // A collapsible cluster: a slot that holds the controls inline or a group button + a popover.

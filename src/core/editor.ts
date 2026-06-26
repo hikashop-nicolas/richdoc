@@ -424,7 +424,7 @@ export function createRichEditor(container: HTMLElement, adapter: Adapter, optio
   };
   // Insert a footnote / endnote at the caret: a reference in the body + a new empty editable note.
   let noteSeq = 0;
-  const insertNote = (kind: "footnote" | "endnote") => {
+  const insertNote = (kind: "footnote" | "endnote", text = "") => {
     const sel = window.getSelection();
     if (!sel || !sel.rangeCount) return;
     const range = sel.getRangeAt(0);
@@ -444,7 +444,9 @@ export function createRichEditor(container: HTMLElement, adapter: Adapter, optio
     nb.className = "docxedit-note";
     nb.contentEditable = "true";
     nb.spellcheck = false;
-    nb.innerHTML = "<p><br></p>";
+    const p = document.createElement("p");
+    if (text.trim()) p.textContent = text; else p.innerHTML = "<br>";
+    nb.appendChild(p);
     nb.addEventListener("focus", () => { activeEl = nb; });
     nb.addEventListener("input", () => mark());
     noteBands.set(id, { el: nb, kind });
@@ -1490,7 +1492,7 @@ export function createRichEditor(container: HTMLElement, adapter: Adapter, optio
     positionCards, addThreadCard, setActiveComment, allocId, freshParaId, insertImage, styleBar: bottomLeft,
     newStyles, newStyleCss, vertical: isVertical(),
     insertSectionBreak: sectionBreakBtn ? () => sectionBreakBtn.click() : null,
-    insertFootnote: () => insertNote("footnote"),
+    insertNote: (kind, text) => insertNote(kind, text),
   });
   afterReflow = updateChangeButtons;
   updateChangeButtons();

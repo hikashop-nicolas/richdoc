@@ -129,8 +129,10 @@ authorable; they are realistic to do, just not yet built.
   (bold/italic/colour/font), the toolbar reflects their formatting state, and it round-trips as
   run properties. The note area inherits the document's footnote-text style (docx "FootnoteText",
   odt "Footnote": font family / size / line-height / colour), falling back to a built-in size when
-  the document defines none. An "Insert footnote" control adds one (minting docx footnotes.xml +
-  its content-type/relationship when the document has none); deleting its reference mark removes it
+  the document defines none. An "Insert note" control opens a small popup to add one: the note text
+  plus a footnote / endnote choice (footnote default), inserted at the caret (minting docx
+  footnotes.xml / endnotes.xml + its content-type/relationship when the document has none); deleting
+  its reference mark removes it
   (Backspace just after the mark or Delete just before it, since the mark is an atomic non-selectable
   superscript), dropping the body from the view and the save. Everything round-trips (docx
   footnotes.xml / endnotes.xml; odt inline `text:note`). Per-page placement covers every paginated

@@ -3,7 +3,9 @@ import { strToU8, zipSync } from "fflate";
 import { createDocxEditor } from "../adapters/docx/index";
 import { createOdtEditor } from "../adapters/odt/index";
 
-// jsdom lacks ResizeObserver, which the engine uses to reposition comment cards.
+// jsdom lacks ResizeObserver (used to reposition comment cards) and Range.getBoundingClientRect /
+// getClientRects (the ruler reads the caret rect); both exist in every real browser, so stub them
+// with zero-rects so reflow can run under jsdom.
 beforeAll(() => {
   if (!(globalThis as unknown as { ResizeObserver?: unknown }).ResizeObserver) {
     (globalThis as unknown as { ResizeObserver: unknown }).ResizeObserver = class {
@@ -12,6 +14,9 @@ beforeAll(() => {
       disconnect() {}
     };
   }
+  const zeroRect = () => ({ x: 0, y: 0, top: 0, left: 0, right: 0, bottom: 0, width: 0, height: 0, toJSON() {} }) as DOMRect;
+  if (!Range.prototype.getBoundingClientRect) Range.prototype.getBoundingClientRect = zeroRect;
+  if (!Range.prototype.getClientRects) Range.prototype.getClientRects = () => Object.assign([], { item: () => null }) as unknown as DOMRectList;
 });
 
 const DOCX = zipSync({
@@ -841,6 +846,38 @@ describe("shared engine mount", () => {
     expect(area?.classList.contains("is-vertical")).toBe(false); // horizontal: a bottom strip
     expect(area?.textContent).toContain("Colnote");
     expect((host.querySelector(".docxedit-noteslayer") as HTMLElement).hidden).toBe(true);
+    ed.destroy();
+    host.remove();
+  });
+
+  it("inserts a note via the popup with the chosen kind and text (docx)", () => {
+    const host = document.createElement("div");
+    document.body.appendChild(host);
+    const ed = createDocxEditor(host, DOCX);
+    const docEl = host.querySelector(".docxedit-doc") as HTMLElement;
+    const p = docEl.querySelector("p, h1, h2, h3") ?? docEl;
+    docEl.focus();
+    const r = document.createRange();
+    r.selectNodeContents(p);
+    r.collapse(false);
+    const sel = window.getSelection()!;
+    sel.removeAllRanges();
+    sel.addRange(r);
+    // open the insert-note popup (default locale is en)
+    const btn = host.querySelector('[title="Insert note"]') as HTMLElement;
+    expect(btn).toBeTruthy();
+    btn.dispatchEvent(new MouseEvent("mousedown", { bubbles: true }));
+    btn.dispatchEvent(new MouseEvent("click", { bubbles: true }));
+    const overlay = host.querySelector(".docxedit-noteinsert")!.closest(".docxedit-dialog-overlay") as HTMLElement;
+    expect(overlay.hidden).toBe(false);
+    (host.querySelector(".docxedit-noteinsert .docxedit-dialog-textarea") as HTMLTextAreaElement).value = "Popup endnote";
+    const enRadio = [...host.querySelectorAll<HTMLInputElement>(".docxedit-noteinsert-opt input")].find((i) => i.value === "endnote")!;
+    enRadio.checked = true;
+    (host.querySelector(".docxedit-noteinsert .docxedit-dialog-primary") as HTMLElement).click();
+    expect(overlay.hidden).toBe(true); // closes after insert
+    const newRef = [...host.querySelectorAll(".docx-fnref")].find((x) => x.getAttribute("data-fn-id")?.startsWith("rdoc-note-new"));
+    expect(newRef?.getAttribute("data-fn-kind")).toBe("endnote"); // the radio choice is honoured
+    expect([...host.querySelectorAll(".docxedit-note")].some((n) => n.textContent?.includes("Popup endnote"))).toBe(true);
     ed.destroy();
     host.remove();
   });

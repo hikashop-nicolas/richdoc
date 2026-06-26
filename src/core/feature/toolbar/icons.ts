@@ -35,6 +35,7 @@ export const pbIcon =
   '<line x1="1" y1="8" x2="15" y2="8" stroke-dasharray="2 1.6"/></svg>';
 
 // Footnote: lines of text with a small superscript mark.
+// A note (footnote or endnote): text lines with a small superscript mark.
 export const footnoteIcon =
   '<svg width="14" height="14" viewBox="0 0 16 16" fill="none" stroke="currentColor" stroke-width="1.3" stroke-linecap="round" aria-hidden="true">' +
   '<path d="M2 4h7M2 7.5h7M2 11h5"/><text x="11" y="7" font-size="7" fill="currentColor" stroke="none">1</text></svg>';
