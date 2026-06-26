@@ -26,8 +26,12 @@ odt keys by oh:/of:<master>, path = header@/footer@<master> (applyHeaderFooter r
 master). A section without its own band falls back to the document default (Word's
 link-to-previous). Untouched parts/sections stay byte-for-byte.
 
+Per-section ruler authoring DONE: the margin handles are draggable on every page, including
+section boxes. A section drag commits through writeSectionGeom (the caret's section, which the
+ruler follows), live-updates the box padding + ruler, and re-buckets on pointerup.
+
 Still pending: an inserted section break inherits the default header/footer (no new part/master
-is minted yet), and the per-section ruler is display-only.
+is minted yet) - planned as a "break the link" corner toggle on a non-main section's header/footer.
 
 Goal: render each section at its own page geometry, so e.g. an A4 portrait section
 followed by an A3 landscape section displays correctly in the editor (not just

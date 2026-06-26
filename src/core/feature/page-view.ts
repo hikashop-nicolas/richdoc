@@ -94,13 +94,15 @@ export function setupPageView(deps: PageViewDeps) {
     parent.appendChild(h);
     return h;
   };
-  // Drag a margin handle: map the pointer to unscaled page px, clamp, and live-update the
-  // document geometry (handles only show on editable, document-geometry pages).
+  // Drag a margin handle: map the pointer to unscaled page px, clamp, and live-update the margins
+  // of whichever page the ruler is on, the document geometry or the caret's section.
   const bindDrag = (handle: HTMLElement, axis: "h" | "v", side: "left" | "right" | "top" | "bottom") => {
     handle.addEventListener("pointerdown", (e) => {
       e.preventDefault();
       dragging = true;
       const ruler = handle.parentElement!;
+      const pg = activePage();
+      const onSection = !!pg && pg.classList.contains("docxedit-secpage");
       try { handle.setPointerCapture(e.pointerId); } catch { /* no active pointer */ }
       const onMove = (ev: PointerEvent) => {
         const z = effectiveZoom();
@@ -111,17 +113,32 @@ export function setupPageView(deps: PageViewDeps) {
           const snapped = Math.round(pos / step) * step;
           if (Math.abs(snapped - pos) * z < 5) pos = snapped;
         }
-        const m = geometry.margin, W = geometry.widthPx, H = geometry.heightPx;
+        // Work against the active page's own geometry (section box or the document).
+        const base = pg ? pageGeomOf(pg) : { w: geometry.widthPx, h: geometry.heightPx, m: { ...geometry.margin }, section: false };
+        const m = { ...base.m }, W = base.w, H = base.h;
         if (side === "left") m.left = Math.max(0, Math.min(pos, W - m.right - MIN_CONTENT));
         else if (side === "right") m.right = Math.max(0, Math.min(W - pos, W - m.left - MIN_CONTENT));
         else if (side === "top") m.top = Math.max(0, Math.min(pos, H - m.bottom - MIN_CONTENT));
         else m.bottom = Math.max(0, Math.min(H - pos, H - m.top - MIN_CONTENT));
         showTipAt(ev.clientX, ev.clientY, pos);
-        markGeometryDirty();
-        applyGeometry();
-        syncRulers();
-        scheduleReflow();
-        mark();
+        if (onSection) {
+          // Commit to the section's geometry; live-update the box's padding + ruler attr so the
+          // preview tracks the drag (a full re-bucket happens on pointerup).
+          const cur = readSectionGeom();
+          const g = { ...cur, mt: m.top, mr: m.right, mb: m.bottom, ml: m.left };
+          writeSectionGeom(g);
+          pg!.setAttribute("data-rdoc-secgeom", JSON.stringify(g));
+          pg!.style.padding = `${g.mt}px ${g.mr}px ${g.mb}px ${g.ml}px`;
+          syncRulers();
+          mark();
+        } else {
+          geometry.margin.top = m.top; geometry.margin.right = m.right; geometry.margin.bottom = m.bottom; geometry.margin.left = m.left;
+          markGeometryDirty();
+          applyGeometry();
+          syncRulers();
+          scheduleReflow();
+          mark();
+        }
       };
       const onUp = (ev: PointerEvent) => {
         try { handle.releasePointerCapture(ev.pointerId); } catch { /* not captured */ }
@@ -157,17 +174,17 @@ export function setupPageView(deps: PageViewDeps) {
     return set;
   };
 
-  // A page's unscaled geometry: a per-section box carries its own size/margins (display only);
-  // a plain page card uses the document geometry (editable handles).
-  const pageGeomOf = (pg: HTMLElement): { w: number; h: number; m: { top: number; right: number; bottom: number; left: number }; editable: boolean } => {
+  // A page's unscaled geometry: a per-section box carries its own size/margins (edited through the
+  // section's geometry JSON); a plain page card uses the document geometry. Both are draggable.
+  const pageGeomOf = (pg: HTMLElement): { w: number; h: number; m: { top: number; right: number; bottom: number; left: number }; section: boolean } => {
     const sg = pg.getAttribute("data-rdoc-secgeom");
     if (sg) {
       try {
         const g = JSON.parse(sg);
-        return { w: g.w, h: g.h, m: { top: g.mt, right: g.mr, bottom: g.mb, left: g.ml }, editable: false };
+        return { w: g.w, h: g.h, m: { top: g.mt, right: g.mr, bottom: g.mb, left: g.ml }, section: true };
       } catch { /* fall through */ }
     }
-    return { w: geometry.widthPx, h: geometry.heightPx, m: geometry.margin, editable: true };
+    return { w: geometry.widthPx, h: geometry.heightPx, m: geometry.margin, section: false };
   };
   // The page the caret (or last selection) is on: the section box the caret sits in, else the
   // card whose vertical band the caret falls in, else the first page.
@@ -217,8 +234,7 @@ export function setupPageView(deps: PageViewDeps) {
     set.v.fill.style.bottom = `${g.m.bottom * z}px`;
     set.v.top.style.top = `${g.m.top * z}px`;
     set.v.bottom.style.top = `${(g.h - g.m.bottom) * z}px`;
-    // handles only on editable (document-geometry) pages
-    for (const hd of [set.h.left, set.h.right, set.v.top, set.v.bottom]) hd.style.display = g.editable ? "" : "none";
+    for (const hd of [set.h.left, set.h.right, set.v.top, set.v.bottom]) hd.style.display = ""; // draggable on every page
   };
   const updateRulers = syncRulers; // applyZoom and reflow call this
   // Move the ruler to whatever page the caret is on (coalesced; setTimeout survives backgrounding).

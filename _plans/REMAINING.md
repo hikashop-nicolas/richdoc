@@ -31,11 +31,12 @@ context (a paragraph, or the document body) is regenerated from the edited HTML.
 - Page size, margins, orientation; vertical (tategaki) + RTL writing with
   paginated layout, header/footer, and a graduated ruler (horizontal + vertical)
   on the page holding the caret, sized to that page and following the caret between
-  pages, with a drag-to-set-margin magnet (margin handles on document-geometry
-  pages; per-section pages show a sized, display-only ruler). A **Page setup dialog**
-  (bottom bar) sets the page size, orientation, margin preset and column count; it
-  re-renders live and writes back to the trailing `w:sectPr` (docx) / page-layout
-  (odt). It edits the document geometry; per-section authoring is pending (see C1).
+  pages, with a drag-to-set-margin magnet. The margin handles are draggable on every
+  page, including per-section pages: dragging a section page's handles rewrites that
+  section's margins. A **Page setup dialog** (bottom bar) sets the page size,
+  orientation, margin preset and column count of whichever section the caret is in; it
+  re-renders live and writes back to the trailing `w:sectPr` (docx) / page-layout (odt)
+  for the document, or the section's own geometry for a sub-section.
 - **Multi-column sections**: a section's `w:cols` (docx) / page-layout
   `style:columns` (odt) is read and rendered with **true per-page balanced columns**:
   the body is bucketed into one multi-column box per page (the browser's own column
@@ -87,9 +88,9 @@ because their context is regenerated. This is the work for "feature complete".
    `style:header`/`style:footer`); a section without its own falls back to the document default
    (Word's "link to previous"). What remains: (a) an *inserted* section break currently
    inherits the default header/footer rather than getting its own new part/master, so authoring
-   a brand-new distinct header needs a "break the link" step; and (b) the per-section ruler is
-   still display-only (drag-to-set margins edits the document section only) and vertical
-   (tategaki) pages show no ruler. See `_plans/SECTIONS_PLAN.md`.
+   a brand-new distinct header needs a "break the link" step (planned: a corner toggle on a
+   non-main section's header/footer); and (b) vertical (tategaki) pages still show no ruler. Per-section
+   margins are now draggable on the ruler. See `_plans/SECTIONS_PLAN.md`.
 2. **Tab-stop positioning + authoring.** Tabs and a paragraph's custom stops now
    round-trip (see bucket A), but custom stop *positions* render at the default 0.5in
    grid (preserved on save, not shown at their real x), and right / center / decimal
