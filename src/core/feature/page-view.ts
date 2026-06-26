@@ -197,21 +197,27 @@ export function setupPageView(deps: PageViewDeps) {
     if (el && page.contains(el)) {
       const box = el.closest<HTMLElement>(".docxedit-secpage");
       if (box) return box;
-      // single-section / columns: the caret is in the one flow, so map its vertical position to
-      // a page card. A collapsed caret (e.g. in an empty paragraph) can report a zero rect, so
-      // fall back to its element's rect.
+      // The caret is in the one flow, so map its position to a page card. A collapsed caret (e.g.
+      // in an empty paragraph) can report a zero rect, so fall back to its element's rect. Vertical
+      // pages advance along x (right to left), so match on the caret's horizontal position there.
       const cr = sel!.getRangeAt(0).getBoundingClientRect();
-      const cy = cr.top || cr.bottom || el.getBoundingClientRect().top;
-      const hit = all.find((c) => { const r = c.getBoundingClientRect(); return cy >= r.top - 2 && cy <= r.bottom + 2; });
-      if (hit) return hit;
+      if (vertical) {
+        const cx = cr.left || cr.right || el.getBoundingClientRect().left;
+        const hit = all.find((c) => { const r = c.getBoundingClientRect(); return cx >= r.left - 2 && cx <= r.right + 2; });
+        if (hit) return hit;
+      } else {
+        const cy = cr.top || cr.bottom || el.getBoundingClientRect().top;
+        const hit = all.find((c) => { const r = c.getBoundingClientRect(); return cy >= r.top - 2 && cy <= r.bottom + 2; });
+        if (hit) return hit;
+      }
     }
     return all[0]!;
   };
 
   let set: RulerSet | null = null;
   const syncRulers = () => {
-    const pg = vertical ? null : activePage();
-    if (!pg) { rulerLayer.style.display = "none"; return; } // vertical pages / nothing: rulers off
+    const pg = activePage();
+    if (!pg) { rulerLayer.style.display = "none"; return; } // nothing rendered yet: rulers off
     rulerLayer.style.display = "";
     if (!set) { set = makeRulerSet(); rulerLayer.appendChild(set.root); }
     const z = effectiveZoom();
