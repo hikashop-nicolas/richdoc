@@ -309,6 +309,10 @@
    stop by the engine (layoutTabs sets an explicit width); the character is preserved so copy/paste
    yields a real tab. A leader stop fills the gap with baseline dots. */
 .docxedit-doc { tab-size: 48px; -moz-tab-size: 48px; }
+/* A tab laid out to a custom stop: inline-block carries the engine-set width; baseline keeps the
+   line aligned (overflow stays visible so the box does not shift the baseline). The width is the
+   only per-tab value, so it is the only inline style the engine sets. */
+.docx-tab.docx-tab-laid { display: inline-block; vertical-align: baseline; }
 .docx-tab-leader { background-image: radial-gradient(circle, currentColor 0.6px, transparent 0.7px); background-size: 4px 1.1em; background-repeat: repeat-x; background-position: left bottom 0.18em; }
 /* Multi-column sections. Paginated: one balanced multi-column box per page (.docxedit-colpage,
    built in editor.ts). Pageless: the body flows continuously into N columns. Tables and floating

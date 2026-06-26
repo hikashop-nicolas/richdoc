@@ -76,7 +76,7 @@ export function setupPageView(deps: PageViewDeps) {
       if (stops.length) b.setAttribute("data-rdoc-tabstops", JSON.stringify(stops));
       else {
         b.removeAttribute("data-rdoc-tabstops"); // no stops left: reset the tab spans to the default grid
-        for (const tb of Array.from(b.querySelectorAll<HTMLElement>(".docx-tab"))) { tb.style.width = ""; tb.style.display = ""; tb.style.overflow = ""; tb.classList.remove("docx-tab-leader"); }
+        for (const tb of Array.from(b.querySelectorAll<HTMLElement>(".docx-tab"))) { tb.classList.remove("docx-tab-laid", "docx-tab-leader"); tb.style.width = ""; }
       }
     }
     mark();
@@ -444,7 +444,9 @@ export function setupPageView(deps: PageViewDeps) {
       let stops: { pos: number; val: string; leader?: string }[];
       try { stops = JSON.parse(block.getAttribute("data-rdoc-tabstops") || "[]"); } catch { continue; }
       stops = (Array.isArray(stops) ? stops : []).filter((s) => s && s.pos > 0).sort((a, b) => a.pos - b.pos);
-      for (const tab of tabs) { tab.style.display = "inline-block"; tab.style.overflow = "hidden"; tab.style.width = "0px"; }
+      // .docx-tab-laid (in the stylesheet) makes the span an inline-block on the baseline; only the
+      // computed width is per-tab, so it is the one inline value we set.
+      for (const tab of tabs) { tab.classList.add("docx-tab-laid"); tab.style.width = "0px"; }
       const marginLeft = parseFloat(getComputedStyle(block).marginLeft) || 0; // the paragraph indent (unscaled)
       const originX = block.getBoundingClientRect().left - marginLeft * z; // screen x of the margin origin
       for (let i = 0; i < tabs.length; i++) {
