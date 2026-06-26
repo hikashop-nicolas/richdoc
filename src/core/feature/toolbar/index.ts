@@ -36,13 +36,14 @@ export interface ToolbarDeps {
   newStyles: NewStyle[]; // styles authored in-session, collected for save
   newStyleCss: HTMLStyleElement; // live <style> for the appearance of in-session styles
   vertical: boolean; // vertical (tategaki) writing, for the floating bar layout
+  insertSectionBreak: (() => void) | null; // section-break action (Ctrl+Shift+Enter), null if unsupported
 }
 
 export function setupToolbar(deps: ToolbarDeps) {
   const {
     toolbar, wrap, doc, regions, caps, options, parts, adapter, getActiveEl, mark, positionCards,
     addThreadCard, setActiveComment, allocId, freshParaId, insertImage, styleBar,
-    newStyles, newStyleCss, vertical,
+    newStyles, newStyleCss, vertical, insertSectionBreak,
   } = deps;
 
   // Clicking a toolbar <select> can drop the editor's selection (especially a non-collapsed
@@ -323,7 +324,7 @@ export function setupToolbar(deps: ToolbarDeps) {
     sel.addRange(after);
     mark();
   };
-  const furiganaBtn = iconBtn(furiganaIcon, t("furigana"), insertFurigana);
+  const furiganaBtn = iconBtn(furiganaIcon, withSc(t("furigana"), "F", { shift: true }), insertFurigana);
   // Named so their pressed state can be reflected from the caret (see syncToolbarState).
   const boldBtn = btn("B", withSc(t("bold"), "B"), () => { beginFormatChange(); exec("bold"); }, "docxedit-tb-bold");
   const italicBtn = btn("I", withSc(t("italic"), "I"), () => { beginFormatChange(); exec("italic"); }, "docxedit-tb-italic");
@@ -894,7 +895,7 @@ export function setupToolbar(deps: ToolbarDeps) {
 
   // The floating formatting bar and the keyboard shortcuts each live in a sibling module.
   const floatBar = setupFloatBar({ wrap, regions, getActiveEl, beginFormatChange, exec, queryState, withSc, vertical });
-  const shortcuts = setupShortcuts({ regions, caps, getActiveEl, exec, beginFormatChange, styleSel, selectedBlocks, mark, syncToolbarState, insertLink });
+  const shortcuts = setupShortcuts({ regions, caps, getActiveEl, exec, beginFormatChange, styleSel, selectedBlocks, mark, syncToolbarState, insertLink, insertFurigana, insertSectionBreak });
 
   const teardown = () => {
     toolbarObserver.disconnect();

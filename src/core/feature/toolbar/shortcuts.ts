@@ -14,10 +14,12 @@ export interface ShortcutDeps {
   mark: () => void;
   syncToolbarState: () => void;
   insertLink: () => void;
+  insertFurigana: () => void;
+  insertSectionBreak: (() => void) | null;
 }
 
 export function setupShortcuts(deps: ShortcutDeps) {
-  const { regions, caps, getActiveEl, exec, beginFormatChange, styleSel, selectedBlocks, mark, syncToolbarState, insertLink } = deps;
+  const { regions, caps, getActiveEl, exec, beginFormatChange, styleSel, selectedBlocks, mark, syncToolbarState, insertLink, insertFurigana, insertSectionBreak } = deps;
 
   const applyBlockTag = (tag: string) => {
     getActiveEl().focus();
@@ -54,6 +56,8 @@ export function setupShortcuts(deps: ShortcutDeps) {
     if (e.shiftKey) {
       if (k === "l") return run(() => exec("insertUnorderedList")); // bulleted list
       if (k === "7") return run(() => exec("insertOrderedList")); // numbered list
+      if (caps.verticalText && k === "f") return run(insertFurigana); // furigana (ruby)
+      if (caps.sections && k === "enter" && insertSectionBreak) return run(insertSectionBreak); // section break
       return;
     }
     switch (k) {

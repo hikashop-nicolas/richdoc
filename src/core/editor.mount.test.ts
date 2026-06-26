@@ -688,6 +688,35 @@ describe("shared engine mount", () => {
     host.remove();
   });
 
+  it("keyboard shortcuts: Ctrl+Shift+F adds furigana, Ctrl+Shift+Enter inserts a section break (docx)", () => {
+    const doc = `<?xml version="1.0"?><w:document xmlns:w="http://schemas.openxmlformats.org/wordprocessingml/2006/main"><w:body>` +
+      "<w:p><w:r><w:t>漢字テスト</w:t></w:r></w:p></w:body></w:document>";
+    const docx = zipSync({
+      "[Content_Types].xml": strToU8("<Types/>"),
+      "_rels/.rels": strToU8("<Relationships/>"),
+      "word/document.xml": strToU8(doc),
+      "word/_rels/document.xml.rels": strToU8(`<Relationships xmlns="http://schemas.openxmlformats.org/package/2006/relationships"></Relationships>`),
+    });
+    const host = document.createElement("div");
+    document.body.appendChild(host);
+    const ed = createDocxEditor(host, docx);
+    const region = host.querySelector(".docxedit-doc") as HTMLElement;
+    // Ctrl+Shift+F over a selection -> ruby.
+    const tn = region.querySelector("p")!.firstChild!;
+    const r = document.createRange(); r.setStart(tn, 0); r.setEnd(tn, 2);
+    const sel = getSelection()!; sel.removeAllRanges(); sel.addRange(r);
+    const orig = window.prompt; window.prompt = () => "かんじ";
+    try { region.dispatchEvent(new KeyboardEvent("keydown", { key: "F", ctrlKey: true, shiftKey: true, bubbles: true, cancelable: true })); } finally { window.prompt = orig; }
+    expect(host.querySelector("ruby")).toBeTruthy();
+    // Ctrl+Shift+Enter -> a section break (the doc lays out as sections).
+    const p = region.querySelector("p")!;
+    const r2 = document.createRange(); r2.setStart(p.firstChild!, 0); r2.collapse(true); sel.removeAllRanges(); sel.addRange(r2);
+    region.dispatchEvent(new KeyboardEvent("keydown", { key: "Enter", ctrlKey: true, shiftKey: true, bubbles: true, cancelable: true }));
+    expect(host.querySelector(".docxedit-secpage")).toBeTruthy();
+    ed.destroy();
+    host.remove();
+  });
+
   it("authors furigana: wraps a selection in ruby (docx)", async () => {
     const { strFromU8, unzipSync } = await import("fflate");
     const doc = `<?xml version="1.0"?><w:document xmlns:w="http://schemas.openxmlformats.org/wordprocessingml/2006/main"><w:body>` +

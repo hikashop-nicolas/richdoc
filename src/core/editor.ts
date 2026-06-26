@@ -1207,6 +1207,7 @@ export function createRichEditor(container: HTMLElement, adapter: Adapter, optio
     toolbar, wrap, doc, regions, caps, options, parts, adapter, getActiveEl: () => activeEl, mark,
     positionCards, addThreadCard, setActiveComment, allocId, freshParaId, insertImage, styleBar: bottomLeft,
     newStyles, newStyleCss, vertical: isVertical(),
+    insertSectionBreak: sectionBreakBtn ? () => sectionBreakBtn.click() : null,
   });
   afterReflow = updateChangeButtons;
   updateChangeButtons();
