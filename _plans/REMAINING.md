@@ -130,7 +130,9 @@ authorable; they are realistic to do, just not yet built.
   run properties. The note area inherits the document's footnote-text style (docx "FootnoteText",
   odt "Footnote": font family / size / line-height / colour), falling back to a built-in size when
   the document defines none. An "Insert footnote" control adds one (minting docx footnotes.xml +
-  its content-type/relationship when the document has none), and everything round-trips (docx
+  its content-type/relationship when the document has none); deleting its reference mark removes it
+  (Backspace just after the mark or Delete just before it, since the mark is an atomic non-selectable
+  superscript), dropping the body from the view and the save. Everything round-trips (docx
   footnotes.xml / endnotes.xml; odt inline `text:note`). Per-page placement covers every paginated
   layout, reserving the space via a shared two-pass measure-then-bucket pass: horizontal layouts put
   the area at the page bottom (full content width, below all columns in multi-column); vertical

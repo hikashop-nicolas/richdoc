@@ -1453,8 +1453,29 @@ export function createRichEditor(container: HTMLElement, adapter: Adapter, optio
     headings[i]?.scrollIntoView({ block: "center", behavior: "smooth" });
   });
 
+  // Remove a footnote/endnote by deleting its reference mark: the mark is an atomic,
+  // non-selectable superscript, so Backspace just after it (or Delete just before it) would
+  // otherwise be swallowed. Removing the reference drops the note from the view and from the save
+  // (getBytes keeps only notes whose reference is still present).
+  const removeAdjacentNoteRef = (e: KeyboardEvent): void => {
+    if (e.key !== "Backspace" && e.key !== "Delete") return;
+    const sel = window.getSelection();
+    if (!sel || !sel.rangeCount) return;
+    const range = sel.getRangeAt(0);
+    if (!range.collapsed) return;
+    const c = range.startContainer, o = range.startOffset;
+    const adj = e.key === "Backspace"
+      ? (c.nodeType === 1 ? (o > 0 ? c.childNodes[o - 1] : null) : (o === 0 ? c.previousSibling : null))
+      : (c.nodeType === 1 ? c.childNodes[o] : (o === (c.textContent?.length ?? 0) ? c.nextSibling : null));
+    if (adj && adj.nodeType === 1 && (adj as HTMLElement).classList.contains("docx-fnref")) {
+      e.preventDefault();
+      (adj as HTMLElement).remove();
+      mark(); // reflow drops the orphaned note; the save omits it
+    }
+  };
   for (const r of regions) {
     r.addEventListener("input", mark);
+    r.addEventListener("keydown", removeAdjacentNoteRef);
     r.addEventListener("focusin", (e) => {
       // A table cell is its own editing host nested in the region; target it directly so
       // toolbar commands act inside the cell instead of stealing focus back to the region.

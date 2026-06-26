@@ -845,6 +845,45 @@ describe("shared engine mount", () => {
     host.remove();
   });
 
+  it("removes a footnote when its reference is deleted (docx)", async () => {
+    const { strFromU8, unzipSync } = await import("fflate");
+    const doc = `<?xml version="1.0"?><w:document xmlns:w="http://schemas.openxmlformats.org/wordprocessingml/2006/main"><w:body>` +
+      "<w:p><w:r><w:t>One</w:t></w:r><w:r><w:footnoteReference w:id=\"1\"/></w:r>" +
+      "<w:r><w:t> two</w:t></w:r><w:r><w:footnoteReference w:id=\"2\"/></w:r></w:p>" +
+      '<w:sectPr><w:pgSz w:w="11906" w:h="16838"/></w:sectPr></w:body></w:document>';
+    const footnotes = '<?xml version="1.0"?><w:footnotes xmlns:w="http://schemas.openxmlformats.org/wordprocessingml/2006/main">' +
+      '<w:footnote w:id="1"><w:p><w:r><w:t>FirstNote</w:t></w:r></w:p></w:footnote>' +
+      '<w:footnote w:id="2"><w:p><w:r><w:t>SecondNote</w:t></w:r></w:p></w:footnote></w:footnotes>';
+    const docx = zipSync({
+      "[Content_Types].xml": strToU8("<Types/>"),
+      "_rels/.rels": strToU8("<Relationships/>"),
+      "word/document.xml": strToU8(doc),
+      "word/footnotes.xml": strToU8(footnotes),
+      "word/_rels/document.xml.rels": strToU8(`<Relationships xmlns="http://schemas.openxmlformats.org/package/2006/relationships"></Relationships>`),
+    });
+    const host = document.createElement("div");
+    document.body.appendChild(host);
+    const ed = createDocxEditor(host, docx);
+    expect(host.querySelectorAll(".docx-fnref").length).toBe(2);
+    const firstRef = host.querySelector(".docx-fnref") as HTMLElement;
+    const docEl = host.querySelector(".docxedit-doc") as HTMLElement;
+    docEl.focus();
+    const range = document.createRange();
+    range.setStartAfter(firstRef);
+    range.collapse(true);
+    const sel = window.getSelection()!;
+    sel.removeAllRanges();
+    sel.addRange(range);
+    // Backspace right after the reference removes it (and its note).
+    docEl.dispatchEvent(new KeyboardEvent("keydown", { key: "Backspace", bubbles: true, cancelable: true }));
+    expect(host.querySelectorAll(".docx-fnref").length).toBe(1);
+    const fx = strFromU8(unzipSync(await ed.getBytes())["word/footnotes.xml"]!);
+    expect(fx).not.toContain("FirstNote"); // the removed note is dropped on save
+    expect(fx).toContain("SecondNote"); // the kept note survives
+    ed.destroy();
+    host.remove();
+  });
+
   it("places footnotes per section box (docx sections)", () => {
     const breakP = "<w:p><w:pPr><w:sectPr><w:pgSz w:w=\"11906\" w:h=\"16838\"/></w:sectPr></w:pPr>" +
       "<w:r><w:t>End one</w:t></w:r><w:r><w:footnoteReference w:id=\"1\"/></w:r></w:p>";
