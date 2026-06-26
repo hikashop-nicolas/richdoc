@@ -229,10 +229,15 @@ export function setupPageView(deps: PageViewDeps) {
     bindDrag(set.h.right, "h", "right");
     bindDrag(set.v.top, "v", "top");
     bindDrag(set.v.bottom, "v", "bottom");
-    // Click an empty spot on the horizontal ruler's content area to add a tab stop of the current type.
-    h.r.addEventListener("click", (e) => {
+    // Press an empty spot on the horizontal ruler's content area to add a tab stop of the current
+    // type. Handled on mousedown (with preventDefault) rather than click: pressing the non-editable
+    // ruler would otherwise collapse the caret out of the paragraph before a click could read it, so
+    // we keep the selection and read the caret's block while it is still there.
+    h.r.addEventListener("mousedown", (e) => {
+      const tgt = e.target as HTMLElement;
+      if (tgt.closest(".docxedit-ruler-handle, .docxedit-tabmark")) return; // handles/markers run their own pointer logic
+      e.preventDefault(); // keep the document selection in the paragraph
       if (dragging) return;
-      if ((e.target as HTMLElement).closest(".docxedit-ruler-handle, .docxedit-tabmark")) return;
       const pg = activePage();
       if (!pg) return;
       const g = pageGeomOf(pg), z = effectiveZoom();
