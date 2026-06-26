@@ -369,6 +369,48 @@ export function createRichEditor(container: HTMLElement, adapter: Adapter, optio
     row.append(n, nb.el);
     return row;
   };
+  // --- Per-page footnote areas, shared by every paginated layout -------------------------------
+  // The page bottom (horizontal) or left edge (vertical) holds the page's referenced footnotes,
+  // and the body reserves the space so it does not overlap. The reserve = a base (the separator
+  // border + padding) plus each note's measured thickness (row height horizontally, row width in
+  // a vertical band).
+  const FN_BASE = 8;
+  const footnoteRefs = () => numberRefs().filter((r) => r.kind === "footnote" && noteBands.has(r.id));
+  // Build each footnote's row once and measure it laid out as it will render (its font, the area's
+  // width/height, paragraph margins), so the reserve matches the rendered size. `extent` is the
+  // area's fixed cross-size: its width horizontally, its height (column length) in a vertical band.
+  const measureFootnotes = (footRefs: ReturnType<typeof footnoteRefs>, vertical: boolean, extent: number) => {
+    const fnRow = new Map<string, HTMLElement>();
+    const fnSize = new Map<string, number>();
+    if (footRefs.length) {
+      const probe = document.createElement("div");
+      probe.className = vertical ? "docxedit-fnarea is-vertical" : "docxedit-fnarea";
+      probe.style.cssText = `${vertical ? `top:0;right:0;height:${extent}px` : `top:0;left:0;width:${extent}px`};visibility:hidden;${noteAreaCss}`;
+      hflayer.appendChild(probe);
+      for (const fr of footRefs) { const row = noteRow(fr.num, fr.id); if (row) { fnRow.set(fr.id, row); probe.appendChild(row); } }
+      for (const fr of footRefs) { const row = fnRow.get(fr.id); if (row) fnSize.set(fr.id, vertical ? row.offsetWidth : row.offsetHeight); }
+      probe.remove();
+    }
+    return { fnRow, fnSize };
+  };
+  // The reserve per page: FN_BASE plus the thickness of every footnote whose reference is on it.
+  const footnoteReserve = (footRefs: ReturnType<typeof footnoteRefs>, fnSize: Map<string, number>, pageOf: (ref: HTMLElement) => number): number[] => {
+    const r: number[] = [];
+    for (const fr of footRefs) { const p = pageOf(fr.ref); if (p < 0) continue; r[p] = (r[p] || FN_BASE) + (fnSize.get(fr.id) ?? 0); }
+    return r;
+  };
+  // Group the footnotes by their page and draw one area per page; `areaCss(page)` positions it.
+  const drawFootnoteAreas = (footRefs: ReturnType<typeof footnoteRefs>, fnRow: Map<string, HTMLElement>, vertical: boolean, pageOf: (ref: HTMLElement) => number, areaCss: (page: number) => string) => {
+    const byPage = new Map<number, ReturnType<typeof footnoteRefs>>();
+    for (const fr of footRefs) { const p = pageOf(fr.ref); if (p < 0) continue; (byPage.get(p) ?? byPage.set(p, []).get(p)!).push(fr); }
+    for (const [p, frs] of byPage) {
+      const area = document.createElement("div");
+      area.className = vertical ? "docxedit-fnarea is-vertical" : "docxedit-fnarea";
+      area.style.cssText = `${areaCss(p)};${noteAreaCss}`;
+      for (const fr of frs) { const row = fnRow.get(fr.id); if (row) area.appendChild(row); }
+      hflayer.appendChild(area);
+    }
+  };
   // Doc-end notes area: endnotes always, plus footnotes when the layout does not place them per page.
   const renderNotes = () => {
     const rows: HTMLElement[] = [];
@@ -579,27 +621,12 @@ export function createRichEditor(container: HTMLElement, adapter: Adapter, optio
     // mirroring the horizontal per-page area. Its thickness (block-axis width) reserves room via the
     // paginator, so body columns stop before it. Notes are measured laid out vertical-rl, at the
     // column height, so the reserve matches how they render.
-    const FN_BASE = 8; // the footnote band's separator border + inline padding
     const colHeight = geometry.heightPx - contentTop - contentBottomInset;
-    const footRefs = numberRefs().filter((r) => r.kind === "footnote" && noteBands.has(r.id));
+    const footRefs = footnoteRefs();
     footnotesPerPage = true;
     const kidIndexOf = (ref: HTMLElement) => kids.findIndex((k) => k.contains(ref));
-    const fnRow = new Map<string, HTMLElement>();
-    const fnW = new Map<string, number>();
-    if (footRefs.length) {
-      const probe = document.createElement("div");
-      probe.className = "docxedit-fnarea is-vertical";
-      probe.style.cssText = `top:0;right:0;height:${colHeight}px;visibility:hidden;${noteAreaCss}`;
-      hflayer.appendChild(probe);
-      for (const fr of footRefs) { const row = noteRow(fr.num, fr.id); if (row) { fnRow.set(fr.id, row); probe.appendChild(row); } }
-      for (const fr of footRefs) { const row = fnRow.get(fr.id); if (row) fnW.set(fr.id, row.offsetWidth); }
-      probe.remove();
-    }
-    const reserveFor = (pob: number[]): number[] => {
-      const r: number[] = [];
-      for (const fr of footRefs) { const ki = kidIndexOf(fr.ref); if (ki < 0) continue; const p = pob[ki]!; r[p] = (r[p] || FN_BASE) + (fnW.get(fr.id) ?? 0); }
-      return r;
-    };
+    const { fnRow, fnSize } = measureFootnotes(footRefs, true, colHeight);
+    const reserveFor = (pob: number[]): number[] => footnoteReserve(footRefs, fnSize, (ref) => { const ki = kidIndexOf(ref); return ki < 0 ? -1 : pob[ki]!; });
     let reserve = footRefs.length ? reserveFor(paginate(sizes, { pageStep, contentHeight: contentExtent }, manualBreaks(kids)).pageOfBlock) : [];
     const { spacerBefore, cardCount, pageOfBlock } = paginate(sizes, { pageStep, contentHeight: contentExtent, reserveOf: (p) => reserve[p] || 0 }, manualBreaks(kids));
     reserve = footRefs.length ? reserveFor(pageOfBlock) : [];
@@ -636,17 +663,8 @@ export function createRichEditor(container: HTMLElement, adapter: Adapter, optio
 
     // Footnotes: per page, a vertical band at the left edge of the content (just inside the left
     // margin), holding that page's referenced notes with a separator on the body side.
-    if (footRefs.length) {
-      const byPage = new Map<number, typeof footRefs>();
-      for (const fr of footRefs) { const ki = kidIndexOf(fr.ref); if (ki < 0) continue; const p = pageOfBlock[ki]!; (byPage.get(p) ?? byPage.set(p, []).get(p)!).push(fr); }
-      for (const [p, frs] of byPage) {
-        const area = document.createElement("div");
-        area.className = "docxedit-fnarea is-vertical";
-        area.style.cssText = `top:${contentTop}px;right:${p * pageStep + (geometry.widthPx - geometry.margin.left) - (reserve[p] || 0)}px;width:${reserve[p] || 0}px;height:${colHeight}px;${noteAreaCss}`;
-        for (const fr of frs) { const row = fnRow.get(fr.id); if (row) area.appendChild(row); }
-        hflayer.appendChild(area);
-      }
-    }
+    drawFootnoteAreas(footRefs, fnRow, true, (ref) => { const ki = kidIndexOf(ref); return ki < 0 ? -1 : pageOfBlock[ki]!; },
+      (p) => `top:${contentTop}px;right:${p * pageStep + (geometry.widthPx - geometry.margin.left) - (reserve[p] || 0)}px;width:${reserve[p] || 0}px;height:${colHeight}px`);
 
     page.style.width = `${cardCount * pageStep - PAGE_GAP}px`;
     page.style.minHeight = `${geometry.heightPx}px`;
@@ -690,33 +708,52 @@ export function createRichEditor(container: HTMLElement, adapter: Adapter, optio
     doc.style.padding = "0";
     pagelayer.replaceChildren();
     hflayer.replaceChildren();
-    const stale = (Array.from(doc.children) as HTMLElement[]).filter((c) => c.classList.contains(VBAND) || c.classList.contains("docxedit-pagespacer"));
-    const newBand = (): HTMLElement => {
+    // A page reserves a strip at its left edge (where the right-to-left flow runs out) for footnotes
+    // by narrowing every band on that page; the footnote band fills the freed strip.
+    const newBand = (bandWidth: number): HTMLElement => {
       const b = document.createElement("div");
       b.className = VBAND;
-      b.style.cssText = `position:absolute;writing-mode:vertical-rl;width:${contentExtent}px;height:${bandHeight}px;overflow:hidden`;
+      b.style.cssText = `position:absolute;writing-mode:vertical-rl;width:${bandWidth}px;height:${bandHeight}px;overflow:hidden`;
       return b;
     };
     // vertical-rl overflows leftward, so scrollWidth stays equal to clientWidth; detect overflow by
     // the just-added block crossing the band's left edge instead.
     const vOver = (b: HTMLElement, block: HTMLElement): boolean => block.getBoundingClientRect().left < b.getBoundingClientRect().left - EPS;
-    const bands: HTMLElement[] = [];
-    let band = newBand();
-    doc.appendChild(band);
-    bands.push(band);
-    for (const block of blocks) {
-      band.appendChild(block);
-      if (vOver(band, block) && band.children.length > 1) {
-        band.removeChild(block);
-        band.style.overflow = "clip";
-        band = newBand();
-        doc.appendChild(band);
-        bands.push(band);
+    const bucketBands = (reserveOf: (bandIndex: number) => number): HTMLElement[] => {
+      const bs: HTMLElement[] = [];
+      let band = newBand(contentExtent - reserveOf(0));
+      doc.appendChild(band);
+      bs.push(band);
+      for (const block of blocks) {
         band.appendChild(block);
+        if (vOver(band, block) && band.children.length > 1) {
+          band.removeChild(block);
+          band.style.overflow = "clip";
+          band = newBand(contentExtent - reserveOf(bs.length));
+          doc.appendChild(band);
+          bs.push(band);
+          band.appendChild(block);
+        }
       }
+      band.style.overflow = "clip";
+      return bs;
+    };
+    // Two passes when there are footnotes: find each note's page (a page is N consecutive bands),
+    // then re-bucket with that page's left-strip reserve applied to every band on it.
+    const footRefs = footnoteRefs();
+    footnotesPerPage = true;
+    const { fnRow, fnSize } = measureFootnotes(footRefs, true, contentHeight);
+    const pageOfBand = (bs: HTMLElement[]) => (ref: HTMLElement) => { const i = bs.findIndex((b) => b.contains(ref)); return i < 0 ? -1 : Math.floor(i / N); };
+    let bands = bucketBands(() => 0);
+    let reserve: number[] = [];
+    if (footRefs.length) {
+      reserve = footnoteReserve(footRefs, fnSize, pageOfBand(bands));
+      bands = bucketBands((i) => reserve[Math.floor(i / N)] || 0);
+      reserve = footnoteReserve(footRefs, fnSize, pageOfBand(bands));
     }
-    band.style.overflow = "clip";
-    for (const old of stale) old.remove();
+    for (const old of Array.from(doc.children) as HTMLElement[]) {
+      if ((old.classList.contains(VBAND) && !bands.includes(old)) || old.classList.contains("docxedit-pagespacer")) old.remove();
+    }
 
     const cardCount = Math.ceil(bands.length / N);
     bands.forEach((b, i) => {
@@ -746,6 +783,9 @@ export function createRichEditor(container: HTMLElement, adapter: Adapter, optio
         hflayer.appendChild(fc);
       }
     }
+    // Footnotes: a vertical band down each page's left edge, beside the narrowed text bands.
+    drawFootnoteAreas(footRefs, fnRow, true, pageOfBand(bands),
+      (p) => `top:${contentTop}px;right:${p * pageStep + right + (contentExtent - (reserve[p] || 0))}px;width:${reserve[p] || 0}px;height:${contentHeight}px`);
     page.style.width = `${cardCount * pageStep - PAGE_GAP}px`;
     page.style.minHeight = `${geometry.heightPx}px`;
     decorateFields(cardCount, pageStep, true);
@@ -825,11 +865,15 @@ export function createRichEditor(container: HTMLElement, adapter: Adapter, optio
     doc.style.height = ""; // clear any inline height left by a prior vertical layout
     doc.style.padding = `${contentTop}px ${geometry.margin.right}px ${contentBottomInset}px ${geometry.margin.left}px`;
 
-    const newWrapper = (first: boolean): HTMLElement => {
+    // A page reserves a bottom strip for its footnotes (border-box padding keeps the wrapper the
+    // same outer height, so the fixed page grid stays aligned); the columns then fill above it.
+    const newWrapper = (first: boolean, reserve: number): HTMLElement => {
       const w = document.createElement("div");
       w.className = COLPAGE;
+      w.style.boxSizing = "border-box";
       w.style.height = `${contentHeight}px`;
       w.style.width = `${contentWidth}px`;
+      if (reserve) w.style.paddingBottom = `${reserve}px`;
       w.style.columnFill = "auto"; // column-by-column during bucketing; balanced when finalized
       w.style.overflow = "hidden"; // a scroll container, so scrollWidth reveals the (N+1)th column
       if (!first) w.style.marginTop = `${interPage}px`;
@@ -844,38 +888,56 @@ export function createRichEditor(container: HTMLElement, adapter: Adapter, optio
     };
     const isManual = (el: Element) => el.classList.contains("docx-pagebreak") && el.getAttribute("data-docx-pagebreak") === "manual";
 
-    // Re-bucket without ever detaching a block from the document: each appendChild moves a
-    // block straight from its old parent (the doc or a previous wrapper) into the new wrapper,
-    // so the node holding the caret stays connected and the selection is not collapsed.
-    // old wrappers/spacers to drop after blocks are moved out (NOT the blocks themselves)
-    const stale = (Array.from(doc.children) as HTMLElement[]).filter((c) => c.classList.contains(COLPAGE) || c.classList.contains("docxedit-pagespacer"));
-    const wrappers: HTMLElement[] = [];
-    let wrap = newWrapper(true);
-    doc.appendChild(wrap);
-    wrappers.push(wrap);
+    // Bucket the blocks into page wrappers, each reserving reserveOf(pageIndex) at its bottom for
+    // footnotes. Re-bucket without ever detaching a block from the document: each appendChild moves
+    // a block straight from its old parent into the new wrapper, so the node holding the caret stays
+    // connected and the selection is not collapsed.
     const EPS = 2;
-    for (const block of blocks) {
-      if (isManual(block) && wrap.children.length) {
-        finalize(wrap);
-        wrap = newWrapper(false);
-        doc.appendChild(wrap);
-        wrappers.push(wrap);
+    const bucket = (reserveOf: (i: number) => number): HTMLElement[] => {
+      const ws: HTMLElement[] = [];
+      let wrap = newWrapper(true, reserveOf(0));
+      doc.appendChild(wrap);
+      ws.push(wrap);
+      for (const block of blocks) {
+        if (isManual(block) && wrap.children.length) {
+          finalize(wrap);
+          wrap = newWrapper(false, reserveOf(ws.length));
+          doc.appendChild(wrap);
+          ws.push(wrap);
+          wrap.appendChild(block);
+          continue;
+        }
         wrap.appendChild(block);
-        continue;
+        // scrollWidth grows when content spills into an (N+1)th column: this page is full.
+        if (wrap.scrollWidth > wrap.clientWidth + EPS && wrap.children.length > 1) {
+          wrap.removeChild(block);
+          finalize(wrap);
+          wrap = newWrapper(false, reserveOf(ws.length));
+          doc.appendChild(wrap);
+          ws.push(wrap);
+          wrap.appendChild(block); // a lone oversized block stays even if it still overflows
+        }
       }
-      wrap.appendChild(block);
-      // scrollWidth grows when content spills into an (N+1)th column: this page is full.
-      if (wrap.scrollWidth > wrap.clientWidth + EPS && wrap.children.length > 1) {
-        wrap.removeChild(block);
-        finalize(wrap);
-        wrap = newWrapper(false);
-        doc.appendChild(wrap);
-        wrappers.push(wrap);
-        wrap.appendChild(block); // a lone oversized block stays even if it still overflows
-      }
+      finalize(wrap);
+      return ws;
+    };
+    // Two passes when there are footnotes: the first finds which page each note lands on, the second
+    // re-buckets with that page's reserve baked in so the body stops above the footnote strip.
+    const footRefs = footnoteRefs();
+    footnotesPerPage = true;
+    const { fnRow, fnSize } = measureFootnotes(footRefs, false, contentWidth);
+    const pageOf = (ws: HTMLElement[]) => (ref: HTMLElement) => ws.findIndex((w) => w.contains(ref));
+    let wrappers = bucket(() => 0);
+    let reserve: number[] = [];
+    if (footRefs.length) {
+      reserve = footnoteReserve(footRefs, fnSize, pageOf(wrappers));
+      wrappers = bucket((i) => reserve[i] || 0);
+      reserve = footnoteReserve(footRefs, fnSize, pageOf(wrappers));
     }
-    finalize(wrap);
-    for (const old of stale) old.remove(); // now-empty previous wrappers + spacers
+    // Drop every wrapper that is not part of the final layout, plus leftover spacers.
+    for (const old of Array.from(doc.children) as HTMLElement[]) {
+      if ((old.classList.contains(COLPAGE) && !wrappers.includes(old)) || old.classList.contains("docxedit-pagespacer")) old.remove();
+    }
 
     pagelayer.replaceChildren();
     hflayer.replaceChildren();
@@ -898,6 +960,9 @@ export function createRichEditor(container: HTMLElement, adapter: Adapter, optio
         hflayer.appendChild(fc);
       }
     }
+    // Footnotes: a full-width area below all columns, just above the footer, on each page.
+    drawFootnoteAreas(footRefs, fnRow, false, pageOf(wrappers),
+      (p) => `top:${p * pageStep + (geometry.heightPx - contentBottomInset) - (reserve[p] || 0)}px;left:${geometry.margin.left}px;width:${contentWidth}px`);
     page.style.minHeight = `${cardCount * pageStep - PAGE_GAP}px`;
     decorateFields(cardCount, pageStep, false);
     if (caretBlock && caretBlock.isConnected) placeCaret(caretBlock, caretOffset);
@@ -994,7 +1059,6 @@ export function createRichEditor(container: HTMLElement, adapter: Adapter, optio
     page.style.width = `${maxW}px`;
     doc.style.cssText = `display:flex;flex-direction:column;align-items:center;gap:${PAGE_GAP}px;padding:0`;
 
-    const stale = (Array.from(doc.children) as HTMLElement[]).filter((c) => c.classList.contains(SECPAGE) || c.classList.contains("docxedit-pagespacer"));
     const EPS = 2;
     // A section reserves space at its top/bottom for its header/footer band (0 when absent/empty)
     // so the body does not overlap them.
@@ -1003,13 +1067,17 @@ export function createRichEditor(container: HTMLElement, adapter: Adapter, optio
       measure.style.width = `${contentWidth}px`;
       return el.offsetHeight;
     };
-    const newBox = (g: SecGeom, hH: number, fH: number, plain = false): HTMLElement => {
+    const newBox = (g: SecGeom, hH: number, fH: number, plain = false, reserve = 0): HTMLElement => {
       const b = document.createElement("div");
       b.className = SECPAGE;
       b.style.width = `${g.w}px`;
       b.style.height = `${g.h}px`;
       b.style.boxSizing = "border-box";
-      b.style.padding = `${g.mt + hH}px ${g.mr}px ${g.mb + fH}px ${g.ml}px`; // reserve header/footer space
+      // Reserve header/footer space, plus the footnote strip at the block-axis end: the bottom for a
+      // horizontal section, the left edge for a vertical one (where its right-to-left flow runs out).
+      const padB = g.mb + fH + (g.vertical ? 0 : reserve);
+      const padL = g.ml + (g.vertical ? reserve : 0);
+      b.style.padding = `${g.mt + hH}px ${g.mr}px ${padB}px ${padL}px`;
       b.setAttribute("data-rdoc-secgeom", JSON.stringify(g)); // for the per-page ruler
       b.style.overflow = "hidden"; // a scroll container during bucketing; clipped on finalize
       if (plain) return b; // a frame holding manually-laid bands (vertical multi-column)
@@ -1022,33 +1090,36 @@ export function createRichEditor(container: HTMLElement, adapter: Adapter, optio
       }
       return b;
     };
+    type BoxMeta = { box: HTMLElement; g: SecGeom; hH: number; fH: number; headerEl: HTMLElement | null; footerEl: HTMLElement | null; boundaryEl: HTMLElement | null };
     // Vertical + multi-column section: lay N vertical-rl bands stacked in each page box (CSS multicol
     // does not fragment vertical text), bucketing blocks by block-axis overflow like the columns path.
-    const layoutVCols = (sec: Section, cw: number, hH: number, fH: number, meta: Omit<BoxMeta, "box">): void => {
+    // `reserveOf(boxIndex)` narrows the bands to leave the page's left footnote strip free.
+    const layoutVCols = (sec: Section, cw: number, hH: number, fH: number, meta: Omit<BoxMeta, "box">, boxMeta: BoxMeta[], reserveOf: (i: number) => number): void => {
       const g = sec.geom, N = g.cols!, gap = g.colGap ?? 36;
       const bandHeight = (g.h - (g.mt + hH) - (g.mb + fH) - (N - 1) * gap) / N;
-      const mkBand = (slot: number): HTMLElement => {
+      const mkBand = (slot: number, bandWidth: number): HTMLElement => {
         const w = document.createElement("div");
         w.className = VBAND;
-        w.style.cssText = `writing-mode:vertical-rl;width:${cw}px;height:${bandHeight}px;overflow:hidden${slot < N - 1 ? `;margin-bottom:${gap}px` : ""}`;
+        w.style.cssText = `writing-mode:vertical-rl;width:${bandWidth}px;height:${bandHeight}px;overflow:hidden${slot < N - 1 ? `;margin-bottom:${gap}px` : ""}`;
         return w;
       };
-      let box = newBox(g, hH, fH, true);
+      let reserve = reserveOf(boxMeta.length);
+      let box = newBox(g, hH, fH, true, reserve);
       box.style.overflow = "clip";
       doc.appendChild(box);
       boxMeta.push({ box, ...meta });
       // vertical-rl overflows leftward, so scrollWidth stays equal to clientWidth; detect overflow
       // by the just-added block crossing the band's left edge instead.
       const vOver = (b: HTMLElement, block: HTMLElement): boolean => block.getBoundingClientRect().left < b.getBoundingClientRect().left - EPS;
-      let slot = 0, band = mkBand(0);
+      let slot = 0, band = mkBand(0, cw - reserve);
       box.appendChild(band);
       for (const block of sec.blocks) {
         band.appendChild(block);
         if (vOver(band, block) && band.children.length > 1) {
           band.removeChild(block);
           band.style.overflow = "clip";
-          if (++slot >= N) { box = newBox(g, hH, fH, true); box.style.overflow = "clip"; doc.appendChild(box); boxMeta.push({ box, ...meta }); slot = 0; }
-          band = mkBand(slot);
+          if (++slot >= N) { reserve = reserveOf(boxMeta.length); box = newBox(g, hH, fH, true, reserve); box.style.overflow = "clip"; doc.appendChild(box); boxMeta.push({ box, ...meta }); slot = 0; }
+          band = mkBand(slot, cw - reserve);
           box.appendChild(band);
           band.appendChild(block);
         }
@@ -1063,31 +1134,59 @@ export function createRichEditor(container: HTMLElement, adapter: Adapter, optio
     const overflowed = (b: HTMLElement, g: SecGeom): boolean =>
       g.vertical || (g.cols && g.cols > 1) ? b.scrollWidth > b.clientWidth + EPS : b.scrollHeight > b.clientHeight + EPS;
 
-    type BoxMeta = { box: HTMLElement; g: SecGeom; fH: number; headerEl: HTMLElement | null; footerEl: HTMLElement | null; boundaryEl: HTMLElement | null };
-    const boxMeta: BoxMeta[] = [];
-    for (const sec of sections) {
-      const cw = sec.geom.w - sec.geom.ml - sec.geom.mr;
-      const hH = bandH(sec.headerEl, cw);
-      const fH = bandH(sec.footerEl, cw);
-      const meta = { g: sec.geom, fH, headerEl: sec.headerEl, footerEl: sec.footerEl, boundaryEl: sec.boundaryEl };
-      if (sec.geom.vertical && (sec.geom.cols ?? 0) > 1) { layoutVCols(sec, cw, hH, fH, meta); continue; }
-      let box = newBox(sec.geom, hH, fH);
-      doc.appendChild(box);
-      boxMeta.push({ box, ...meta });
-      for (const block of sec.blocks) {
-        box.appendChild(block);
-        if (overflowed(box, sec.geom) && box.children.length > 1) {
-          box.removeChild(block);
-          finalize(box, sec.geom);
-          box = newBox(sec.geom, hH, fH);
-          doc.appendChild(box);
-          boxMeta.push({ box, ...meta });
-          box.appendChild(block); // a lone oversized block stays even if it still overflows
+    // Bucket every section into its page boxes, each reserving reserveOf(boxIndex) for footnotes.
+    const buildBoxes = (reserveOf: (i: number) => number): BoxMeta[] => {
+      const boxMeta: BoxMeta[] = [];
+      for (const sec of sections) {
+        const cw = sec.geom.w - sec.geom.ml - sec.geom.mr;
+        const hH = bandH(sec.headerEl, cw);
+        const fH = bandH(sec.footerEl, cw);
+        const meta = { g: sec.geom, hH, fH, headerEl: sec.headerEl, footerEl: sec.footerEl, boundaryEl: sec.boundaryEl };
+        if (sec.geom.vertical && (sec.geom.cols ?? 0) > 1) { layoutVCols(sec, cw, hH, fH, meta, boxMeta, reserveOf); continue; }
+        let box = newBox(sec.geom, hH, fH, false, reserveOf(boxMeta.length));
+        doc.appendChild(box);
+        boxMeta.push({ box, ...meta });
+        for (const block of sec.blocks) {
+          box.appendChild(block);
+          if (overflowed(box, sec.geom) && box.children.length > 1) {
+            box.removeChild(block);
+            finalize(box, sec.geom);
+            box = newBox(sec.geom, hH, fH, false, reserveOf(boxMeta.length));
+            doc.appendChild(box);
+            boxMeta.push({ box, ...meta });
+            box.appendChild(block); // a lone oversized block stays even if it still overflows
+          }
         }
+        finalize(box, sec.geom);
       }
-      finalize(box, sec.geom);
+      return boxMeta;
+    };
+    // Two passes when there are footnotes: bucket once to find each note's box (measuring it at that
+    // box's content extent and direction), then re-bucket with each box's reserve baked into its
+    // padding so the body stops before the footnote strip.
+    const footRefs = footnoteRefs();
+    footnotesPerPage = true;
+    const colHeightOf = (m: BoxMeta) => m.g.h - (m.g.mt + m.hH) - (m.g.mb + m.fH);
+    const boxIndexOf = (bm: BoxMeta[]) => (ref: HTMLElement) => bm.findIndex((m) => m.box.contains(ref));
+    const fnRow = new Map<string, HTMLElement>();
+    const fnSize = new Map<string, number>();
+    let boxMeta = buildBoxes(() => 0);
+    let reserve: number[] = [];
+    if (footRefs.length) {
+      boxMeta.forEach((m) => {
+        const refs = footRefs.filter((fr) => m.box.contains(fr.ref));
+        if (!refs.length) return;
+        const meas = measureFootnotes(refs, !!m.g.vertical, m.g.vertical ? colHeightOf(m) : m.g.w - m.g.ml - m.g.mr);
+        for (const [id, row] of meas.fnRow) fnRow.set(id, row);
+        for (const [id, sz] of meas.fnSize) fnSize.set(id, sz);
+      });
+      reserve = footnoteReserve(footRefs, fnSize, boxIndexOf(boxMeta));
+      boxMeta = buildBoxes((i) => reserve[i] || 0);
+      reserve = footnoteReserve(footRefs, fnSize, boxIndexOf(boxMeta));
     }
-    for (const old of stale) old.remove();
+    for (const old of Array.from(doc.children) as HTMLElement[]) {
+      if ((old.classList.contains(SECPAGE) && !boxMeta.some((m) => m.box === old)) || old.classList.contains(VBAND) || old.classList.contains("docxedit-pagespacer")) old.remove();
+    }
     // Header/footer clones, positioned over each section box (page-numbered cumulatively). Each box
     // clones its own section's bands; a non-main section also gets a corner chip to link/unlink.
     const dx = doc.offsetLeft, dy = doc.offsetTop;
@@ -1109,6 +1208,20 @@ export function createRichEditor(container: HTMLElement, adapter: Adapter, optio
         hflayer.appendChild(fc);
         if (boundaryEl) hflayer.appendChild(mkLinkChip("footer", boundaryEl, `top:${top}px;left:${left + cw - 18}px`));
       }
+    });
+    // Footnotes: per section box, an area at its block-axis end (bottom for a horizontal section,
+    // a left band for a vertical one), holding the notes whose references land in that box.
+    boxMeta.forEach((m, i) => {
+      const refs = footRefs.filter((fr) => m.box.contains(fr.ref));
+      if (!refs.length) return;
+      const g = m.g, cw = g.w - g.ml - g.mr, left = dx + m.box.offsetLeft + g.ml;
+      const area = document.createElement("div");
+      area.className = g.vertical ? "docxedit-fnarea is-vertical" : "docxedit-fnarea";
+      area.style.cssText = g.vertical
+        ? `top:${dy + m.box.offsetTop + g.mt + m.hH}px;left:${left}px;width:${reserve[i] || 0}px;height:${colHeightOf(m)}px;${noteAreaCss}`
+        : `top:${dy + m.box.offsetTop + g.h - g.mb - m.fH - (reserve[i] || 0)}px;left:${left}px;width:${cw}px;${noteAreaCss}`;
+      for (const fr of refs) { const row = fnRow.get(fr.id); if (row) area.appendChild(row); }
+      hflayer.appendChild(area);
     });
     page.style.minHeight = "";
     decorateFields(0, 0, false); // refresh field text (page-number fields show no count here)
@@ -1175,28 +1288,11 @@ export function createRichEditor(container: HTMLElement, adapter: Adapter, optio
     // the bottom of the page its reference lands on (paginate accounts for it). Endnotes go to the
     // doc-end notes area (renderNotes), not per page.
     const cw = geometry.widthPx - geometry.margin.left - geometry.margin.right;
-    const FN_BASE = 8; // the footnote area's own separator border + top padding
-    const footRefs = numberRefs().filter((r) => r.kind === "footnote" && noteBands.has(r.id));
+    const footRefs = footnoteRefs();
     footnotesPerPage = true;
     const kidIndexOf = (ref: HTMLElement) => kids.findIndex((k) => k.contains(ref));
-    // Build each footnote's row and measure it in a hidden footnote area, so the reserve matches how
-    // the rows actually render (their font, width and paragraph margins), not a bare measurement.
-    const fnRow = new Map<string, HTMLElement>();
-    const fnH = new Map<string, number>();
-    if (footRefs.length) {
-      const probe = document.createElement("div");
-      probe.className = "docxedit-fnarea";
-      probe.style.cssText = `top:0;left:0;width:${cw}px;visibility:hidden;${noteAreaCss}`;
-      hflayer.appendChild(probe);
-      for (const fr of footRefs) { const row = noteRow(fr.num, fr.id); if (row) { fnRow.set(fr.id, row); probe.appendChild(row); } }
-      for (const fr of footRefs) { const row = fnRow.get(fr.id); if (row) fnH.set(fr.id, row.offsetHeight); }
-      probe.remove();
-    }
-    const reserveFor = (pob: number[]): number[] => {
-      const r: number[] = [];
-      for (const fr of footRefs) { const ki = kidIndexOf(fr.ref); if (ki < 0) continue; const p = pob[ki]!; r[p] = (r[p] || FN_BASE) + (fnH.get(fr.id) ?? 0); }
-      return r;
-    };
+    const { fnRow, fnSize } = measureFootnotes(footRefs, false, cw);
+    const reserveFor = (pob: number[]): number[] => footnoteReserve(footRefs, fnSize, (ref) => { const ki = kidIndexOf(ref); return ki < 0 ? -1 : pob[ki]!; });
     let reserve = footRefs.length ? reserveFor(paginate(heights, { pageStep, contentHeight }, forceBreakBefore).pageOfBlock) : [];
     const { spacerBefore, cardCount, pageOfBlock } = paginate(heights, { pageStep, contentHeight, reserveOf: (p) => reserve[p] || 0 }, forceBreakBefore);
     reserve = footRefs.length ? reserveFor(pageOfBlock) : [];
@@ -1232,17 +1328,8 @@ export function createRichEditor(container: HTMLElement, adapter: Adapter, optio
     }
 
     // Footnotes: a per-page area just above the footer, holding the page's referenced notes.
-    if (footRefs.length) {
-      const byPage = new Map<number, typeof footRefs>();
-      for (const fr of footRefs) { const ki = kidIndexOf(fr.ref); if (ki < 0) continue; const p = pageOfBlock[ki]!; (byPage.get(p) ?? byPage.set(p, []).get(p)!).push(fr); }
-      for (const [p, frs] of byPage) {
-        const area = document.createElement("div");
-        area.className = "docxedit-fnarea";
-        area.style.cssText = `top:${p * pageStep + (geometry.heightPx - contentBottomInset) - (reserve[p] || 0)}px;left:${geometry.margin.left}px;width:${cw}px;${noteAreaCss}`;
-        for (const fr of frs) { const row = fnRow.get(fr.id); if (row) area.appendChild(row); }
-        hflayer.appendChild(area);
-      }
-    }
+    drawFootnoteAreas(footRefs, fnRow, false, (ref) => { const ki = kidIndexOf(ref); return ki < 0 ? -1 : pageOfBlock[ki]!; },
+      (p) => `top:${p * pageStep + (geometry.heightPx - contentBottomInset) - (reserve[p] || 0)}px;left:${geometry.margin.left}px;width:${cw}px`);
 
     page.style.minHeight = `${cardCount * pageStep - PAGE_GAP}px`;
     decorateFields(cardCount, pageStep, false);

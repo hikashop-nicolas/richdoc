@@ -820,6 +820,84 @@ describe("shared engine mount", () => {
     host.remove();
   });
 
+  it("places footnotes in a per-page area below the columns (docx multi-column)", () => {
+    const doc = `<?xml version="1.0"?><w:document xmlns:w="http://schemas.openxmlformats.org/wordprocessingml/2006/main"><w:body>` +
+      "<w:p><w:r><w:t>Body</w:t></w:r><w:r><w:footnoteReference w:id=\"1\"/></w:r></w:p>" +
+      '<w:sectPr><w:pgSz w:w="11906" w:h="16838"/><w:cols w:num="2"/></w:sectPr></w:body></w:document>';
+    const footnotes = '<?xml version="1.0"?><w:footnotes xmlns:w="http://schemas.openxmlformats.org/wordprocessingml/2006/main">' +
+      '<w:footnote w:id="1"><w:p><w:r><w:t>Colnote</w:t></w:r></w:p></w:footnote></w:footnotes>';
+    const docx = zipSync({
+      "[Content_Types].xml": strToU8("<Types/>"),
+      "_rels/.rels": strToU8("<Relationships/>"),
+      "word/document.xml": strToU8(doc),
+      "word/footnotes.xml": strToU8(footnotes),
+      "word/_rels/document.xml.rels": strToU8(`<Relationships xmlns="http://schemas.openxmlformats.org/package/2006/relationships"></Relationships>`),
+    });
+    const host = document.createElement("div");
+    document.body.appendChild(host);
+    const ed = createDocxEditor(host, docx);
+    const area = host.querySelector(".docxedit-fnarea");
+    expect(area).toBeTruthy();
+    expect(area?.classList.contains("is-vertical")).toBe(false); // horizontal: a bottom strip
+    expect(area?.textContent).toContain("Colnote");
+    expect((host.querySelector(".docxedit-noteslayer") as HTMLElement).hidden).toBe(true);
+    ed.destroy();
+    host.remove();
+  });
+
+  it("places footnotes per section box (docx sections)", () => {
+    const breakP = "<w:p><w:pPr><w:sectPr><w:pgSz w:w=\"11906\" w:h=\"16838\"/></w:sectPr></w:pPr>" +
+      "<w:r><w:t>End one</w:t></w:r><w:r><w:footnoteReference w:id=\"1\"/></w:r></w:p>";
+    const doc = `<?xml version="1.0"?><w:document xmlns:w="http://schemas.openxmlformats.org/wordprocessingml/2006/main"><w:body>` +
+      "<w:p><w:r><w:t>Sec one body</w:t></w:r></w:p>" + breakP +
+      "<w:p><w:r><w:t>Sec two body</w:t></w:r><w:r><w:footnoteReference w:id=\"2\"/></w:r></w:p>" +
+      '<w:sectPr><w:pgSz w:w="11906" w:h="16838"/></w:sectPr></w:body></w:document>';
+    const footnotes = '<?xml version="1.0"?><w:footnotes xmlns:w="http://schemas.openxmlformats.org/wordprocessingml/2006/main">' +
+      '<w:footnote w:id="1"><w:p><w:r><w:t>SecOneNote</w:t></w:r></w:p></w:footnote>' +
+      '<w:footnote w:id="2"><w:p><w:r><w:t>SecTwoNote</w:t></w:r></w:p></w:footnote></w:footnotes>';
+    const docx = zipSync({
+      "[Content_Types].xml": strToU8("<Types/>"),
+      "_rels/.rels": strToU8("<Relationships/>"),
+      "word/document.xml": strToU8(doc),
+      "word/footnotes.xml": strToU8(footnotes),
+      "word/_rels/document.xml.rels": strToU8(`<Relationships xmlns="http://schemas.openxmlformats.org/package/2006/relationships"></Relationships>`),
+    });
+    const host = document.createElement("div");
+    document.body.appendChild(host);
+    const ed = createDocxEditor(host, docx);
+    const areas = [...host.querySelectorAll(".docxedit-fnarea")];
+    expect(areas.length).toBe(2); // one per section box
+    const text = areas.map((a) => a.textContent).join(" ");
+    expect(text).toContain("SecOneNote");
+    expect(text).toContain("SecTwoNote");
+    expect((host.querySelector(".docxedit-noteslayer") as HTMLElement).hidden).toBe(true);
+    ed.destroy();
+    host.remove();
+  });
+
+  it("places footnotes in a vertical band for tategaki multi-column (docx)", () => {
+    const doc = `<?xml version="1.0"?><w:document xmlns:w="http://schemas.openxmlformats.org/wordprocessingml/2006/main"><w:body>` +
+      "<w:p><w:r><w:t>Body</w:t></w:r><w:r><w:footnoteReference w:id=\"1\"/></w:r></w:p>" +
+      '<w:sectPr><w:pgSz w:w="11906" w:h="16838"/><w:cols w:num="2"/><w:textDirection w:val="tbRl"/></w:sectPr></w:body></w:document>';
+    const footnotes = '<?xml version="1.0"?><w:footnotes xmlns:w="http://schemas.openxmlformats.org/wordprocessingml/2006/main">' +
+      '<w:footnote w:id="1"><w:p><w:r><w:t>VColNote</w:t></w:r></w:p></w:footnote></w:footnotes>';
+    const docx = zipSync({
+      "[Content_Types].xml": strToU8("<Types/>"),
+      "_rels/.rels": strToU8("<Relationships/>"),
+      "word/document.xml": strToU8(doc),
+      "word/footnotes.xml": strToU8(footnotes),
+      "word/_rels/document.xml.rels": strToU8(`<Relationships xmlns="http://schemas.openxmlformats.org/package/2006/relationships"></Relationships>`),
+    });
+    const host = document.createElement("div");
+    document.body.appendChild(host);
+    const ed = createDocxEditor(host, docx);
+    const area = host.querySelector(".docxedit-fnarea.is-vertical");
+    expect(area).toBeTruthy();
+    expect(area?.textContent).toContain("VColNote");
+    ed.destroy();
+    host.remove();
+  });
+
   it("renders and round-trips furigana / ruby (docx)", async () => {
     const { strFromU8, unzipSync } = await import("fflate");
     const doc = `<?xml version="1.0"?><w:document xmlns:w="http://schemas.openxmlformats.org/wordprocessingml/2006/main"><w:body>` +
