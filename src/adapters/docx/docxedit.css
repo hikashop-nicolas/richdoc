@@ -238,6 +238,13 @@
 /* Per-page footnote area: just above the footer, inside the page, with a separator rule. */
 .docxedit-fnarea { position: absolute; z-index: 3; box-sizing: border-box; pointer-events: auto; padding-top: 5px; border-top: 1px solid #999; color: #111; font-size: 12px; line-height: 1.45; }
 .docxedit-fnarea .docxedit-note-row { padding: 1px 0; }
+/* Vertical (tategaki) footnote band: runs down the page's left edge, notes stacked right-to-left,
+   the separator on the body (right) side instead of the top. */
+.docxedit-fnarea.is-vertical { writing-mode: vertical-rl; border-top: none; padding-top: 0; border-right: 1px solid #999; padding-right: 5px; }
+/* Size each note to its content and pin it to the top of the band: a stretched note ends up with
+   its single line aligned to the inline-end (the page bottom), which reads as "stuck at the bottom". */
+.docxedit-fnarea.is-vertical .docxedit-note-row { padding: 0 1px; align-items: flex-start; }
+.docxedit-fnarea.is-vertical .docxedit-note { flex: 0 1 auto; }
 .docxedit-hf-clone { position: absolute; box-sizing: border-box; pointer-events: auto; cursor: text; }
 .docxedit-hf-clone:hover { outline: 1px dashed #6e7bff; outline-offset: -1px; }
 /* Corner chip toggling a section's header/footer "link to previous". */

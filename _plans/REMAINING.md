@@ -131,9 +131,12 @@ authorable; they are realistic to do, just not yet built.
   odt "Footnote": font family / size / line-height / colour), falling back to a built-in size when
   the document defines none. An "Insert footnote" control adds one (minting docx footnotes.xml +
   its content-type/relationship when the document has none), and everything round-trips (docx
-  footnotes.xml / endnotes.xml; odt inline `text:note`). Per-page placement is the single-section
-  paginated view; other layout modes (columns / vertical / sections / pageless) show footnotes in
-  the doc-end area. See `_plans/FOOTNOTES_PLAN.md`.
+  footnotes.xml / endnotes.xml; odt inline `text:note`). Per-page placement covers the single-column
+  paginated view in both writing directions: horizontal documents get a footnote area at the page
+  bottom; vertical (tategaki) documents get a vertical band down the page's left edge (the end of the
+  right-to-left flow), with the separator on the body side and the notes set vertical-rl, distributed
+  per page like the horizontal case. The remaining layout modes (multi-column, sections, pageless)
+  show footnotes in the doc-end area. See `_plans/FOOTNOTES_PLAN.md`.
 - Symbols / special characters (`w:sym`) - no insert picker.
 - Bookmarks (`w:bookmarkStart/End`) and cross-references - no insert UI.
 - Complex fields - only PAGE / NUMPAGES / TOC are authored; date, file name,

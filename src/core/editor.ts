@@ -575,7 +575,34 @@ export function createRichEditor(container: HTMLElement, adapter: Adapter, optio
     const rights = kids.map((k) => k.offsetLeft + k.offsetWidth);
     const sizes = kids.map((k, i) => (i < kids.length - 1 ? rights[i]! - rights[i + 1]! : k.offsetWidth));
 
-    const { spacerBefore, cardCount } = paginate(sizes, { pageStep, contentHeight: contentExtent }, manualBreaks(kids));
+    // Footnotes: a vertical band along each page's left edge (the end of the right-to-left flow),
+    // mirroring the horizontal per-page area. Its thickness (block-axis width) reserves room via the
+    // paginator, so body columns stop before it. Notes are measured laid out vertical-rl, at the
+    // column height, so the reserve matches how they render.
+    const FN_BASE = 8; // the footnote band's separator border + inline padding
+    const colHeight = geometry.heightPx - contentTop - contentBottomInset;
+    const footRefs = numberRefs().filter((r) => r.kind === "footnote" && noteBands.has(r.id));
+    footnotesPerPage = true;
+    const kidIndexOf = (ref: HTMLElement) => kids.findIndex((k) => k.contains(ref));
+    const fnRow = new Map<string, HTMLElement>();
+    const fnW = new Map<string, number>();
+    if (footRefs.length) {
+      const probe = document.createElement("div");
+      probe.className = "docxedit-fnarea is-vertical";
+      probe.style.cssText = `top:0;right:0;height:${colHeight}px;visibility:hidden;${noteAreaCss}`;
+      hflayer.appendChild(probe);
+      for (const fr of footRefs) { const row = noteRow(fr.num, fr.id); if (row) { fnRow.set(fr.id, row); probe.appendChild(row); } }
+      for (const fr of footRefs) { const row = fnRow.get(fr.id); if (row) fnW.set(fr.id, row.offsetWidth); }
+      probe.remove();
+    }
+    const reserveFor = (pob: number[]): number[] => {
+      const r: number[] = [];
+      for (const fr of footRefs) { const ki = kidIndexOf(fr.ref); if (ki < 0) continue; const p = pob[ki]!; r[p] = (r[p] || FN_BASE) + (fnW.get(fr.id) ?? 0); }
+      return r;
+    };
+    let reserve = footRefs.length ? reserveFor(paginate(sizes, { pageStep, contentHeight: contentExtent }, manualBreaks(kids)).pageOfBlock) : [];
+    const { spacerBefore, cardCount, pageOfBlock } = paginate(sizes, { pageStep, contentHeight: contentExtent, reserveOf: (p) => reserve[p] || 0 }, manualBreaks(kids));
+    reserve = footRefs.length ? reserveFor(pageOfBlock) : [];
     for (const [idx, w] of spacerBefore) {
       const sp = document.createElement("div");
       sp.className = "docxedit-pagespacer";
@@ -606,6 +633,21 @@ export function createRichEditor(container: HTMLElement, adapter: Adapter, optio
         hflayer.appendChild(fc);
       }
     }
+
+    // Footnotes: per page, a vertical band at the left edge of the content (just inside the left
+    // margin), holding that page's referenced notes with a separator on the body side.
+    if (footRefs.length) {
+      const byPage = new Map<number, typeof footRefs>();
+      for (const fr of footRefs) { const ki = kidIndexOf(fr.ref); if (ki < 0) continue; const p = pageOfBlock[ki]!; (byPage.get(p) ?? byPage.set(p, []).get(p)!).push(fr); }
+      for (const [p, frs] of byPage) {
+        const area = document.createElement("div");
+        area.className = "docxedit-fnarea is-vertical";
+        area.style.cssText = `top:${contentTop}px;right:${p * pageStep + (geometry.widthPx - geometry.margin.left) - (reserve[p] || 0)}px;width:${reserve[p] || 0}px;height:${colHeight}px;${noteAreaCss}`;
+        for (const fr of frs) { const row = fnRow.get(fr.id); if (row) area.appendChild(row); }
+        hflayer.appendChild(area);
+      }
+    }
+
     page.style.width = `${cardCount * pageStep - PAGE_GAP}px`;
     page.style.minHeight = `${geometry.heightPx}px`;
     decorateFields(cardCount, pageStep, true);

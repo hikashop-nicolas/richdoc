@@ -796,6 +796,30 @@ describe("shared engine mount", () => {
     host.remove();
   });
 
+  it("places footnotes in a per-page vertical band for tategaki documents (docx)", () => {
+    const doc = `<?xml version="1.0"?><w:document xmlns:w="http://schemas.openxmlformats.org/wordprocessingml/2006/main"><w:body>` +
+      "<w:p><w:r><w:t>Body</w:t></w:r><w:r><w:footnoteReference w:id=\"1\"/></w:r></w:p>" +
+      '<w:sectPr><w:pgSz w:w="11906" w:h="16838"/><w:textDirection w:val="tbRl"/></w:sectPr></w:body></w:document>';
+    const footnotes = '<?xml version="1.0"?><w:footnotes xmlns:w="http://schemas.openxmlformats.org/wordprocessingml/2006/main">' +
+      '<w:footnote w:id="1"><w:p><w:r><w:t>Vnote</w:t></w:r></w:p></w:footnote></w:footnotes>';
+    const docx = zipSync({
+      "[Content_Types].xml": strToU8("<Types/>"),
+      "_rels/.rels": strToU8("<Relationships/>"),
+      "word/document.xml": strToU8(doc),
+      "word/footnotes.xml": strToU8(footnotes),
+      "word/_rels/document.xml.rels": strToU8(`<Relationships xmlns="http://schemas.openxmlformats.org/package/2006/relationships"></Relationships>`),
+    });
+    const host = document.createElement("div");
+    document.body.appendChild(host);
+    const ed = createDocxEditor(host, docx);
+    const band = host.querySelector(".docxedit-fnarea.is-vertical");
+    expect(band).toBeTruthy(); // the footnote renders in a vertical band, not the doc-end area
+    expect(band?.textContent).toContain("Vnote");
+    expect((host.querySelector(".docxedit-noteslayer") as HTMLElement).hidden).toBe(true); // not duplicated at doc end
+    ed.destroy();
+    host.remove();
+  });
+
   it("renders and round-trips furigana / ruby (docx)", async () => {
     const { strFromU8, unzipSync } = await import("fflate");
     const doc = `<?xml version="1.0"?><w:document xmlns:w="http://schemas.openxmlformats.org/wordprocessingml/2006/main"><w:body>` +
