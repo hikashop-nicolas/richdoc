@@ -215,7 +215,7 @@ export function createRichEditor(container: HTMLElement, adapter: Adapter, optio
   };
   const parseSecGeom = (el: HTMLElement): SecGeom => {
     const attr = caps.sections === "leading" ? "data-rdoc-secstart" : "data-rdoc-secbreak";
-    try { return { ...docGeom(), ...JSON.parse(el.getAttribute(attr) ?? "") }; } catch { return docGeom(); }
+    try { return mergeSecGeom(JSON.parse(el.getAttribute(attr) ?? "")); } catch { return docGeom(); }
   };
   const readSectionGeom = (): SecGeom => {
     const el = sectionGeomEl();
@@ -566,13 +566,16 @@ export function createRichEditor(container: HTMLElement, adapter: Adapter, optio
       b.style.cssText = `position:absolute;writing-mode:vertical-rl;width:${contentExtent}px;height:${bandHeight}px;overflow:hidden`;
       return b;
     };
+    // vertical-rl overflows leftward, so scrollWidth stays equal to clientWidth; detect overflow by
+    // the just-added block crossing the band's left edge instead.
+    const vOver = (b: HTMLElement, block: HTMLElement): boolean => block.getBoundingClientRect().left < b.getBoundingClientRect().left - EPS;
     const bands: HTMLElement[] = [];
     let band = newBand();
     doc.appendChild(band);
     bands.push(band);
     for (const block of blocks) {
       band.appendChild(block);
-      if (band.scrollWidth > band.clientWidth + EPS && band.children.length > 1) {
+      if (vOver(band, block) && band.children.length > 1) {
         band.removeChild(block);
         band.style.overflow = "clip";
         band = newBand();
@@ -776,10 +779,23 @@ export function createRichEditor(container: HTMLElement, adapter: Adapter, optio
   // a (block, char-offset) pair across the reparent, like the column reflow.
   const SECPAGE = "docxedit-secpage";
   const docGeom = (): SecGeom => ({ w: geometry.widthPx, h: geometry.heightPx, mt: geometry.margin.top, mr: geometry.margin.right, mb: geometry.margin.bottom, ml: geometry.margin.left, cols: geometry.columns, colGap: geometry.columnGapPx, vertical: geometry.vertical, rtl: geometry.rtl });
+  // Resolve a section's geometry from its (possibly partial) JSON: size + margins fall back to the
+  // document, but section-specific fields (columns, direction) are taken only from the section, so
+  // a section that omits them does NOT inherit the document's columns / writing direction.
+  const mergeSecGeom = (j: Partial<SecGeom>): SecGeom => {
+    const d = docGeom();
+    return { w: j.w ?? d.w, h: j.h ?? d.h, mt: j.mt ?? d.mt, mr: j.mr ?? d.mr, mb: j.mb ?? d.mb, ml: j.ml ?? d.ml, cols: j.cols, colGap: j.colGap, vertical: j.vertical, rtl: j.rtl };
+  };
   const repaginateSections = () => {
     const blocks: HTMLElement[] = [];
+    const collect = (parent: HTMLElement) => {
+      for (const c of Array.from(parent.children) as HTMLElement[]) {
+        if (c.classList.contains(VBAND)) collect(c); // descend vertical band wrappers to the real blocks
+        else blocks.push(c);
+      }
+    };
     for (const child of Array.from(doc.children) as HTMLElement[]) {
-      if (child.classList.contains(SECPAGE)) blocks.push(...(Array.from(child.children) as HTMLElement[]));
+      if (child.classList.contains(SECPAGE)) collect(child);
       else if (!child.classList.contains("docxedit-pagespacer")) blocks.push(child);
     }
     const sel = window.getSelection();
@@ -798,7 +814,7 @@ export function createRichEditor(container: HTMLElement, adapter: Adapter, optio
     // section (data-rdoc-secstart = the new section's geometry). The leading run uses the
     // document geometry.
     const parseGeom = (s: string | null): SecGeom => {
-      try { return { ...docGeom(), ...JSON.parse(s ?? "") }; } catch { return docGeom(); }
+      try { return mergeSecGeom(JSON.parse(s ?? "")); } catch { return docGeom(); }
     };
     // Each section resolves its own header/footer source band: a keyed per-section band when its
     // boundary paragraph names one (data-rdoc-sec*key), else the document default. Distinct
@@ -856,7 +872,7 @@ export function createRichEditor(container: HTMLElement, adapter: Adapter, optio
       measure.style.width = `${contentWidth}px`;
       return el.offsetHeight;
     };
-    const newBox = (g: SecGeom, hH: number, fH: number): HTMLElement => {
+    const newBox = (g: SecGeom, hH: number, fH: number, plain = false): HTMLElement => {
       const b = document.createElement("div");
       b.className = SECPAGE;
       b.style.width = `${g.w}px`;
@@ -865,6 +881,7 @@ export function createRichEditor(container: HTMLElement, adapter: Adapter, optio
       b.style.padding = `${g.mt + hH}px ${g.mr}px ${g.mb + fH}px ${g.ml}px`; // reserve header/footer space
       b.setAttribute("data-rdoc-secgeom", JSON.stringify(g)); // for the per-page ruler
       b.style.overflow = "hidden"; // a scroll container during bucketing; clipped on finalize
+      if (plain) return b; // a frame holding manually-laid bands (vertical multi-column)
       if (g.vertical) b.style.writingMode = "vertical-rl"; // tategaki section: text fills top-down, rl
       else if (g.rtl) b.style.direction = "rtl";
       if (g.cols && g.cols > 1) {
@@ -873,6 +890,39 @@ export function createRichEditor(container: HTMLElement, adapter: Adapter, optio
         b.style.columnFill = "auto";
       }
       return b;
+    };
+    // Vertical + multi-column section: lay N vertical-rl bands stacked in each page box (CSS multicol
+    // does not fragment vertical text), bucketing blocks by block-axis overflow like the columns path.
+    const layoutVCols = (sec: Section, cw: number, hH: number, fH: number, meta: Omit<BoxMeta, "box">): void => {
+      const g = sec.geom, N = g.cols!, gap = g.colGap ?? 36;
+      const bandHeight = (g.h - (g.mt + hH) - (g.mb + fH) - (N - 1) * gap) / N;
+      const mkBand = (slot: number): HTMLElement => {
+        const w = document.createElement("div");
+        w.className = VBAND;
+        w.style.cssText = `writing-mode:vertical-rl;width:${cw}px;height:${bandHeight}px;overflow:hidden${slot < N - 1 ? `;margin-bottom:${gap}px` : ""}`;
+        return w;
+      };
+      let box = newBox(g, hH, fH, true);
+      box.style.overflow = "clip";
+      doc.appendChild(box);
+      boxMeta.push({ box, ...meta });
+      // vertical-rl overflows leftward, so scrollWidth stays equal to clientWidth; detect overflow
+      // by the just-added block crossing the band's left edge instead.
+      const vOver = (b: HTMLElement, block: HTMLElement): boolean => block.getBoundingClientRect().left < b.getBoundingClientRect().left - EPS;
+      let slot = 0, band = mkBand(0);
+      box.appendChild(band);
+      for (const block of sec.blocks) {
+        band.appendChild(block);
+        if (vOver(band, block) && band.children.length > 1) {
+          band.removeChild(block);
+          band.style.overflow = "clip";
+          if (++slot >= N) { box = newBox(g, hH, fH, true); box.style.overflow = "clip"; doc.appendChild(box); boxMeta.push({ box, ...meta }); slot = 0; }
+          band = mkBand(slot);
+          box.appendChild(band);
+          band.appendChild(block);
+        }
+      }
+      band.style.overflow = "clip";
     };
     const finalize = (b: HTMLElement, g: SecGeom): void => {
       b.style.overflow = "clip";
@@ -889,6 +939,7 @@ export function createRichEditor(container: HTMLElement, adapter: Adapter, optio
       const hH = bandH(sec.headerEl, cw);
       const fH = bandH(sec.footerEl, cw);
       const meta = { g: sec.geom, fH, headerEl: sec.headerEl, footerEl: sec.footerEl, boundaryEl: sec.boundaryEl };
+      if (sec.geom.vertical && (sec.geom.cols ?? 0) > 1) { layoutVCols(sec, cw, hH, fH, meta); continue; }
       let box = newBox(sec.geom, hH, fH);
       doc.appendChild(box);
       boxMeta.push({ box, ...meta });

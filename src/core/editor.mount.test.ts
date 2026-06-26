@@ -606,6 +606,32 @@ describe("shared engine mount", () => {
     host.remove();
   });
 
+  it("renders a vertical multi-column section as bands without leaking columns to a plain section (docx)", () => {
+    const a4 = '<w:pgSz w:w="11906" w:h="16838"/><w:pgMar w:top="1440" w:right="1440" w:bottom="1440" w:left="1440"/>';
+    const doc = `<?xml version="1.0"?><w:document xmlns:w="http://schemas.openxmlformats.org/wordprocessingml/2006/main"><w:body>` +
+      "<w:p><w:r><w:t>Intro one</w:t></w:r></w:p>" +
+      `<w:p><w:pPr><w:sectPr>${a4}<w:type w:val="nextPage"/></w:sectPr></w:pPr><w:r><w:t>Intro two</w:t></w:r></w:p>` + // section 1: plain, NO columns
+      "<w:p><w:r><w:t>本文</w:t></w:r></w:p>" +
+      `<w:sectPr>${a4}<w:cols w:num="2" w:space="720"/><w:textDirection w:val="tbRl"/></w:sectPr></w:body></w:document>`; // section 2: vertical + 2 columns
+    const docx = zipSync({
+      "[Content_Types].xml": strToU8("<Types/>"),
+      "_rels/.rels": strToU8("<Relationships/>"),
+      "word/document.xml": strToU8(doc),
+      "word/_rels/document.xml.rels": strToU8(`<Relationships xmlns="http://schemas.openxmlformats.org/package/2006/relationships"></Relationships>`),
+    });
+    const host = document.createElement("div");
+    document.body.appendChild(host);
+    const ed = createDocxEditor(host, docx);
+    const boxes = [...host.querySelectorAll<HTMLElement>(".docxedit-secpage")];
+    const plain = boxes.find((b) => !b.querySelector(".docxedit-vband"))!;
+    const vcol = boxes.find((b) => b.querySelector(".docxedit-vband"))!;
+    expect(vcol).toBeTruthy(); // the vertical multi-column section lays out as bands
+    expect(plain).toBeTruthy();
+    expect(plain.style.columnCount).toBe(""); // the plain section does NOT inherit the document's 2 columns
+    ed.destroy();
+    host.remove();
+  });
+
   it("authors writing direction: toggling vertical writes back w:textDirection (docx)", async () => {
     const { strFromU8, unzipSync } = await import("fflate");
     const doc = `<?xml version="1.0"?><w:document xmlns:w="http://schemas.openxmlformats.org/wordprocessingml/2006/main"><w:body>` +
