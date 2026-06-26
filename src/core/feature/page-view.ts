@@ -296,6 +296,66 @@ export function setupPageView(deps: PageViewDeps) {
       zoomLabel.blur();
     }
   });
+  // --- Tab stops: render tabs at their paragraph's custom stops, with alignment ---------------
+  // Only paragraphs carrying data-rdoc-tabstops are touched; the rest keep the CSS default grid.
+  // Each tab span's width is set so the segment after it aligns to the governing stop (left: starts
+  // at it, right: ends at it, center: centred, decimal: the '.'/',' sits on it). Positions are read
+  // live, left-to-right, so successive tabs and wrapped lines each resolve against the tab's own x.
+  const DEFAULT_TAB = 48; // unscaled px, the default 0.5in grid used past the last stop
+  // The unscaled x where a segment of width segW (decimal point at `dec`) must start to satisfy a stop.
+  const alignStart = (val: string, pos: number, segW: number, dec: number): number =>
+    val === "right" ? pos - segW : val === "center" ? pos - segW / 2 : val === "decimal" ? pos - dec : pos;
+  const layoutTabs = () => {
+    const z = effectiveZoom();
+    if (!(z > 0)) return;
+    for (const block of Array.from(page.querySelectorAll<HTMLElement>("[data-rdoc-tabstops]"))) {
+      const tabs = Array.from(block.querySelectorAll<HTMLElement>(".docx-tab"));
+      if (!tabs.length) continue;
+      if (getComputedStyle(block).writingMode !== "horizontal-tb") continue; // vertical: keep default grid
+      let stops: { pos: number; val: string; leader?: string }[];
+      try { stops = JSON.parse(block.getAttribute("data-rdoc-tabstops") || "[]"); } catch { continue; }
+      stops = (Array.isArray(stops) ? stops : []).filter((s) => s && s.pos > 0).sort((a, b) => a.pos - b.pos);
+      for (const tab of tabs) { tab.style.display = "inline-block"; tab.style.overflow = "hidden"; tab.style.width = "0px"; }
+      const marginLeft = parseFloat(getComputedStyle(block).marginLeft) || 0; // the paragraph indent (unscaled)
+      const originX = block.getBoundingClientRect().left - marginLeft * z; // screen x of the margin origin
+      for (let i = 0; i < tabs.length; i++) {
+        const tab = tabs[i]!;
+        const xUnscaled = (tab.getBoundingClientRect().left - originX) / z; // tab left, from the margin
+        const next = tabs[i + 1] ?? null;
+        // measure the segment after this tab (up to the next tab / line end) for non-left alignment
+        const rng = document.createRange();
+        rng.setStartAfter(tab);
+        if (next) rng.setEndBefore(next); else rng.setEnd(block, block.childNodes.length);
+        const segRect = rng.getBoundingClientRect();
+        const segW = segRect.width / z;
+        let dec = segW; // decimal point offset within the segment (right edge if none found)
+        if (stops.some((s) => s.val === "decimal")) {
+          try {
+            const w = document.createTreeWalker(block, NodeFilter.SHOW_TEXT);
+            let n: Node | null;
+            while ((n = w.nextNode())) {
+              const afterTab = !!(tab.compareDocumentPosition(n) & Node.DOCUMENT_POSITION_FOLLOWING);
+              const beforeNext = !next || !!(next.compareDocumentPosition(n) & Node.DOCUMENT_POSITION_PRECEDING);
+              if (!afterTab || !beforeNext) continue;
+              const m = (n.textContent || "").search(/[.,]/);
+              if (m >= 0) { const r2 = document.createRange(); r2.setStart(n, m); r2.setEnd(n, m + 1); dec = (r2.getBoundingClientRect().left - segRect.left) / z; break; }
+            }
+          } catch { /* leave dec = segW */ }
+        }
+        let targetStart: number | null = null;
+        let leader: string | undefined;
+        for (const s of stops) {
+          if (s.pos <= xUnscaled + 0.5) continue;
+          const ts = alignStart(s.val, s.pos, segW, dec);
+          if (ts >= xUnscaled + 0.5) { targetStart = ts; leader = s.leader; break; } // first stop that fits
+        }
+        if (targetStart == null) targetStart = Math.ceil((xUnscaled + 0.5) / DEFAULT_TAB) * DEFAULT_TAB;
+        tab.style.width = `${Math.max(0, targetStart - xUnscaled)}px`;
+        tab.classList.toggle("docx-tab-leader", !!leader);
+      }
+    }
+  };
+
   const applyZoom = () => {
     const z = effectiveZoom();
     page.style.transformOrigin = "top left";
@@ -307,6 +367,7 @@ export function setupPageView(deps: PageViewDeps) {
     if (document.activeElement !== zoomLabel) zoomLabel.value = `${Math.round(z * 100)}%`;
     zoomSlider.value = String(Math.round(z * 100));
     updateRulers();
+    layoutTabs();
   };
   const setZoom = (z: number | null) => {
     userZoom = z == null ? null : Math.max(0.3, Math.min(2.5, Math.round(z * 100) / 100));

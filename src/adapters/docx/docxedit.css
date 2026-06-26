@@ -284,10 +284,12 @@
 .docxedit-doc img.sel { outline: 2px solid #6e7bff; outline-offset: 1px; }
 .docxedit-table td { border: 1px solid #999; }
 .docxedit-img-ph { display: inline-block; padding: 2px 8px; border: 1px dashed #aaa; color: #777; font-size: .85em; }
-/* Tabs: a real tab character whose width is the browser's tab stop. Default stops are every
-   0.5in (tab-size); a paragraph's custom stops (data-rdoc-tabstops) round-trip but render at
-   the default positions. The character is preserved so copy/paste yields a real tab. */
+/* Tabs: a real tab character whose width is the browser's tab stop by default (every 0.5in via
+   tab-size). A paragraph with custom stops (data-rdoc-tabstops) gets each tab span laid out to its
+   stop by the engine (layoutTabs sets an explicit width); the character is preserved so copy/paste
+   yields a real tab. A leader stop fills the gap with baseline dots. */
 .docxedit-doc { tab-size: 48px; -moz-tab-size: 48px; }
+.docx-tab-leader { background-image: radial-gradient(circle, currentColor 0.6px, transparent 0.7px); background-size: 4px 1.1em; background-repeat: repeat-x; background-position: left bottom 0.18em; }
 /* Multi-column sections. Paginated: one balanced multi-column box per page (.docxedit-colpage,
    built in editor.ts). Pageless: the body flows continuously into N columns. Tables and floating
    images span all columns so they are not sliced. */
