@@ -28,6 +28,10 @@ context (a paragraph, or the document body) is regenerated from the edited HTML.
   are preserved, and inherited props are not flattened into the edited style.
 - Tables: editable cells, cell borders (colour/style/width), column/row/indent
   resize, merge, in-cell formatting.
+- **Multi-column vertical (tategaki) text**: a vertical document with `w:cols` lays out as N
+  horizontal bands stacked top-to-bottom per page (CSS multicol can't do this for `vertical-rl`,
+  so blocks are bucketed into band wrappers by block-axis overflow); pages advance right-to-left.
+  The caret survives the reflow and `w:cols` round-trips.
 - Page size, margins, orientation; vertical (tategaki) + RTL writing with
   paginated layout, header/footer, and a graduated ruler (horizontal + vertical)
   on the page holding the caret, sized to that page and following the caret between
@@ -88,16 +92,14 @@ context (a paragraph, or the document body) is regenerated from the edited HTML.
 These are the only things that do not round-trip once the document is edited,
 because their context is regenerated. This is the work for "feature complete".
 
-1. **Multi-column vertical (tategaki) text.** Everything else in the layout/section model is
-   done (bucket A): rendering, insertion, per-section page setup, draggable per-section ruler
-   margins, distinct per-section header/footer with a link toggle, **mixed vertical + horizontal
-   sections in one document**, and a **Page setup "Direction" control** (horizontal / vertical /
-   RTL) that toggles the document's or a section's writing direction live and writes it back
-   (`w:textDirection` docx / `style:writing-mode` odt). The one remaining gap: **multi-column
-   vertical text is not rendered** - a vertical section's `w:cols` round-trips (preserved on save)
-   but shows as one vertical flow, because CSS multicol does not fragment `vertical-rl` into
-   stacked bands (verified); rendering it needs a manual N-band layout. See
-   `_plans/SECTIONS_PLAN.md`.
+The layout / section model is now complete (see bucket A): mixed page sizes / orientation /
+margins / columns per section, section-break insertion, per-section page setup, draggable
+per-section ruler margins, distinct per-section header/footer with a link toggle, mixed
+vertical + horizontal sections, a Page setup Direction control, vertical (tategaki) layout
+including the ruler, the floating toolbar, and **multi-column vertical text (N stacked bands)**,
+plus furigana. The only vertical edge left: a *mid-document section* that is BOTH vertical AND
+multi-column (the whole-document vertical-columns path handles the common case; a vertical
+section box with `w:cols` renders as a single vertical flow). See `_plans/SECTIONS_PLAN.md`.
 2. **Tab-stop positioning + authoring.** Tabs and a paragraph's custom stops now
    round-trip (see bucket A), but custom stop *positions* render at the default 0.5in
    grid (preserved on save, not shown at their real x), and right / center / decimal

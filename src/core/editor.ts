@@ -472,7 +472,13 @@ export function createRichEditor(container: HTMLElement, adapter: Adapter, optio
     const contentTop = geometry.margin.top + headerH;
     const contentBottomInset = geometry.margin.bottom + footerH;
     doc.style.height = `${geometry.heightPx}px`;
+    doc.style.width = ""; // clear any inline width from a prior vertical-columns layout
     doc.style.padding = `${contentTop}px ${right}px ${contentBottomInset}px ${left}px`;
+    // Unwrap vertical band wrappers from a prior multi-column vertical layout.
+    for (const w of Array.from(doc.querySelectorAll<HTMLElement>(`.${VBAND}`))) {
+      while (w.firstChild) doc.insertBefore(w.firstChild, w);
+      w.remove();
+    }
     for (const el of Array.from(doc.querySelectorAll(".docxedit-pagetop"))) el.classList.remove("docxedit-pagetop");
 
     const kids = Array.from(doc.children).filter((c) => !c.classList.contains("docxedit-pagespacer")) as HTMLElement[];
@@ -514,6 +520,102 @@ export function createRichEditor(container: HTMLElement, adapter: Adapter, optio
     page.style.width = `${cardCount * pageStep - PAGE_GAP}px`;
     page.style.minHeight = `${geometry.heightPx}px`;
     decorateFields(cardCount, pageStep, true);
+  };
+
+  // Vertical (tategaki) multi-column pagination. CSS multicol does not fragment vertical-rl text
+  // into stacked bands, so each "column" is laid out manually: a page is divided into N horizontal
+  // bands stacked top-to-bottom, each a vertical-rl region; blocks are bucketed into bands by
+  // block-axis (width) overflow, bands fill a page top-down, and pages advance right-to-left. The
+  // caret is preserved across the reparent like the column reflow.
+  const VBAND = "docxedit-vband";
+  const repaginateVerticalColumns = () => {
+    const blocks: HTMLElement[] = [];
+    for (const child of Array.from(doc.children) as HTMLElement[]) {
+      if (child.classList.contains(VBAND)) blocks.push(...(Array.from(child.children) as HTMLElement[]));
+      else if (!child.classList.contains("docxedit-pagespacer")) blocks.push(child);
+    }
+    const sel = window.getSelection();
+    let caretBlock: HTMLElement | null = null;
+    let caretOffset = 0;
+    if (sel && sel.rangeCount) {
+      const r = sel.getRangeAt(0);
+      const blk = blocks.find((b) => b === r.startContainer || b.contains(r.startContainer));
+      if (blk) { caretBlock = blk; caretOffset = charOffsetIn(blk, r.startContainer, r.startOffset); }
+    }
+    const N = geometry.columns && geometry.columns > 1 ? geometry.columns : 2;
+    const gap = geometry.columnGapPx ?? 36;
+    const { left, right } = geometry.margin;
+    const contentExtent = geometry.widthPx - left - right;
+    measure.style.width = `${geometry.widthPx}px`;
+    const headerH = header ? header.offsetHeight : 0;
+    const footerH = footer ? footer.offsetHeight : 0;
+    const contentTop = geometry.margin.top + headerH;
+    const contentBottomInset = geometry.margin.bottom + footerH;
+    const contentHeight = geometry.heightPx - contentTop - contentBottomInset;
+    const bandHeight = (contentHeight - (N - 1) * gap) / N;
+    const pageStep = geometry.widthPx + PAGE_GAP;
+    const EPS = 2;
+
+    doc.style.padding = "0";
+    pagelayer.replaceChildren();
+    hflayer.replaceChildren();
+    const stale = (Array.from(doc.children) as HTMLElement[]).filter((c) => c.classList.contains(VBAND) || c.classList.contains("docxedit-pagespacer"));
+    const newBand = (): HTMLElement => {
+      const b = document.createElement("div");
+      b.className = VBAND;
+      b.style.cssText = `position:absolute;writing-mode:vertical-rl;width:${contentExtent}px;height:${bandHeight}px;overflow:hidden`;
+      return b;
+    };
+    const bands: HTMLElement[] = [];
+    let band = newBand();
+    doc.appendChild(band);
+    bands.push(band);
+    for (const block of blocks) {
+      band.appendChild(block);
+      if (band.scrollWidth > band.clientWidth + EPS && band.children.length > 1) {
+        band.removeChild(block);
+        band.style.overflow = "clip";
+        band = newBand();
+        doc.appendChild(band);
+        bands.push(band);
+        band.appendChild(block);
+      }
+    }
+    band.style.overflow = "clip";
+    for (const old of stale) old.remove();
+
+    const cardCount = Math.ceil(bands.length / N);
+    bands.forEach((b, i) => {
+      const p = Math.floor(i / N), c = i % N;
+      b.style.right = `${p * pageStep + right}px`;
+      b.style.top = `${contentTop + c * (bandHeight + gap)}px`;
+    });
+    doc.style.width = `${cardCount * pageStep - PAGE_GAP}px`;
+    doc.style.height = `${geometry.heightPx}px`;
+    for (let p = 0; p < cardCount; p++) {
+      const card = document.createElement("div");
+      card.className = "docxedit-pagecard";
+      card.style.left = "auto";
+      card.style.right = `${p * pageStep}px`;
+      card.style.top = "0";
+      card.style.width = `${geometry.widthPx}px`;
+      card.style.height = `${geometry.heightPx}px`;
+      pagelayer.appendChild(card);
+      if (header) {
+        const hc = mkClone(header, `top:${geometry.margin.top}px;right:${p * pageStep}px;width:${geometry.widthPx}px`);
+        setCloneFields(hc, p + 1, cardCount);
+        hflayer.appendChild(hc);
+      }
+      if (footer) {
+        const fc = mkClone(footer, `top:${geometry.heightPx - contentBottomInset}px;right:${p * pageStep}px;width:${geometry.widthPx}px`);
+        setCloneFields(fc, p + 1, cardCount);
+        hflayer.appendChild(fc);
+      }
+    }
+    page.style.width = `${cardCount * pageStep - PAGE_GAP}px`;
+    page.style.minHeight = `${geometry.heightPx}px`;
+    decorateFields(cardCount, pageStep, true);
+    if (caretBlock && caretBlock.isConnected) placeCaret(caretBlock, caretOffset);
   };
 
   // Multi-column pagination: wrap the body's blocks into one balanced multi-column box per
@@ -834,7 +936,13 @@ export function createRichEditor(container: HTMLElement, adapter: Adapter, optio
   const repaginate = () => {
     if (!paginated || editingBand) return;
     if (doc.querySelector("[data-rdoc-secbreak], [data-rdoc-secstart]")) return repaginateSections();
-    if (isVertical()) return repaginateVertical();
+    if (isVertical()) return (geometry.columns ?? 0) > 1 ? repaginateVerticalColumns() : repaginateVertical();
+    // Unwrap any vertical band wrappers left by a prior vertical-columns layout + reset doc sizing.
+    for (const w of Array.from(doc.querySelectorAll<HTMLElement>(`.${VBAND}`))) {
+      while (w.firstChild) doc.insertBefore(w.firstChild, w);
+      w.remove();
+    }
+    doc.style.width = "";
     if ((geometry.columns ?? 0) > 1) return repaginateColumns();
     // Single column: unwrap any column/section wrappers left by a previous layout (e.g. after a
     // page-setup change drops the column count back to 1) so the blocks are flat again.
@@ -919,12 +1027,12 @@ export function createRichEditor(container: HTMLElement, adapter: Adapter, optio
   // Body HTML for saving: the live doc minus pagination artifacts (inert spacers and the
   // transient page-top class the engine adds for alignment).
   const cleanBody = (): string => {
-    if (!doc.querySelector(".docxedit-pagespacer, .docxedit-pagetop, .docxedit-colpage, .docxedit-secpage")) return doc.innerHTML;
+    if (!doc.querySelector(".docxedit-pagespacer, .docxedit-pagetop, .docxedit-colpage, .docxedit-secpage, .docxedit-vband")) return doc.innerHTML;
     const tmp = doc.cloneNode(true) as HTMLElement;
     for (const s of Array.from(tmp.querySelectorAll(".docxedit-pagespacer"))) s.remove();
     for (const el of Array.from(tmp.querySelectorAll(".docxedit-pagetop"))) el.classList.remove("docxedit-pagetop");
-    // Unwrap the per-page column / per-section page boxes, lifting their blocks back to the body.
-    for (const w of Array.from(tmp.querySelectorAll(".docxedit-colpage, .docxedit-secpage"))) {
+    // Unwrap the per-page column / per-section page / vertical band boxes, lifting blocks to the body.
+    for (const w of Array.from(tmp.querySelectorAll(".docxedit-colpage, .docxedit-secpage, .docxedit-vband"))) {
       while (w.firstChild) w.parentNode!.insertBefore(w.firstChild, w);
       w.remove();
     }

@@ -553,6 +553,35 @@ describe("shared engine mount", () => {
     host.remove();
   });
 
+  it("lays vertical multi-column text into stacked bands (docx)", async () => {
+    const { strFromU8, unzipSync } = await import("fflate");
+    const doc = `<?xml version="1.0"?><w:document xmlns:w="http://schemas.openxmlformats.org/wordprocessingml/2006/main"><w:body>` +
+      "<w:p><w:r><w:t>One</w:t></w:r></w:p><w:p><w:r><w:t>Two</w:t></w:r></w:p>" +
+      '<w:sectPr><w:pgSz w:w="11906" w:h="16838"/><w:pgMar w:top="1440" w:right="1440" w:bottom="1440" w:left="1440"/><w:cols w:num="2" w:space="720"/><w:textDirection w:val="tbRl"/></w:sectPr></w:body></w:document>';
+    const docx = zipSync({
+      "[Content_Types].xml": strToU8("<Types/>"),
+      "_rels/.rels": strToU8("<Relationships/>"),
+      "word/document.xml": strToU8(doc),
+      "word/_rels/document.xml.rels": strToU8(`<Relationships xmlns="http://schemas.openxmlformats.org/package/2006/relationships"></Relationships>`),
+    });
+    const host = document.createElement("div");
+    document.body.appendChild(host);
+    const ed = createDocxEditor(host, docx);
+    const band = host.querySelector<HTMLElement>(".docxedit-vband");
+    expect(band).toBeTruthy(); // vertical columns lay out as band wrappers
+    expect(band!.style.writingMode).toBe("vertical-rl");
+    // Save: bands are stripped; the vertical multi-column section round-trips.
+    const p = host.querySelector(".docxedit-vband p")!;
+    p.firstChild!.textContent = "One edited";
+    (host.querySelector(".docxedit-doc") as HTMLElement).dispatchEvent(new Event("input", { bubbles: true }));
+    const xml = strFromU8(unzipSync(await ed.getBytes())["word/document.xml"]!);
+    expect(xml).not.toContain("docxedit-vband");
+    expect(xml).toContain('w:num="2"');
+    expect(xml).toContain("tbRl");
+    ed.destroy();
+    host.remove();
+  });
+
   it("renders mixed vertical + horizontal sections (docx)", () => {
     const a4 = '<w:pgSz w:w="11906" w:h="16838"/><w:pgMar w:top="1440" w:right="1440" w:bottom="1440" w:left="1440"/>';
     const doc = `<?xml version="1.0"?><w:document xmlns:w="http://schemas.openxmlformats.org/wordprocessingml/2006/main"><w:body>` +
