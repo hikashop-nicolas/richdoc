@@ -633,6 +633,38 @@ describe("shared engine mount", () => {
     host.remove();
   });
 
+  it("authors furigana: wraps a selection in ruby (docx)", async () => {
+    const { strFromU8, unzipSync } = await import("fflate");
+    const doc = `<?xml version="1.0"?><w:document xmlns:w="http://schemas.openxmlformats.org/wordprocessingml/2006/main"><w:body>` +
+      "<w:p><w:r><w:t>漢字テスト</w:t></w:r></w:p></w:body></w:document>";
+    const docx = zipSync({
+      "[Content_Types].xml": strToU8("<Types/>"),
+      "_rels/.rels": strToU8("<Relationships/>"),
+      "word/document.xml": strToU8(doc),
+      "word/_rels/document.xml.rels": strToU8(`<Relationships xmlns="http://schemas.openxmlformats.org/package/2006/relationships"></Relationships>`),
+    });
+    const host = document.createElement("div");
+    document.body.appendChild(host);
+    const ed = createDocxEditor(host, docx);
+    // Select the first two characters (漢字) and apply furigana.
+    const tn = host.querySelector(".docxedit-doc p")!.firstChild!;
+    const r = document.createRange(); r.setStart(tn, 0); r.setEnd(tn, 2);
+    const sel = getSelection()!; sel.removeAllRanges(); sel.addRange(r);
+    const orig = window.prompt;
+    window.prompt = () => "かんじ";
+    try {
+      ([...host.querySelectorAll("button")].find((b) => /Furigana/.test(b.title)) as HTMLElement).click();
+    } finally { window.prompt = orig; }
+    const ruby = host.querySelector(".docxedit-doc ruby");
+    expect(ruby).toBeTruthy();
+    expect(ruby!.querySelector("rt")?.textContent).toBe("かんじ");
+    const xml = strFromU8(unzipSync(await ed.getBytes())["word/document.xml"]!);
+    expect(xml).toContain("<w:ruby");
+    expect(xml).toContain("かんじ");
+    ed.destroy();
+    host.remove();
+  });
+
   it("renders and round-trips furigana / ruby (odt)", async () => {
     const { strFromU8, unzipSync } = await import("fflate");
     const content =

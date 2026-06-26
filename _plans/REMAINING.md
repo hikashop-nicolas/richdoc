@@ -49,6 +49,8 @@ context (a paragraph, or the document body) is regenerated from the edited HTML.
 - **Furigana / ruby**: `w:ruby` (docx) / `text:ruby` (odt) read, rendered as a native HTML
   `<ruby>base<rt>reading</rt></ruby>` (the browser places the reading above in horizontal text and
   to the right in vertical/tategaki, automatically), and written back. The `w:rubyPr` is preserved.
+  A toolbar button authors it: wrap a selection in ruby with a prompted reading, edit the reading
+  of an existing ruby, or remove it (empty reading) keeping the base text.
 - **Tabs**: a tab character round-trips (docx `w:tab`, odt `text:tab`) and renders at
   tab stops (the browser's `tab-size`, i.e. the default 0.5in grid); Tab inserts one,
   Shift+Tab removes it; copy/paste yields a real tab. A paragraph's custom tab stops

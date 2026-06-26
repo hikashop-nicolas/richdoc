@@ -34,6 +34,12 @@ export const pbIcon =
   '<rect x="3" y="1.5" width="10" height="4" rx=".5"/><rect x="3" y="10.5" width="10" height="4" rx=".5"/>' +
   '<line x1="1" y1="8" x2="15" y2="8" stroke-dasharray="2 1.6"/></svg>';
 
+// Furigana / ruby: a base glyph (字-like cross) with small reading marks above.
+export const furiganaIcon =
+  '<svg width="14" height="14" viewBox="0 0 16 16" fill="none" stroke="currentColor" stroke-width="1.3" stroke-linecap="round" aria-hidden="true">' +
+  '<circle cx="5" cy="3" r=".5" fill="currentColor" stroke="none"/><circle cx="8" cy="3" r=".5" fill="currentColor" stroke="none"/><circle cx="11" cy="3" r=".5" fill="currentColor" stroke="none"/>' +
+  '<path d="M8 6.5v7M4.5 9.5h7"/></svg>';
+
 export const imgIcon =
   '<svg width="14" height="14" viewBox="0 0 16 16" fill="none" stroke="currentColor" stroke-width="1.2" aria-hidden="true">' +
   '<rect x="1.5" y="2.5" width="13" height="11" rx="1"/><circle cx="5.5" cy="6" r="1.3" fill="currentColor" stroke="none"/>' +

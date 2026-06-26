@@ -11,7 +11,7 @@ import { setupFloatBar } from "./float-bar";
 import { setupShortcuts } from "./shortcuts";
 import {
   alignIcon, indentIcon, bulletIcon, numberIcon, linkIcon, pbIcon, imgIcon, cmtIcon,
-  supIcon, subIcon, lineSpacingIcon, tableIcon, fieldIcon, caret, styleGroupSvg, insertGroupSvg,
+  supIcon, subIcon, lineSpacingIcon, tableIcon, fieldIcon, furiganaIcon, caret, styleGroupSvg, insertGroupSvg,
 } from "./icons";
 import type { Adapter, Capabilities, CommentThread, EditorOptions, NewStyle, RichDoc } from "../../types";
 
@@ -283,6 +283,47 @@ export function setupToolbar(deps: ToolbarDeps) {
     else exec("createLink", url);
   };
   const linkBtn = iconBtn(linkIcon, withSc(t("linkAria"), "K"), insertLink);
+  // Furigana (ruby): wrap the selection in <ruby>base<rt>reading</rt></ruby>, or edit / remove the
+  // reading when the caret is already inside a ruby.
+  const insertFurigana = () => {
+    const sel = window.getSelection();
+    if (!sel || !sel.rangeCount) return;
+    const range = sel.getRangeAt(0);
+    const node = range.startContainer;
+    const el = (node.nodeType === 3 ? node.parentElement : node) as HTMLElement | null;
+    if (!el || !regions.some((r) => r.contains(el))) return;
+    const existing = el.closest("ruby");
+    if (existing) {
+      const rt = existing.querySelector("rt");
+      const reading = prompt(t("furiganaPrompt"), rt?.textContent ?? "");
+      if (reading === null) return;
+      mark();
+      if (reading === "") {
+        for (const r of Array.from(existing.querySelectorAll("rt"))) r.remove();
+        while (existing.firstChild) existing.parentNode!.insertBefore(existing.firstChild, existing);
+        existing.remove();
+      } else if (rt) rt.textContent = reading;
+      else { const r = document.createElement("rt"); r.textContent = reading; existing.appendChild(r); }
+      return;
+    }
+    if (range.collapsed) return; // need a base selection to annotate
+    const reading = prompt(t("furiganaPrompt"), "");
+    if (!reading) return;
+    const ruby = document.createElement("ruby");
+    ruby.appendChild(range.extractContents());
+    for (const r of Array.from(ruby.querySelectorAll("rt"))) r.remove(); // base only
+    const rt = document.createElement("rt");
+    rt.textContent = reading;
+    ruby.appendChild(rt);
+    range.insertNode(ruby);
+    const after = document.createRange();
+    after.setStartAfter(ruby);
+    after.collapse(true);
+    sel.removeAllRanges();
+    sel.addRange(after);
+    mark();
+  };
+  const furiganaBtn = iconBtn(furiganaIcon, t("furigana"), insertFurigana);
   // Named so their pressed state can be reflected from the caret (see syncToolbarState).
   const boldBtn = btn("B", withSc(t("bold"), "B"), () => { beginFormatChange(); exec("bold"); }, "docxedit-tb-bold");
   const italicBtn = btn("I", withSc(t("italic"), "I"), () => { beginFormatChange(); exec("italic"); }, "docxedit-tb-italic");
@@ -732,7 +773,7 @@ export function setupToolbar(deps: ToolbarDeps) {
   // Two clusters collapse into a single dropdown button when the toolbar runs out of room:
   // the character-formatting controls ("style"), and the insert controls.
   const styleSrc: (HTMLElement | null)[] = [boldBtn, italicBtn, underlineBtn, strikeBtn, supBtn, subBtn, caps.textColor ? colorInput : null, caps.textColor ? bgWrap : null, caps.fontControls ? fontSel : null, caps.fontControls ? sizeSel : null];
-  const insertSrc: (HTMLElement | null)[] = [caps.images ? iconBtn(imgIcon, t("insertImage"), insertImage) : null, caps.tables ? tableBtn : null, caps.fields ? fieldsBtn : null, caps.comments ? iconBtn(cmtIcon, t("addComment"), addComment) : null, caps.pageBreak ? iconBtn(pbIcon, t("insertPageBreak"), insertPageBreak) : null, linkBtn];
+  const insertSrc: (HTMLElement | null)[] = [caps.images ? iconBtn(imgIcon, t("insertImage"), insertImage) : null, caps.tables ? tableBtn : null, caps.fields ? fieldsBtn : null, caps.comments ? iconBtn(cmtIcon, t("addComment"), addComment) : null, caps.pageBreak ? iconBtn(pbIcon, t("insertPageBreak"), insertPageBreak) : null, linkBtn, caps.verticalText ? furiganaBtn : null];
   const styleControls = styleSrc.filter((n): n is HTMLElement => n != null);
   const insertControls = insertSrc.filter((n): n is HTMLElement => n != null);
   // A collapsible cluster: a slot that holds the controls inline or a group button + a popover.

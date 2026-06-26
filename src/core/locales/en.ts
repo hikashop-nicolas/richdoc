@@ -163,6 +163,8 @@ const dict: Dict = {
   dirHorizontal: "Horizontal",
   dirVertical: "Vertical (tategaki)",
   dirRtl: "Right-to-left",
+  furigana: "Furigana (ruby)",
+  furiganaPrompt: "Reading (furigana). Leave empty to remove:",
 };
 
 export default dict;
