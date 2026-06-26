@@ -552,4 +552,66 @@ describe("shared engine mount", () => {
     ed.destroy();
     host.remove();
   });
+
+  it("renders and round-trips furigana / ruby (docx)", async () => {
+    const { strFromU8, unzipSync } = await import("fflate");
+    const doc = `<?xml version="1.0"?><w:document xmlns:w="http://schemas.openxmlformats.org/wordprocessingml/2006/main"><w:body>` +
+      "<w:p><w:ruby><w:rubyPr><w:rubyAlign w:val=\"center\"/></w:rubyPr><w:rt><w:r><w:t>かんじ</w:t></w:r></w:rt><w:rubyBase><w:r><w:t>漢字</w:t></w:r></w:rubyBase></w:ruby></w:p>" +
+      "<w:p><w:r><w:t>tail</w:t></w:r></w:p></w:body></w:document>";
+    const docx = zipSync({
+      "[Content_Types].xml": strToU8("<Types/>"),
+      "_rels/.rels": strToU8("<Relationships/>"),
+      "word/document.xml": strToU8(doc),
+      "word/_rels/document.xml.rels": strToU8(`<Relationships xmlns="http://schemas.openxmlformats.org/package/2006/relationships"></Relationships>`),
+    });
+    const host = document.createElement("div");
+    document.body.appendChild(host);
+    const ed = createDocxEditor(host, docx);
+    const ruby = host.querySelector("ruby");
+    expect(ruby).toBeTruthy();
+    expect(ruby!.querySelector("rt")?.textContent).toBe("かんじ"); // reading
+    expect(ruby!.textContent).toContain("漢字"); // base
+    // Edit (to mark dirty) then save: the ruby round-trips as a w:ruby.
+    const tail = [...host.querySelectorAll(".docxedit-doc p")].pop()!;
+    tail.firstChild!.textContent = "tail edited";
+    (host.querySelector(".docxedit-doc") as HTMLElement).dispatchEvent(new Event("input", { bubbles: true }));
+    const xml = strFromU8(unzipSync(await ed.getBytes())["word/document.xml"]!);
+    expect(xml).toContain("<w:ruby");
+    expect(xml).toContain("<w:rubyBase");
+    expect(xml).toContain("かんじ");
+    expect(xml).toContain("漢字");
+    ed.destroy();
+    host.remove();
+  });
+
+  it("renders and round-trips furigana / ruby (odt)", async () => {
+    const { strFromU8, unzipSync } = await import("fflate");
+    const content =
+      '<?xml version="1.0"?><office:document-content xmlns:office="urn:oasis:names:tc:opendocument:xmlns:office:1.0" ' +
+      'xmlns:text="urn:oasis:names:tc:opendocument:xmlns:text:1.0"><office:body><office:text>' +
+      "<text:p><text:ruby><text:ruby-base>漢字</text:ruby-base><text:ruby-text>かんじ</text:ruby-text></text:ruby></text:p>" +
+      "<text:p>tail</text:p></office:text></office:body></office:document-content>";
+    const odt = zipSync({
+      mimetype: [strToU8("application/vnd.oasis.opendocument.text"), { level: 0 }],
+      "content.xml": strToU8(content),
+      "META-INF/manifest.xml": strToU8("<m/>"),
+    });
+    const host = document.createElement("div");
+    document.body.appendChild(host);
+    const ed = createOdtEditor(host, odt);
+    const ruby = host.querySelector("ruby");
+    expect(ruby).toBeTruthy();
+    expect(ruby!.querySelector("rt")?.textContent).toBe("かんじ");
+    expect(ruby!.textContent).toContain("漢字");
+    const tail = [...host.querySelectorAll(".docxedit-doc p")].pop()!;
+    tail.firstChild!.textContent = "tail edited";
+    (host.querySelector(".docxedit-doc") as HTMLElement).dispatchEvent(new Event("input", { bubbles: true }));
+    const xml = strFromU8(unzipSync(await ed.getBytes())["content.xml"]!);
+    expect(xml).toContain("text:ruby");
+    expect(xml).toContain("text:ruby-base");
+    expect(xml).toContain("text:ruby-text");
+    expect(xml).toContain("かんじ");
+    ed.destroy();
+    host.remove();
+  });
 });

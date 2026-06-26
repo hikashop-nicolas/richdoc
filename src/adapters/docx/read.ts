@@ -483,6 +483,19 @@ function runToHtml(run: Element): string {
   return out;
 }
 
+// Furigana: a w:ruby (base + reading) -> an HTML <ruby>base<rt>reading</rt></ruby>, which the
+// browser renders natively above (or, in vertical writing, beside) the base. The w:rubyPr is
+// stashed so alignment / sizing round-trips.
+function rubyHtml(el: Element): string {
+  const runsOf = (c: Element | undefined): string =>
+    c ? Array.from(c.children).filter((x) => x.tagName === "w:r").map((r) => runToHtml(r)).join("") || escapeHtml(c.textContent ?? "") : "";
+  const baseHtml = runsOf(el.getElementsByTagName("w:rubyBase")[0]);
+  const rtHtml = runsOf(el.getElementsByTagName("w:rt")[0]);
+  const rubyPr = el.getElementsByTagName("w:rubyPr")[0];
+  const prAttr = rubyPr ? ` data-docx-rubypr="${escapeAttr(serializePassthrough(rubyPr))}"` : "";
+  return `<ruby${prAttr}>${baseHtml || "&#8203;"}<rt>${rtHtml}</rt></ruby>`;
+}
+
 // A zero-width passthrough for a comment range marker, so it round-trips on save.
 const commentMark = (el: Element): string =>
   `<span class="docx-cmark" contenteditable="false" data-comment-id="${escapeAttr(el.getAttribute("w:id") ?? "")}"${passthroughAttr(el)}></span>`;
@@ -543,6 +556,8 @@ function inlineToHtml(p: Element, ctx: RenderCtx): string {
       else if (hasDrawing(el)) html += imageHtml(el, ctx);
       else if (!runIsModeled(el)) html += inlinePassthrough(el); // run holds a field char, symbol, footnote ref, ...
       else html += runToHtml(el);
+    } else if (el.tagName === "w:ruby") {
+      html += rubyHtml(el);
     } else if (el.tagName === "w:hyperlink") {
       const id = el.getAttributeNS(R, "id") ?? el.getAttribute("r:id") ?? "";
       const href = ctx.rels.get(id) ?? "";

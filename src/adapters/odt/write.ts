@@ -291,6 +291,20 @@ function htmlInlineToOdf(node: Node, parent: Element, f: Fmt, ctx: OdfCtx): void
       parent.appendChild(ctx.doc.createElementNS(NS.text, "text:line-break"));
       continue;
     }
+    if (tag === "ruby") {
+      // Furigana: <ruby>base<rt>reading</rt></ruby> -> text:ruby (ruby-base + ruby-text).
+      const ruby = ctx.doc.createElementNS(NS.text, "text:ruby");
+      const rtEl = Array.from(el.children).find((c) => c.tagName.toLowerCase() === "rt") as HTMLElement | undefined;
+      const baseEl = ctx.doc.createElementNS(NS.text, "text:ruby-base");
+      const baseClone = el.cloneNode(true) as HTMLElement;
+      for (const r of Array.from(baseClone.children)) if (r.tagName.toLowerCase() === "rt") r.remove();
+      htmlInlineToOdf(baseClone, baseEl, f, ctx);
+      const textEl = ctx.doc.createElementNS(NS.text, "text:ruby-text");
+      textEl.appendChild(ctx.doc.createTextNode(rtEl?.textContent ?? ""));
+      ruby.append(baseEl, textEl);
+      parent.appendChild(ruby);
+      continue;
+    }
     if (el.classList.contains("docx-field")) {
       const k = el.getAttribute("data-field");
       if (k === "PAGE") {

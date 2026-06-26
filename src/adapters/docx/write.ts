@@ -329,6 +329,23 @@ function appendInline(ctx: DocxCtx, node: Node, parent: Element, f: Fmt, del = f
       parent.appendChild(r);
       continue;
     }
+    if (tag === "ruby") {
+      // Furigana: <ruby>base<rt>reading</rt></ruby> -> w:ruby (rubyPr, w:rt, w:rubyBase).
+      const ruby = ctx.doc.createElementNS(W, "w:ruby");
+      const prStash = el.getAttribute("data-docx-rubypr");
+      const pr = prStash ? importPassthrough(ctx, prStash) : null;
+      ruby.appendChild(pr && pr.tagName === "w:rubyPr" ? pr : ctx.doc.createElementNS(W, "w:rubyPr"));
+      const rtEl = Array.from(el.children).find((c) => c.tagName.toLowerCase() === "rt") as HTMLElement | undefined;
+      const rt = ctx.doc.createElementNS(W, "w:rt");
+      if (rtEl) appendInline(ctx, rtEl, rt, f, del, change);
+      const base = ctx.doc.createElementNS(W, "w:rubyBase");
+      const baseClone = el.cloneNode(true) as HTMLElement;
+      for (const r of Array.from(baseClone.children)) if (r.tagName.toLowerCase() === "rt") r.remove();
+      appendInline(ctx, baseClone, base, f, del, change);
+      ruby.append(rt, base);
+      parent.appendChild(ruby);
+      continue;
+    }
     if (tag === "a") {
       const id = addHyperlinkRel(ctx, el.getAttribute("href") ?? "");
       if (id) {

@@ -566,6 +566,15 @@ function inlineToHtml(el: Element, ctx: RCtx): string {
         html += n > 1 ? " ".repeat(n) : " ";
         break;
       }
+      case "text:ruby": {
+        // Furigana: text:ruby-base + text:ruby-text -> an HTML <ruby>base<rt>reading</rt></ruby>.
+        const baseEl = Array.from(child.children).find((c) => c.tagName === "text:ruby-base");
+        const textEl = Array.from(child.children).find((c) => c.tagName === "text:ruby-text");
+        const baseHtml = baseEl ? inlineToHtml(baseEl, ctx) : "";
+        const rtHtml = textEl ? escapeHtml(textEl.textContent ?? "") : "";
+        html += `<ruby>${baseHtml || "&#8203;"}<rt>${rtHtml}</rt></ruby>`;
+        break;
+      }
       default:
         // Unmodelled inline content (bookmarks, notes, change marks, ...) preserved verbatim.
         html += inlinePass(child);

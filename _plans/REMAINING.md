@@ -46,6 +46,9 @@ context (a paragraph, or the document body) is regenerated from the edited HTML.
 - Header / footer (the default one), with live page-number / page-count / TOC
   fields.
 - Inline images, hyperlinks.
+- **Furigana / ruby**: `w:ruby` (docx) / `text:ruby` (odt) read, rendered as a native HTML
+  `<ruby>base<rt>reading</rt></ruby>` (the browser places the reading above in horizontal text and
+  to the right in vertical/tategaki, automatically), and written back. The `w:rubyPr` is preserved.
 - **Tabs**: a tab character round-trips (docx `w:tab`, odt `text:tab`) and renders at
   tab stops (the browser's `tab-size`, i.e. the default 0.5in grid); Tab inserts one,
   Shift+Tab removes it; copy/paste yields a real tab. A paragraph's custom tab stops
