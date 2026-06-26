@@ -664,13 +664,21 @@ export function createRichEditor(container: HTMLElement, adapter: Adapter, optio
 
     const stale = (Array.from(doc.children) as HTMLElement[]).filter((c) => c.classList.contains(SECPAGE) || c.classList.contains("docxedit-pagespacer"));
     const EPS = 2;
-    const newBox = (g: SecGeom): HTMLElement => {
+    // Header/footer band heights for a given content width (0 when the band is absent/empty). Each
+    // section reserves this space at its top/bottom so the body does not overlap the bands.
+    const hasHeader = !!header && !isBandEmpty(header);
+    const hasFooter = !!footer && !isBandEmpty(footer);
+    const bandHeights = (contentWidth: number): { hH: number; fH: number } => {
+      measure.style.width = `${contentWidth}px`;
+      return { hH: hasHeader ? header!.offsetHeight : 0, fH: hasFooter ? footer!.offsetHeight : 0 };
+    };
+    const newBox = (g: SecGeom, hH: number, fH: number): HTMLElement => {
       const b = document.createElement("div");
       b.className = SECPAGE;
       b.style.width = `${g.w}px`;
       b.style.height = `${g.h}px`;
       b.style.boxSizing = "border-box";
-      b.style.padding = `${g.mt}px ${g.mr}px ${g.mb}px ${g.ml}px`;
+      b.style.padding = `${g.mt + hH}px ${g.mr}px ${g.mb + fH}px ${g.ml}px`; // reserve header/footer space
       b.setAttribute("data-rdoc-secgeom", JSON.stringify(g)); // for the per-page ruler
       b.style.overflow = "hidden"; // a scroll container during bucketing; clipped on finalize
       if (g.cols && g.cols > 1) {
@@ -687,22 +695,45 @@ export function createRichEditor(container: HTMLElement, adapter: Adapter, optio
     const overflowed = (b: HTMLElement, g: SecGeom): boolean =>
       g.cols && g.cols > 1 ? b.scrollWidth > b.clientWidth + EPS : b.scrollHeight > b.clientHeight + EPS;
 
+    const boxMeta: { box: HTMLElement; g: SecGeom; hH: number; fH: number }[] = [];
     for (const sec of sections) {
-      let box = newBox(sec.geom);
+      const { hH, fH } = bandHeights(sec.geom.w - sec.geom.ml - sec.geom.mr);
+      let box = newBox(sec.geom, hH, fH);
       doc.appendChild(box);
+      boxMeta.push({ box, g: sec.geom, hH, fH });
       for (const block of sec.blocks) {
         box.appendChild(block);
         if (overflowed(box, sec.geom) && box.children.length > 1) {
           box.removeChild(block);
           finalize(box, sec.geom);
-          box = newBox(sec.geom);
+          box = newBox(sec.geom, hH, fH);
           doc.appendChild(box);
+          boxMeta.push({ box, g: sec.geom, hH, fH });
           box.appendChild(block); // a lone oversized block stays even if it still overflows
         }
       }
       finalize(box, sec.geom);
     }
     for (const old of stale) old.remove();
+    // Header/footer clones, positioned over each section box (page-numbered cumulatively). The
+    // bands are the document default, shared across sections (Word's "link to previous" default).
+    if (hasHeader || hasFooter) {
+      const dx = doc.offsetLeft, dy = doc.offsetTop;
+      const total = boxMeta.length;
+      boxMeta.forEach(({ box, g, fH }, i) => {
+        const cw = g.w - g.ml - g.mr;
+        if (hasHeader) {
+          const hc = mkClone(header!, `top:${dy + box.offsetTop + g.mt}px;left:${dx + box.offsetLeft + g.ml}px;width:${cw}px`);
+          setCloneFields(hc, i + 1, total);
+          hflayer.appendChild(hc);
+        }
+        if (hasFooter) {
+          const fc = mkClone(footer!, `top:${dy + box.offsetTop + g.h - g.mb - fH}px;left:${dx + box.offsetLeft + g.ml}px;width:${cw}px`);
+          setCloneFields(fc, i + 1, total);
+          hflayer.appendChild(fc);
+        }
+      });
+    }
     page.style.minHeight = "";
     decorateFields(0, 0, false); // refresh field text (page-number fields show no count here)
     if (caretBlock && caretBlock.isConnected) placeCaret(caretBlock, caretOffset);

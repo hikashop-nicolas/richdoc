@@ -276,6 +276,31 @@ describe("shared engine mount", () => {
     host.remove();
   });
 
+  it("renders the header/footer on every section page (docx)", () => {
+    const a4 = '<w:pgSz w:w="11906" w:h="16838"/><w:pgMar w:top="1440" w:right="1440" w:bottom="1440" w:left="1440"/>';
+    const doc = `<?xml version="1.0"?><w:document xmlns:w="http://schemas.openxmlformats.org/wordprocessingml/2006/main" xmlns:r="http://schemas.openxmlformats.org/officeDocument/2006/relationships"><w:body>` +
+      "<w:p><w:r><w:t>One</w:t></w:r></w:p>" +
+      `<w:p><w:pPr><w:sectPr>${a4}<w:type w:val="nextPage"/></w:sectPr></w:pPr><w:r><w:t>EndOne</w:t></w:r></w:p>` +
+      "<w:p><w:r><w:t>Two</w:t></w:r></w:p>" +
+      `<w:sectPr><w:headerReference w:type="default" r:id="rId1"/>${a4}</w:sectPr></w:body></w:document>`;
+    const hdr = '<?xml version="1.0"?><w:hdr xmlns:w="http://schemas.openxmlformats.org/wordprocessingml/2006/main"><w:p><w:r><w:t>RUNNING HEADER</w:t></w:r></w:p></w:hdr>';
+    const docx = zipSync({
+      "[Content_Types].xml": strToU8('<?xml version="1.0"?><Types xmlns="http://schemas.openxmlformats.org/package/2006/content-types"><Override PartName="/word/header1.xml" ContentType="application/vnd.openxmlformats-officedocument.wordprocessingml.header+xml"/></Types>'),
+      "_rels/.rels": strToU8("<Relationships/>"),
+      "word/document.xml": strToU8(doc),
+      "word/header1.xml": strToU8(hdr),
+      "word/_rels/document.xml.rels": strToU8('<?xml version="1.0"?><Relationships xmlns="http://schemas.openxmlformats.org/package/2006/relationships"><Relationship Id="rId1" Type="http://schemas.openxmlformats.org/officeDocument/2006/relationships/header" Target="header1.xml"/></Relationships>'),
+    });
+    const host = document.createElement("div");
+    document.body.appendChild(host);
+    const ed = createDocxEditor(host, docx);
+    expect(host.querySelectorAll(".docxedit-secpage").length).toBe(2); // two sections
+    const headers = [...host.querySelectorAll(".docxedit-hf-clone")].filter((c) => c.textContent?.includes("RUNNING HEADER"));
+    expect(headers.length).toBe(2); // the header renders on both section pages
+    ed.destroy();
+    host.remove();
+  });
+
   it("inserts a section break and authors the new section (docx)", async () => {
     const { strFromU8, unzipSync } = await import("fflate");
     const doc = `<?xml version="1.0"?><w:document xmlns:w="http://schemas.openxmlformats.org/wordprocessingml/2006/main"><w:body>` +

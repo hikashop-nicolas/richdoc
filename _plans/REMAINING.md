@@ -68,8 +68,10 @@ context (a paragraph, or the document body) is regenerated from the edited HTML.
   caret (the new section inherits the current setup), and the **Page setup dialog** edits the
   section the caret is in. Both formats: docx regenerates that section's `w:sectPr` from its
   geometry (merging onto the preserved original); odt creates / updates a per-section
-  page-layout + master-page. Untouched sections still round-trip byte-for-byte. Per-section
-  headers/footers are pending (see C1). Design in `_plans/SECTIONS_PLAN.md`.
+  page-layout + master-page. Untouched sections still round-trip byte-for-byte. The document
+  header/footer renders, edits and saves on every section page (Word's link-to-previous
+  default); *distinct* per-section header content is still pending (see C1). Design in
+  `_plans/SECTIONS_PLAN.md`.
 
 ---
 
@@ -78,15 +80,14 @@ context (a paragraph, or the document body) is regenerated from the edited HTML.
 These are the only things that do not round-trip once the document is edited,
 because their context is regenerated. This is the work for "feature complete".
 
-1. **Sections: per-section header/footer.** Section rendering, insertion and authoring are
-   done (bucket A): an **Insert section break** control splits the document at the caret, and
-   the **Page setup dialog** edits the page size / orientation / margins / columns of whichever
-   section the caret is in, regenerating that section's `w:sectPr` (docx) / a per-section
-   page-layout + master-page (odt) on save while leaving untouched sections byte-for-byte.
-   What remains: (a) per-section header/footer in the section page boxes (only the document
-   default header/footer is editable); and (b) the per-section ruler is still display-only
-   (drag-to-set margins edits the document section only) and vertical (tategaki) pages show
-   no ruler. See `_plans/SECTIONS_PLAN.md`.
+1. **Sections: distinct per-section header/footer + ruler.** Section rendering, insertion,
+   authoring and header/footer rendering are done (bucket A): the document header/footer now
+   renders + edits + saves on every section page (Word's "link to previous" default, shared
+   across sections). What remains: (a) *distinct* per-section header/footer content (a
+   different header per section), which needs reading/writing multiple header/footer parts
+   (docx) / per-master `style:header`/`style:footer` (odt) and one editable band per section;
+   and (b) the per-section ruler is still display-only (drag-to-set margins edits the document
+   section only) and vertical (tategaki) pages show no ruler. See `_plans/SECTIONS_PLAN.md`.
 2. **Tab-stop positioning + authoring.** Tabs and a paragraph's custom stops now
    round-trip (see bucket A), but custom stop *positions* render at the default 0.5in
    grid (preserved on save, not shown at their real x), and right / center / decimal

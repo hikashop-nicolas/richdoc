@@ -16,7 +16,13 @@ byte-for-byte (gated on data-rdoc-secedited). Capability flag: caps.sections =
 "trailing" (docx, geometry on the section's last paragraph) | "leading" (odt, on its
 first paragraph) | false.
 
-Phase 3 (per-section header/footer) pending; the per-section ruler is still display-only.
+Phase 3 (header/footer on section pages) DONE for the shared/inherited case: the document
+header/footer renders, edits and saves on every section page box (space reserved at each
+box's top/bottom; clones positioned over each box, page-numbered cumulatively). This matches
+Word's "link to previous" default. Still pending: *distinct* per-section header/footer
+content (different header per section), which needs reading/writing multiple header/footer
+parts (docx) / per-master style:header/style:footer (odt) plus one editable band per section.
+The per-section ruler is also still display-only.
 
 Goal: render each section at its own page geometry, so e.g. an A4 portrait section
 followed by an A3 landscape section displays correctly in the editor (not just
