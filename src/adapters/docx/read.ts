@@ -667,7 +667,7 @@ function paragraphInfo(p: Element, numbering: Map<string, boolean>): PInfo {
 function secGeomJson(sectPr: Element): string | undefined {
   const g = parsePageGeometry(sectPr);
   if (!g) return undefined;
-  return JSON.stringify({ w: g.widthPx, h: g.heightPx, mt: g.margin.top, mr: g.margin.right, mb: g.margin.bottom, ml: g.margin.left, cols: g.columns, colGap: g.columnGapPx });
+  return JSON.stringify({ w: g.widthPx, h: g.heightPx, mt: g.margin.top, mr: g.margin.right, mb: g.margin.bottom, ml: g.margin.left, cols: g.columns, colGap: g.columnGapPx, vertical: g.vertical, rtl: g.rtl });
 }
 function blockStyleAttr(info: PInfo): string {
   const parts: string[] = [];

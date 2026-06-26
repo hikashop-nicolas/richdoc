@@ -159,6 +159,10 @@ const dict: Dict = {
   insertSectionBreak: "Insert section break",
   sectionUnlink: "Use a different header/footer for this section",
   sectionLink: "Use the same header/footer as the previous section",
+  textDirection: "Direction",
+  dirHorizontal: "Horizontal",
+  dirVertical: "Vertical (tategaki)",
+  dirRtl: "Right-to-left",
 };
 
 export default dict;

@@ -1311,13 +1311,14 @@ function applyDeletedComments(files: Record<string, Uint8Array>, ids: string[]):
  */
 /** Set a w:sectPr's page size, orientation, margins and columns (px -> twips), in place. Used for
     both the body-level section (Page setup) and an in-paragraph section break (per-section setup). */
-function setSectPrGeom(doc: Document, sectPr: Element, g: { w: number; h: number; mt: number; mr: number; mb: number; ml: number; cols?: number; colGap?: number }): void {
+function setSectPrGeom(doc: Document, sectPr: Element, g: { w: number; h: number; mt: number; mr: number; mb: number; ml: number; cols?: number; colGap?: number; vertical?: boolean; rtl?: boolean }): void {
   const tw = (px: number): string => String(Math.round(px * 15));
   const child = (tag: string): Element => {
     let e = sectPr.getElementsByTagName(tag)[0];
     if (!e) { e = doc.createElementNS(W, tag); sectPr.appendChild(e); }
     return e;
   };
+  const dropTag = (tag: string) => { for (const e of Array.from(sectPr.getElementsByTagName(tag))) e.parentNode!.removeChild(e); };
   // Page size + orientation (Word marks landscape explicitly when width > height).
   const pgSz = child("w:pgSz");
   pgSz.setAttributeNS(W, "w:w", tw(g.w));
@@ -1336,6 +1337,11 @@ function setSectPrGeom(doc: Document, sectPr: Element, g: { w: number; h: number
   cols.setAttributeNS(W, "w:num", String(n));
   cols.setAttributeNS(W, "w:space", tw(g.colGap ?? 36));
   cols.setAttributeNS(W, "w:equalWidth", "1");
+  // Writing direction: vertical tategaki (w:textDirection tbRl) / horizontal RTL (w:bidi).
+  dropTag("w:textDirection");
+  dropTag("w:bidi");
+  if (g.vertical) child("w:textDirection").setAttributeNS(W, "w:val", "tbRl");
+  else if (g.rtl) child("w:bidi");
 }
 
 /** Mint a fresh header/footer part (word/<kind>N.xml) from HTML + a content-type override + a
@@ -1418,7 +1424,7 @@ function applyPageMargins(files: Record<string, Uint8Array>, geometry: PageGeome
   const doc = new DOMParser().parseFromString(strFromU8(raw), "application/xml");
   const sectPr = Array.from(doc.getElementsByTagName("w:sectPr")).pop();
   if (!sectPr) return;
-  setSectPrGeom(doc, sectPr, { w: geometry.widthPx, h: geometry.heightPx, mt: geometry.margin.top, mr: geometry.margin.right, mb: geometry.margin.bottom, ml: geometry.margin.left, cols: geometry.columns, colGap: geometry.columnGapPx });
+  setSectPrGeom(doc, sectPr, { w: geometry.widthPx, h: geometry.heightPx, mt: geometry.margin.top, mr: geometry.margin.right, mb: geometry.margin.bottom, ml: geometry.margin.left, cols: geometry.columns, colGap: geometry.columnGapPx, vertical: geometry.vertical, rtl: geometry.rtl });
   files["word/document.xml"] = strToU8(new XMLSerializer().serializeToString(doc));
 }
 

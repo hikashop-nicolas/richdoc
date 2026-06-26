@@ -79,7 +79,8 @@ function geomFromLayoutProps(props: Element, lenToPx: (v: string | null) => numb
   const numCols = Number(colsEl?.getAttribute("fo:column-count"));
   const cols = Number.isFinite(numCols) && numCols > 1 ? numCols : undefined;
   const gap = colsEl?.getElementsByTagName("style:column-sep")[0]?.getAttribute("style:width");
-  return JSON.stringify({ w: Math.round(w), h: Math.round(h), mt: m("top"), mr: m("right"), mb: m("bottom"), ml: m("left"), cols, colGap: cols ? Math.round(lenToPx(gap) ?? 36) : undefined });
+  const wm = props.getAttribute("style:writing-mode") ?? "";
+  return JSON.stringify({ w: Math.round(w), h: Math.round(h), mt: m("top"), mr: m("right"), mb: m("bottom"), ml: m("left"), cols, colGap: cols ? Math.round(lenToPx(gap) ?? 36) : undefined, vertical: wm.startsWith("tb") || undefined, rtl: wm.startsWith("rl") || undefined });
 }
 
 /** Map master-page name -> its page-layout geometry (JSON), so a section that switches master

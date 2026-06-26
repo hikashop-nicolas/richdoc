@@ -81,14 +81,19 @@ export function createRichEditor(container: HTMLElement, adapter: Adapter, optio
     page.classList.toggle("is-columns", cols > 1);
     page.style.setProperty("--rdoc-columns", String(cols));
     page.style.setProperty("--rdoc-column-gap", `${geometry.columnGapPx ?? 36}px`);
+    // Writing direction (re-applied here so it can be toggled live): vertical Japanese tategaki
+    // (fixed-height page, columns advancing right-to-left) or horizontal RTL.
+    page.classList.toggle("is-vertical", isVertical());
+    page.classList.toggle("is-rtl", !isVertical() && caps.verticalText && !!geometry.rtl);
   };
-  applyGeometry();
   // Vertical (Japanese tategaki): fixed-height page, columns top-to-bottom advancing right to
   // left, so the page grows along x and page cards advance right-to-left (see repaginateVertical).
-  // Horizontal RTL (Arabic/Hebrew) is just direction:rtl and keeps the normal layout.
-  const isVertical = caps.verticalText && !!geometry.vertical;
-  if (isVertical) page.classList.add("is-vertical");
-  else if (caps.verticalText && geometry.rtl) page.classList.add("is-rtl");
+  // Horizontal RTL (Arabic/Hebrew) is just direction:rtl and keeps the normal layout. Live (a
+  // function) so the Page setup dialog can switch direction at runtime.
+  // Whole-page vertical layout (the optimised tategaki path). A document with section breaks is
+  // laid out per-section instead (each box carries its own direction), so this is false there.
+  const isVertical = (): boolean => caps.verticalText && !!geometry.vertical && !doc.querySelector("[data-rdoc-secbreak], [data-rdoc-secstart]");
+  applyGeometry();
 
   const band = (cls: string, label: string, html: string): HTMLElement | null => {
     if (!html) return null;
@@ -226,6 +231,8 @@ export function createRichEditor(container: HTMLElement, adapter: Adapter, optio
       geometry.margin = { top: g.mt, right: g.mr, bottom: g.mb, left: g.ml };
       geometry.columns = g.cols && g.cols > 1 ? g.cols : undefined;
       geometry.columnGapPx = geometry.columns ? (g.colGap ?? 36) : undefined;
+      geometry.vertical = g.vertical;
+      geometry.rtl = g.rtl;
       geometryDirty = true;
       applyGeometry();
       return;
@@ -296,7 +303,7 @@ export function createRichEditor(container: HTMLElement, adapter: Adapter, optio
   // Page view: rulers (margin handles) + zoom + the centred canvas around the page box.
   const { applyZoom, effectiveZoom, zoomSlider, zoomLabel, pageSetupBtn, sectionBreakBtn, teardown: teardownPageView } = setupPageView({
     page, pagebox, canvas, leftSpacer, rightArea, scroll, geometry, options, caps,
-    vertical: !!(geometry.vertical && caps.verticalText),
+    getVertical: () => isVertical(),
     applyGeometry, mark, positionCards, reflow: () => reflow(), scheduleReflow: () => scheduleReflow(),
     markGeometryDirty: () => { geometryDirty = true; },
     readSectionGeom, writeSectionGeom, insertSectionBreak,
@@ -579,6 +586,7 @@ export function createRichEditor(container: HTMLElement, adapter: Adapter, optio
     const contentWidth = geometry.widthPx - geometry.margin.left - geometry.margin.right;
     const pageStep = geometry.heightPx + PAGE_GAP;
     const interPage = contentBottomInset + PAGE_GAP + contentTop; // gap between consecutive wrappers
+    doc.style.height = ""; // clear any inline height left by a prior vertical layout
     doc.style.padding = `${contentTop}px ${geometry.margin.right}px ${contentBottomInset}px ${geometry.margin.left}px`;
 
     const newWrapper = (first: boolean): HTMLElement => {
@@ -665,7 +673,7 @@ export function createRichEditor(container: HTMLElement, adapter: Adapter, optio
   // (N+1)th column for several), and the boxes are centred + stacked. The caret is preserved as
   // a (block, char-offset) pair across the reparent, like the column reflow.
   const SECPAGE = "docxedit-secpage";
-  const docGeom = (): SecGeom => ({ w: geometry.widthPx, h: geometry.heightPx, mt: geometry.margin.top, mr: geometry.margin.right, mb: geometry.margin.bottom, ml: geometry.margin.left, cols: geometry.columns, colGap: geometry.columnGapPx });
+  const docGeom = (): SecGeom => ({ w: geometry.widthPx, h: geometry.heightPx, mt: geometry.margin.top, mr: geometry.margin.right, mb: geometry.margin.bottom, ml: geometry.margin.left, cols: geometry.columns, colGap: geometry.columnGapPx, vertical: geometry.vertical, rtl: geometry.rtl });
   const repaginateSections = () => {
     const blocks: HTMLElement[] = [];
     for (const child of Array.from(doc.children) as HTMLElement[]) {
@@ -755,6 +763,8 @@ export function createRichEditor(container: HTMLElement, adapter: Adapter, optio
       b.style.padding = `${g.mt + hH}px ${g.mr}px ${g.mb + fH}px ${g.ml}px`; // reserve header/footer space
       b.setAttribute("data-rdoc-secgeom", JSON.stringify(g)); // for the per-page ruler
       b.style.overflow = "hidden"; // a scroll container during bucketing; clipped on finalize
+      if (g.vertical) b.style.writingMode = "vertical-rl"; // tategaki section: text fills top-down, rl
+      else if (g.rtl) b.style.direction = "rtl";
       if (g.cols && g.cols > 1) {
         b.style.columnCount = String(g.cols);
         b.style.columnGap = `${g.colGap ?? 36}px`;
@@ -766,8 +776,9 @@ export function createRichEditor(container: HTMLElement, adapter: Adapter, optio
       b.style.overflow = "clip";
       if (g.cols && g.cols > 1) b.style.columnFill = "balance";
     };
+    // A vertical or multi-column box fills along the block axis (width); a plain box fills by height.
     const overflowed = (b: HTMLElement, g: SecGeom): boolean =>
-      g.cols && g.cols > 1 ? b.scrollWidth > b.clientWidth + EPS : b.scrollHeight > b.clientHeight + EPS;
+      g.vertical || (g.cols && g.cols > 1) ? b.scrollWidth > b.clientWidth + EPS : b.scrollHeight > b.clientHeight + EPS;
 
     type BoxMeta = { box: HTMLElement; g: SecGeom; fH: number; headerEl: HTMLElement | null; footerEl: HTMLElement | null; boundaryEl: HTMLElement | null };
     const boxMeta: BoxMeta[] = [];
@@ -822,8 +833,8 @@ export function createRichEditor(container: HTMLElement, adapter: Adapter, optio
 
   const repaginate = () => {
     if (!paginated || editingBand) return;
-    if (isVertical) return repaginateVertical();
     if (doc.querySelector("[data-rdoc-secbreak], [data-rdoc-secstart]")) return repaginateSections();
+    if (isVertical()) return repaginateVertical();
     if ((geometry.columns ?? 0) > 1) return repaginateColumns();
     // Single column: unwrap any column/section wrappers left by a previous layout (e.g. after a
     // page-setup change drops the column count back to 1) so the blocks are flat again.
@@ -845,6 +856,7 @@ export function createRichEditor(container: HTMLElement, adapter: Adapter, optio
     const pageStep = geometry.heightPx + PAGE_GAP;
 
     // place the body inside each page's content box (overrides the CSS-var padding)
+    doc.style.height = ""; // clear any inline height left by a prior vertical layout
     doc.style.padding = `${contentTop}px ${geometry.margin.right}px ${contentBottomInset}px ${geometry.margin.left}px`;
 
     // clear the previous page-top markers so they don't skew this measurement
@@ -960,7 +972,7 @@ export function createRichEditor(container: HTMLElement, adapter: Adapter, optio
       if (header && footer) return;
       const z = effectiveZoom();
       // Vertical pages share one y band (they stack along x); horizontal pages stack along y.
-      const within = isVertical
+      const within = isVertical()
         ? (e.clientY - page.getBoundingClientRect().top) / z
         : ((e.clientY - page.getBoundingClientRect().top) / z) % (geometry.heightPx + PAGE_GAP);
       if (within < 0 || within > geometry.heightPx) return; // outside a page (in the gap)
@@ -977,7 +989,7 @@ export function createRichEditor(container: HTMLElement, adapter: Adapter, optio
   requestAnimationFrame(reflow);
   setTimeout(reflow, 150);
   // Vertical reads right-to-left, so start scrolled to the rightmost page (page 1).
-  if (isVertical) {
+  if (isVertical()) {
     const scrollRight = () => { scroll.scrollLeft = scroll.scrollWidth; };
     requestAnimationFrame(scrollRight);
     setTimeout(scrollRight, 200);
@@ -1035,7 +1047,7 @@ export function createRichEditor(container: HTMLElement, adapter: Adapter, optio
   const { updateChangeButtons, teardown: teardownToolbar } = setupToolbar({
     toolbar, wrap, doc, regions, caps, options, parts, adapter, getActiveEl: () => activeEl, mark,
     positionCards, addThreadCard, setActiveComment, allocId, freshParaId, insertImage, styleBar: bottomLeft,
-    newStyles, newStyleCss, vertical: isVertical,
+    newStyles, newStyleCss, vertical: isVertical(),
   });
   afterReflow = updateChangeButtons;
   updateChangeButtons();

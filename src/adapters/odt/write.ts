@@ -850,11 +850,13 @@ function buildTrackedChanges(ctx: OdfCtx): Element | null {
 
 /** Set a page-layout-properties element's size, orientation, margins and columns (px -> cm), in
     place. Shared by the document Page setup and per-section master pages. */
-function setPageLayoutGeom(doc: Document, props: Element, g: { w: number; h: number; mt: number; mr: number; mb: number; ml: number; cols?: number; colGap?: number }): void {
+function setPageLayoutGeom(doc: Document, props: Element, g: { w: number; h: number; mt: number; mr: number; mb: number; ml: number; cols?: number; colGap?: number; vertical?: boolean; rtl?: boolean }): void {
   // Size + orientation (page-width/height are stored already swapped for landscape).
   props.setAttributeNS(NS.fo, "fo:page-width", pxToCm(g.w));
   props.setAttributeNS(NS.fo, "fo:page-height", pxToCm(g.h));
   props.setAttributeNS(NS.style, "style:print-orientation", g.w > g.h ? "landscape" : "portrait");
+  // Writing direction: tategaki (tb-rl) / horizontal RTL (rl-tb) / default (lr-tb).
+  props.setAttributeNS(NS.style, "style:writing-mode", g.vertical ? "tb-rl" : g.rtl ? "rl-tb" : "lr-tb");
   // Margins.
   props.setAttributeNS(NS.fo, "fo:margin-top", pxToCm(g.mt));
   props.setAttributeNS(NS.fo, "fo:margin-right", pxToCm(g.mr));
@@ -901,7 +903,7 @@ function applyPageMargins(files: Record<string, Uint8Array>, geometry: PageGeome
     props = doc.createElementNS(NS.style, "style:page-layout-properties");
     pl.insertBefore(props, pl.firstChild);
   }
-  setPageLayoutGeom(doc, props, { w: geometry.widthPx, h: geometry.heightPx, mt: geometry.margin.top, mr: geometry.margin.right, mb: geometry.margin.bottom, ml: geometry.margin.left, cols: geometry.columns, colGap: geometry.columnGapPx });
+  setPageLayoutGeom(doc, props, { w: geometry.widthPx, h: geometry.heightPx, mt: geometry.margin.top, mr: geometry.margin.right, mb: geometry.margin.bottom, ml: geometry.margin.left, cols: geometry.columns, colGap: geometry.columnGapPx, vertical: geometry.vertical, rtl: geometry.rtl });
   files["styles.xml"] = strToU8(new XMLSerializer().serializeToString(doc));
 }
 

@@ -16,7 +16,8 @@ export interface PageViewDeps {
   geometry: PageGeometry;
   options: EditorOptions;
   caps: Capabilities;
-  vertical: boolean;
+  /** Live writing-direction read (vertical/tategaki), so the dialog can switch direction. */
+  getVertical: () => boolean;
   applyGeometry: () => void;
   mark: () => void;
   positionCards: () => void;
@@ -33,7 +34,8 @@ export interface PageViewDeps {
 }
 
 export function setupPageView(deps: PageViewDeps) {
-  const { page, pagebox, canvas, leftSpacer, rightArea, scroll, geometry, options, caps, vertical, applyGeometry, mark, positionCards, reflow, scheduleReflow, markGeometryDirty, readSectionGeom, writeSectionGeom, insertSectionBreak } = deps;
+  const { page, pagebox, canvas, leftSpacer, rightArea, scroll, geometry, options, caps, getVertical, applyGeometry, mark, positionCards, reflow, scheduleReflow, markGeometryDirty, readSectionGeom, writeSectionGeom, insertSectionBreak } = deps;
+  const vertical = () => getVertical();
 
   // --- Per-page rulers ------------------------------------------------------
   // One ruler set (a horizontal ruler above + a vertical ruler to the left) is drawn per
@@ -201,7 +203,7 @@ export function setupPageView(deps: PageViewDeps) {
       // in an empty paragraph) can report a zero rect, so fall back to its element's rect. Vertical
       // pages advance along x (right to left), so match on the caret's horizontal position there.
       const cr = sel!.getRangeAt(0).getBoundingClientRect();
-      if (vertical) {
+      if (vertical()) {
         const cx = cr.left || cr.right || el.getBoundingClientRect().left;
         const hit = all.find((c) => { const r = c.getBoundingClientRect(); return cx >= r.left - 2 && cx <= r.right + 2; });
         if (hit) return hit;
@@ -257,8 +259,8 @@ export function setupPageView(deps: PageViewDeps) {
   let userZoom: number | null = options.zoom ?? null;
   const fitZoom = (): number => {
     // Vertical pages grow along x, so fit to the page's fixed height; horizontal fit to width.
-    const avail = (vertical ? scroll.clientHeight : scroll.clientWidth) - 56;
-    const dim = vertical ? geometry.heightPx : geometry.widthPx;
+    const avail = (vertical() ? scroll.clientHeight : scroll.clientWidth) - 56;
+    const dim = vertical() ? geometry.heightPx : geometry.widthPx;
     return Math.max(0.2, Math.min(1, avail / Math.max(1, dim)));
   };
   const effectiveZoom = (): number => userZoom ?? fitZoom();
@@ -301,7 +303,7 @@ export function setupPageView(deps: PageViewDeps) {
     // Size the box to the page's real footprint (handles mixed per-section page widths too).
     // A vertical page grows in width and is fixed in height; a horizontal one is the reverse.
     pagebox.style.width = `${Math.round(page.offsetWidth * z)}px`;
-    pagebox.style.height = `${Math.round((vertical ? geometry.heightPx : page.offsetHeight) * z)}px`;
+    pagebox.style.height = `${Math.round((vertical() ? geometry.heightPx : page.offsetHeight) * z)}px`;
     if (document.activeElement !== zoomLabel) zoomLabel.value = `${Math.round(z * 100)}%`;
     zoomSlider.value = String(Math.round(z * 100));
     updateRulers();
@@ -389,6 +391,7 @@ export function setupPageView(deps: PageViewDeps) {
   const mtIn = fMT.input, mrIn = fMR.input, mbIn = fMB.input, mlIn = fML.input;
   marginCustomRow.append(fMT.wrap, fMR.wrap, fMB.wrap, fML.wrap);
   const { row: colRow, sel: colSel } = mkSelectRow(t("columns"), [["1", "1"], ["2", "2"], ["3", "3"]]);
+  const { row: dirRow, sel: dirSel } = mkSelectRow(t("textDirection"), [["horizontal", t("dirHorizontal")], ["vertical", t("dirVertical")], ["rtl", t("dirRtl")]]);
   const syncCustom = () => {
     const customSize = sizeSel.value === "custom";
     customRow.hidden = !customSize;
@@ -404,7 +407,7 @@ export function setupPageView(deps: PageViewDeps) {
   const psActions = document.createElement("div");
   psActions.className = "docxedit-dialog-row docxedit-dialog-actions";
   psActions.append(psCancel, psApply);
-  psPanel.append(psTitle, sizeRow, customRow, orientRow, marginRow, marginCustomRow, colRow, psActions);
+  psPanel.append(psTitle, sizeRow, customRow, orientRow, marginRow, marginCustomRow, colRow, ...(caps.verticalText ? [dirRow] : []), psActions);
   scroll.appendChild(psOverlay);
   const closePageSetup = () => { psOverlay.hidden = true; };
   const openPageSetup = () => {
@@ -420,6 +423,7 @@ export function setupPageView(deps: PageViewDeps) {
     mbIn.value = (g.mb / CM).toFixed(2);
     mlIn.value = (g.ml / CM).toFixed(2);
     colSel.value = String(g.cols && g.cols > 1 ? g.cols : 1);
+    dirSel.value = g.vertical ? "vertical" : g.rtl ? "rtl" : "horizontal";
     syncCustom();
     psOverlay.hidden = false;
   };
@@ -445,6 +449,7 @@ export function setupPageView(deps: PageViewDeps) {
     }
     const c = parseInt(colSel.value, 10) || 1;
     const g: SecGeom = { w, h, mt, mr, mb, ml, cols: c > 1 ? c : undefined, colGap: c > 1 ? (cur.colGap ?? 36) : undefined };
+    if (caps.verticalText) { g.vertical = dirSel.value === "vertical" || undefined; g.rtl = dirSel.value === "rtl" || undefined; }
     writeSectionGeom(g);
     reflow();
     applyZoom();

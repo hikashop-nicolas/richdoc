@@ -154,6 +154,8 @@ export interface SecGeom {
   ml: number;
   cols?: number;
   colGap?: number;
+  vertical?: boolean; // tategaki (vertical-rl) writing for this section
+  rtl?: boolean; // horizontal right-to-left
 }
 
 /** A style the user authored in-session, to be added to the document's stylesheet on save.

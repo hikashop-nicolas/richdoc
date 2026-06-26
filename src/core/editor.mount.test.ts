@@ -553,6 +553,55 @@ describe("shared engine mount", () => {
     host.remove();
   });
 
+  it("renders mixed vertical + horizontal sections (docx)", () => {
+    const a4 = '<w:pgSz w:w="11906" w:h="16838"/><w:pgMar w:top="1440" w:right="1440" w:bottom="1440" w:left="1440"/>';
+    const doc = `<?xml version="1.0"?><w:document xmlns:w="http://schemas.openxmlformats.org/wordprocessingml/2006/main"><w:body>` +
+      "<w:p><w:r><w:t>One</w:t></w:r></w:p>" +
+      `<w:p><w:pPr><w:sectPr>${a4}<w:type w:val="nextPage"/></w:sectPr></w:pPr><w:r><w:t>EndOne</w:t></w:r></w:p>` + // section 1: horizontal
+      "<w:p><w:r><w:t>Two</w:t></w:r></w:p>" +
+      `<w:sectPr>${a4}<w:textDirection w:val="tbRl"/></w:sectPr></w:body></w:document>`; // section 2: vertical
+    const docx = zipSync({
+      "[Content_Types].xml": strToU8("<Types/>"),
+      "_rels/.rels": strToU8("<Relationships/>"),
+      "word/document.xml": strToU8(doc),
+      "word/_rels/document.xml.rels": strToU8(`<Relationships xmlns="http://schemas.openxmlformats.org/package/2006/relationships"></Relationships>`),
+    });
+    const host = document.createElement("div");
+    document.body.appendChild(host);
+    const ed = createDocxEditor(host, docx);
+    expect(host.querySelector(".docxedit-page")!.classList.contains("is-vertical")).toBe(false); // per-section, not whole-page
+    const boxes = [...host.querySelectorAll<HTMLElement>(".docxedit-secpage")];
+    expect(boxes.some((b) => b.style.writingMode === "vertical-rl")).toBe(true); // the vertical section
+    expect(boxes.some((b) => b.style.writingMode !== "vertical-rl")).toBe(true); // the horizontal section
+    ed.destroy();
+    host.remove();
+  });
+
+  it("authors writing direction: toggling vertical writes back w:textDirection (docx)", async () => {
+    const { strFromU8, unzipSync } = await import("fflate");
+    const doc = `<?xml version="1.0"?><w:document xmlns:w="http://schemas.openxmlformats.org/wordprocessingml/2006/main"><w:body>` +
+      "<w:p><w:r><w:t>Hello</w:t></w:r></w:p>" +
+      '<w:sectPr><w:pgSz w:w="11906" w:h="16838"/><w:pgMar w:top="1440" w:right="1440" w:bottom="1440" w:left="1440"/></w:sectPr></w:body></w:document>';
+    const docx = zipSync({
+      "[Content_Types].xml": strToU8("<Types/>"),
+      "_rels/.rels": strToU8("<Relationships/>"),
+      "word/document.xml": strToU8(doc),
+      "word/_rels/document.xml.rels": strToU8(`<Relationships xmlns="http://schemas.openxmlformats.org/package/2006/relationships"></Relationships>`),
+    });
+    const host = document.createElement("div");
+    document.body.appendChild(host);
+    const ed = createDocxEditor(host, docx);
+    (host.querySelector(".docxedit-pagesetup-btn:not(.docxedit-sectionbreak-btn)") as HTMLElement).click();
+    const sels = [...host.querySelectorAll(".docxedit-pagesetup select")] as HTMLSelectElement[];
+    sels[sels.length - 1]!.value = "vertical"; // the direction select
+    (host.querySelector(".docxedit-pagesetup .docxedit-dialog-primary") as HTMLElement).click();
+    const xml = strFromU8(unzipSync(await ed.getBytes())["word/document.xml"]!);
+    expect(xml).toContain('w:textDirection');
+    expect(xml).toContain('tbRl');
+    ed.destroy();
+    host.remove();
+  });
+
   it("renders and round-trips furigana / ruby (docx)", async () => {
     const { strFromU8, unzipSync } = await import("fflate");
     const doc = `<?xml version="1.0"?><w:document xmlns:w="http://schemas.openxmlformats.org/wordprocessingml/2006/main"><w:body>` +
