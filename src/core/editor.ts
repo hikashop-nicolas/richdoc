@@ -337,8 +337,12 @@ export function createRichEditor(container: HTMLElement, adapter: Adapter, optio
 
   // Footnote / endnote area below the pages. References are renumbered in document order and each
   // referenced note's editable body is shown here (per-page-bottom placement is a later refinement).
+  // The document's footnote style (font/size/line-height/colour), applied inline to each note area
+  // so footnotes render at the document's footnote size instead of the stylesheet's fallback.
+  const noteAreaCss = parts.notes?.length ? (parts.noteCss ?? "") : "";
   const noteslayer = document.createElement("div");
   noteslayer.className = "docxedit-noteslayer";
+  if (noteAreaCss) noteslayer.style.cssText = noteAreaCss;
   noteslayer.hidden = true;
   scroll.appendChild(noteslayer);
   let footnotesPerPage = false; // the single-section path renders footnotes at each page bottom
@@ -1140,7 +1144,7 @@ export function createRichEditor(container: HTMLElement, adapter: Adapter, optio
     if (footRefs.length) {
       const probe = document.createElement("div");
       probe.className = "docxedit-fnarea";
-      probe.style.cssText = `top:0;left:0;width:${cw}px;visibility:hidden`;
+      probe.style.cssText = `top:0;left:0;width:${cw}px;visibility:hidden;${noteAreaCss}`;
       hflayer.appendChild(probe);
       for (const fr of footRefs) { const row = noteRow(fr.num, fr.id); if (row) { fnRow.set(fr.id, row); probe.appendChild(row); } }
       for (const fr of footRefs) { const row = fnRow.get(fr.id); if (row) fnH.set(fr.id, row.offsetHeight); }
@@ -1192,7 +1196,7 @@ export function createRichEditor(container: HTMLElement, adapter: Adapter, optio
       for (const [p, frs] of byPage) {
         const area = document.createElement("div");
         area.className = "docxedit-fnarea";
-        area.style.cssText = `top:${p * pageStep + (geometry.heightPx - contentBottomInset) - (reserve[p] || 0)}px;left:${geometry.margin.left}px;width:${cw}px`;
+        area.style.cssText = `top:${p * pageStep + (geometry.heightPx - contentBottomInset) - (reserve[p] || 0)}px;left:${geometry.margin.left}px;width:${cw}px;${noteAreaCss}`;
         for (const fr of frs) { const row = fnRow.get(fr.id); if (row) area.appendChild(row); }
         hflayer.appendChild(area);
       }

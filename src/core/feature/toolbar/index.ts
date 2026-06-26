@@ -47,6 +47,13 @@ export function setupToolbar(deps: ToolbarDeps) {
     newStyles, newStyleCss, vertical, insertSectionBreak, insertFootnote,
   } = deps;
 
+  // An element counts as an editing host when it is inside the body/header/footer regions, or
+  // inside a header/footer clone or a footnote/endnote body. The latter two live outside the
+  // `regions` array (in the page overlay), so formatting state, the floating bar and selection
+  // capture must recognise them explicitly or they would only respond inside the body.
+  const inEditingHost = (el: HTMLElement | null): boolean =>
+    !!el && (regions.some((r) => r.contains(el)) || !!el.closest(".docxedit-hf-clone, .docxedit-note"));
+
   // Clicking a toolbar <select> can drop the editor's selection (especially a non-collapsed
   // one). Capture it on mousedown, restore it before a style action reads it.
   let savedSel: Range | null = null;
@@ -56,7 +63,7 @@ export function setupToolbar(deps: ToolbarDeps) {
     const r = s.getRangeAt(0);
     const n = r.startContainer;
     const el = n.nodeType === 3 ? n.parentElement : (n as HTMLElement);
-    if (el && regions.some((reg) => reg.contains(el))) savedSel = r.cloneRange();
+    if (inEditingHost(el)) savedSel = r.cloneRange();
   };
   const restoreSel = (): void => {
     if (!savedSel) return;
@@ -731,8 +738,8 @@ export function setupToolbar(deps: ToolbarDeps) {
   const syncToolbarState = () => {
     const sel = window.getSelection();
     const node = sel && sel.rangeCount ? sel.anchorNode : null;
-    const el = node ? (node.nodeType === 3 ? node.parentElement : (node as Element)) : null;
-    if (!el || !regions.some((r) => r.contains(el))) return; // only while editing a region
+    const el = node ? (node.nodeType === 3 ? node.parentElement : (node as HTMLElement)) : null;
+    if (!el || !inEditingHost(el)) return; // only while editing a host
     const cs = getComputedStyle(el);
     if (caps.fontControls) {
       const fam = firstFontFamily(cs.fontFamily);
@@ -895,8 +902,8 @@ export function setupToolbar(deps: ToolbarDeps) {
   scheduleSync(); // reflect the initial caret position once mounted
 
   // The floating formatting bar and the keyboard shortcuts each live in a sibling module.
-  const floatBar = setupFloatBar({ wrap, regions, getActiveEl, beginFormatChange, exec, queryState, withSc, vertical });
-  const shortcuts = setupShortcuts({ regions, caps, getActiveEl, exec, beginFormatChange, styleSel, selectedBlocks, mark, syncToolbarState, insertLink, insertFurigana, insertSectionBreak });
+  const floatBar = setupFloatBar({ wrap, regions, inEditingHost, getActiveEl, beginFormatChange, exec, queryState, withSc, vertical });
+  const shortcuts = setupShortcuts({ wrap, inEditingHost, caps, getActiveEl, exec, beginFormatChange, styleSel, selectedBlocks, mark, syncToolbarState, insertLink, insertFurigana, insertSectionBreak });
 
   const teardown = () => {
     toolbarObserver.disconnect();

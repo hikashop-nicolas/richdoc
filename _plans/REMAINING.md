@@ -124,12 +124,16 @@ authorable; they are realistic to do, just not yet built.
 
 - Footnotes / endnotes: references render as numbered superscripts; footnotes render at the
   bottom of their page (above the footer, with a separator rule; the body reserves the space via
-  the paginator), endnotes in a notes area at the document end. Bodies are editable, an "Insert
-  footnote" control adds one (minting docx footnotes.xml + its content-type/relationship when the
-  document has none), and everything round-trips (docx footnotes.xml / endnotes.xml; odt inline
-  `text:note`). Per-page placement is the single-section paginated view; other layout modes
-  (columns / vertical / sections / pageless) show footnotes in the doc-end area. See
-  `_plans/FOOTNOTES_PLAN.md`.
+  the paginator), endnotes in a notes area at the document end. Bodies are full editing hosts:
+  text in them is formattable with the toolbar, the floating bar and the keyboard shortcuts
+  (bold/italic/colour/font), the toolbar reflects their formatting state, and it round-trips as
+  run properties. The note area inherits the document's footnote-text style (docx "FootnoteText",
+  odt "Footnote": font family / size / line-height / colour), falling back to a built-in size when
+  the document defines none. An "Insert footnote" control adds one (minting docx footnotes.xml +
+  its content-type/relationship when the document has none), and everything round-trips (docx
+  footnotes.xml / endnotes.xml; odt inline `text:note`). Per-page placement is the single-section
+  paginated view; other layout modes (columns / vertical / sections / pageless) show footnotes in
+  the doc-end area. See `_plans/FOOTNOTES_PLAN.md`.
 - Symbols / special characters (`w:sym`) - no insert picker.
 - Bookmarks (`w:bookmarkStart/End`) and cross-references - no insert UI.
 - Complex fields - only PAGE / NUMPAGES / TOC are authored; date, file name,

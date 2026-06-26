@@ -43,6 +43,7 @@ export function createOdtAdapter(bytes: Uint8Array): Adapter {
         characterStyles: parts.characterStyles,
         styleDefs: parts.styleDefs,
         styleCss: parts.styleCss,
+        noteCss: parts.noteCss,
       };
     },
     write(bodyHtml: string, parts: { path: string; html: string }[], edits: CommentEdits, page?: PageGeometry, newStyles?: NewStyle[], notes?: Note[]): Uint8Array {

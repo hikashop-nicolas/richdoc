@@ -1,10 +1,13 @@
-// Word-like keyboard shortcuts, bound to the editable regions (so single-key bindings such as
-// Ctrl+R for right-align only fire while editing and leave the browser's own shortcuts alone
-// everywhere else). The actual commands come from the toolbar as deps.
+// Word-like keyboard shortcuts, delegated from the editor wrapper and gated to the editable
+// hosts (body, header/footer, footnote bodies) so single-key bindings such as Ctrl+R for
+// right-align only fire while editing and leave the browser's own shortcuts alone everywhere
+// else. Delegating from one stable ancestor (instead of binding each region) means a footnote
+// body inserted after mount is covered for free. The actual commands come from the toolbar.
 import type { Capabilities } from "../../types";
 
 export interface ShortcutDeps {
-  regions: HTMLElement[];
+  wrap: HTMLElement;
+  inEditingHost: (el: HTMLElement | null) => boolean;
   caps: Capabilities;
   getActiveEl: () => HTMLElement;
   exec: (cmd: string, val?: string) => void;
@@ -19,7 +22,7 @@ export interface ShortcutDeps {
 }
 
 export function setupShortcuts(deps: ShortcutDeps) {
-  const { regions, caps, getActiveEl, exec, beginFormatChange, styleSel, selectedBlocks, mark, syncToolbarState, insertLink, insertFurigana, insertSectionBreak } = deps;
+  const { wrap, inEditingHost, caps, getActiveEl, exec, beginFormatChange, styleSel, selectedBlocks, mark, syncToolbarState, insertLink, insertFurigana, insertSectionBreak } = deps;
 
   const applyBlockTag = (tag: string) => {
     getActiveEl().focus();
@@ -41,6 +44,7 @@ export function setupShortcuts(deps: ShortcutDeps) {
   };
   const onShortcut = (e: KeyboardEvent) => {
     if (!(e.metaKey || e.ctrlKey)) return;
+    if (!inEditingHost(e.target as HTMLElement | null)) return;
     const k = e.key.toLowerCase();
     const run = (fn: () => void) => {
       e.preventDefault();
@@ -73,7 +77,7 @@ export function setupShortcuts(deps: ShortcutDeps) {
       case "[": if (caps.fontControls) return run(() => changeFontSize(-1)); return;
     }
   };
-  for (const r of regions) r.addEventListener("keydown", onShortcut);
+  wrap.addEventListener("keydown", onShortcut);
 
   // Tab inserts a real tab (an atomic, non-editable span carrying a tab character so copy/paste
   // yields a tab); Shift+Tab removes a tab immediately before the caret, else moves focus normally.
@@ -97,6 +101,7 @@ export function setupShortcuts(deps: ShortcutDeps) {
   };
   const onTab = (e: KeyboardEvent) => {
     if (e.key !== "Tab" || e.metaKey || e.ctrlKey || e.altKey) return;
+    if (!inEditingHost(e.target as HTMLElement | null)) return;
     if (e.shiftKey) {
       const sel = window.getSelection();
       const range = sel && sel.rangeCount ? sel.getRangeAt(0) : null;
@@ -114,13 +119,11 @@ export function setupShortcuts(deps: ShortcutDeps) {
     e.preventDefault();
     insertTab();
   };
-  for (const r of regions) r.addEventListener("keydown", onTab);
+  wrap.addEventListener("keydown", onTab);
 
   const teardown = () => {
-    for (const r of regions) {
-      r.removeEventListener("keydown", onShortcut);
-      r.removeEventListener("keydown", onTab);
-    }
+    wrap.removeEventListener("keydown", onShortcut);
+    wrap.removeEventListener("keydown", onTab);
   };
   return { teardown };
 }

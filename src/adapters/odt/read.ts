@@ -367,12 +367,13 @@ function readOdtStyles(stylesXml: Uint8Array | undefined): {
   characterStyles: { id: string; name: string }[];
   styleDefs: { id: string; kind: "paragraph" | "character"; css: Record<string, string> }[];
   css: string;
+  noteCss: string;
   namedPara: Set<string>;
   namedChar: Set<string>;
 } {
   const namedPara = new Set<string>();
   const namedChar = new Set<string>();
-  if (!stylesXml) return { paragraphStyles: [], characterStyles: [], styleDefs: [], css: "", namedPara, namedChar };
+  if (!stylesXml) return { paragraphStyles: [], characterStyles: [], styleDefs: [], css: "", noteCss: "", namedPara, namedChar };
   const doc = new DOMParser().parseFromString(strFromU8(stylesXml), "application/xml");
   const mapFor = (family: string): Map<string, Element> => {
     const m = new Map<string, Element>();
@@ -445,7 +446,19 @@ function readOdtStyles(stylesXml: Uint8Array | undefined): {
   };
   const paragraphStyles = collect("paragraph", "paragraph", "data-rdoc-style", namedPara, (id, s) => /^heading(_20_)?[1-9]$/i.test(id) || id === "Standard" || s.getAttribute("style:class") === "extra");
   const characterStyles = collect("text", "character", "data-rdoc-cstyle", namedChar, () => false);
-  return { paragraphStyles, characterStyles, styleDefs, css, namedPara, namedChar };
+  // The footnote/endnote body style's inheritable text props, for the note area. ODF names the
+  // paragraph style "Footnote" (class "extra", so it is skipped from the picker above); fall back
+  // to "Endnote".
+  let noteCss = "";
+  {
+    const paraMap = mapFor("paragraph");
+    const noteId = ["Footnote", "Endnote"].find((id) => paraMap.has(id)) ?? null;
+    if (noteId) {
+      const d = cssFor(paraMap, noteId, true, new Set());
+      noteCss = (["font-family", "font-size", "line-height", "color"] as const).filter((k) => d[k]).map((k) => `${k}:${d[k]}`).join(";");
+    }
+  }
+  return { paragraphStyles, characterStyles, styleDefs, css, noteCss, namedPara, namedChar };
 }
 
 /** Map an automatic style-name -> its parent style-name (from content.xml), for the given
@@ -783,7 +796,7 @@ function parsePageGeometry(files: Record<string, Uint8Array>): PageGeometry | un
   return { widthPx: Math.round(w), heightPx: Math.round(h), margin: { top: m("top"), right: m("right"), bottom: m("bottom"), left: m("left") }, vertical, rtl, columns, columnGapPx: columns ? Math.round(lenToPx(gapAttr) ?? 36) : undefined };
 }
 
-export function odtToParts(bytes: Uint8Array): { body: string; comments: CommentThread[]; header: string; footer: string; sectionBands?: Record<string, { html: string; path: string }>; notes?: { id: string; kind: "footnote" | "endnote"; html: string }[]; page?: PageGeometry; paragraphStyles?: { id: string; name: string }[]; characterStyles?: { id: string; name: string }[]; styleDefs?: { id: string; kind: "paragraph" | "character"; css: Record<string, string> }[]; styleCss?: string } {
+export function odtToParts(bytes: Uint8Array): { body: string; comments: CommentThread[]; header: string; footer: string; sectionBands?: Record<string, { html: string; path: string }>; notes?: { id: string; kind: "footnote" | "endnote"; html: string }[]; page?: PageGeometry; paragraphStyles?: { id: string; name: string }[]; characterStyles?: { id: string; name: string }[]; styleDefs?: { id: string; kind: "paragraph" | "character"; css: Record<string, string> }[]; styleCss?: string; noteCss?: string } {
   const files = unzipSync(bytes);
   const { header, footer } = readHeaderFooter(files);
   // Per-master header/footer HTML, so a section that switches master shows its own. Keyed for the
@@ -826,7 +839,7 @@ export function odtToParts(bytes: Uint8Array): { body: string; comments: Comment
     if (block.tagName === "text:tracked-changes") continue; // metadata, parsed into ctx.changes
     html += blockToHtml(block, ctx);
   }
-  return { body: html || "<p><br></p>", comments: ctx.threads, header, footer, sectionBands, notes: ctx.notes, page, paragraphStyles: ps.paragraphStyles, characterStyles: ps.characterStyles, styleDefs: ps.styleDefs, styleCss: ps.css };
+  return { body: html || "<p><br></p>", comments: ctx.threads, header, footer, sectionBands, notes: ctx.notes, page, paragraphStyles: ps.paragraphStyles, characterStyles: ps.characterStyles, styleDefs: ps.styleDefs, styleCss: ps.css, noteCss: ps.noteCss };
 }
 
 /** Convert an .odt's body to HTML. Returns "" if there is no editable text body. */

@@ -236,7 +236,7 @@
 .docxedit-note { flex: 1; min-width: 0; outline: none; }
 .docxedit-note:focus { background: #f3f5ff; }
 /* Per-page footnote area: just above the footer, inside the page, with a separator rule. */
-.docxedit-fnarea { position: absolute; z-index: 3; box-sizing: border-box; pointer-events: auto; padding-top: 5px; border-top: 1px solid #999; color: #111; font: 12px/1.45 inherit; }
+.docxedit-fnarea { position: absolute; z-index: 3; box-sizing: border-box; pointer-events: auto; padding-top: 5px; border-top: 1px solid #999; color: #111; font-size: 12px; line-height: 1.45; }
 .docxedit-fnarea .docxedit-note-row { padding: 1px 0; }
 .docxedit-hf-clone { position: absolute; box-sizing: border-box; pointer-events: auto; cursor: text; }
 .docxedit-hf-clone:hover { outline: 1px dashed #6e7bff; outline-offset: -1px; }

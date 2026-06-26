@@ -76,6 +76,10 @@ export interface RichDoc {
   characterStyles?: ParagraphStyle[]; // named character styles, for the character-style picker
   styleDefs?: StyleDef[]; // each named style's resolved CSS, so its definition can be edited
   styleCss?: string; // CSS rules giving each named style its appearance in the editor
+  /** The document's footnote/endnote body style as inheritable CSS declarations (font family,
+      size, line-height, colour), applied to the note area so footnotes render at the document's
+      footnote size/font instead of a hardcoded default. Empty when the document defines none. */
+  noteCss?: string;
 }
 
 /** A named style's resolved appearance, so the editor can prefill the edit dialog. */

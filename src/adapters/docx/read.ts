@@ -836,6 +836,7 @@ export interface DocxParts {
   characterStyles?: { id: string; name: string }[]; // named character styles, for the picker
   styleDefs?: { id: string; kind: "paragraph" | "character"; css: Record<string, string> }[]; // each style's resolved CSS, for editing
   styleCss?: string; // CSS giving each named style its appearance
+  noteCss?: string; // the footnote/endnote body style's text props, for the note area
 }
 
 // Convert OOXML twips (1/1440 inch) to CSS px at 96 dpi.
@@ -889,8 +890,9 @@ function readStyles(stylesXml: Uint8Array | undefined): {
   characterStyles: { id: string; name: string }[];
   styleDefs: { id: string; kind: "paragraph" | "character"; css: Record<string, string> }[];
   css: string;
+  noteCss: string;
 } {
-  if (!stylesXml) return { paragraphStyles: [], characterStyles: [], styleDefs: [], css: "" };
+  if (!stylesXml) return { paragraphStyles: [], characterStyles: [], styleDefs: [], css: "", noteCss: "" };
   const doc = new DOMParser().parseFromString(strFromU8(stylesXml), "application/xml");
   const wv = (el: Element | undefined, name: string): string | null => el?.getAttributeNS(W, name) ?? el?.getAttribute("w:" + name) ?? null;
   const paraById = new Map<string, Element>();
@@ -973,7 +975,25 @@ function readStyles(stylesXml: Uint8Array | undefined): {
   };
   const paragraphStyles = collect(paraById, "paragraph", "data-rdoc-style", (id) => /^heading[1-9]$/i.test(id.replace(/\s+/g, "")));
   const characterStyles = collect(charById, "character", "data-rdoc-cstyle", () => false);
-  return { paragraphStyles, characterStyles, styleDefs, css };
+  // The footnote/endnote body style's inheritable text props, applied to the note area so notes
+  // render at the document's footnote size/font. Match by style id or name (Word: "FootnoteText"
+  // / "footnote text"), falling back to the endnote style.
+  const noteStyleId = (() => {
+    const want = ["footnotetext", "endnotetext"];
+    for (const w of want) {
+      for (const [id, st] of paraById) {
+        const nm = (wv(st.getElementsByTagName("w:name")[0] ?? undefined, "val") || id).toLowerCase().replace(/\s+/g, "");
+        if (nm === w || id.toLowerCase() === w) return id;
+      }
+    }
+    return null;
+  })();
+  let noteCss = "";
+  if (noteStyleId) {
+    const d = cssFor(paraById, noteStyleId, true, new Set());
+    noteCss = (["font-family", "font-size", "line-height", "color"] as const).filter((k) => d[k]).map((k) => `${k}:${d[k]}`).join(";");
+  }
+  return { paragraphStyles, characterStyles, styleDefs, css, noteCss };
 }
 
 /** Parse a .docx into the editable body HTML plus the header/footer HTML and part keys. */
@@ -1069,6 +1089,7 @@ export function docxToParts(bytes: Uint8Array): DocxParts {
     characterStyles: ps.characterStyles,
     styleDefs: ps.styleDefs,
     styleCss: ps.css,
+    noteCss: ps.noteCss,
   };
 }
 

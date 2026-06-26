@@ -717,6 +717,85 @@ describe("shared engine mount", () => {
     host.remove();
   });
 
+  it("formats footnote body text and round-trips the formatting (docx)", async () => {
+    const { strFromU8, unzipSync } = await import("fflate");
+    const doc = `<?xml version="1.0"?><w:document xmlns:w="http://schemas.openxmlformats.org/wordprocessingml/2006/main"><w:body>` +
+      "<w:p><w:r><w:t>Body text</w:t></w:r><w:r><w:footnoteReference w:id=\"1\"/></w:r></w:p>" +
+      '<w:sectPr><w:pgSz w:w="11906" w:h="16838"/></w:sectPr></w:body></w:document>';
+    const footnotes = '<?xml version="1.0"?><w:footnotes xmlns:w="http://schemas.openxmlformats.org/wordprocessingml/2006/main">' +
+      '<w:footnote w:id="1"><w:p><w:r><w:t>Original note</w:t></w:r></w:p></w:footnote></w:footnotes>';
+    const docx = zipSync({
+      "[Content_Types].xml": strToU8("<Types/>"),
+      "_rels/.rels": strToU8("<Relationships/>"),
+      "word/document.xml": strToU8(doc),
+      "word/footnotes.xml": strToU8(footnotes),
+      "word/_rels/document.xml.rels": strToU8(`<Relationships xmlns="http://schemas.openxmlformats.org/package/2006/relationships"></Relationships>`),
+    });
+    const host = document.createElement("div");
+    document.body.appendChild(host);
+    const ed = createDocxEditor(host, docx);
+    const note = host.querySelector(".docxedit-note") as HTMLElement;
+    // A footnote body is a real editing host: formatting applied to it (here, bold) is saved.
+    note.innerHTML = "<p><b>Bold note</b></p>";
+    note.dispatchEvent(new Event("input", { bubbles: true }));
+    const fx = strFromU8(unzipSync(await ed.getBytes())["word/footnotes.xml"]!);
+    expect(fx).toContain("Bold note");
+    expect(fx).toContain("<w:b"); // the bold run property round-trips
+    ed.destroy();
+    host.remove();
+  });
+
+  it("renders footnotes at the document's footnote-text style size (docx)", () => {
+    const doc = `<?xml version="1.0"?><w:document xmlns:w="http://schemas.openxmlformats.org/wordprocessingml/2006/main"><w:body>` +
+      "<w:p><w:r><w:t>Body text</w:t></w:r><w:r><w:footnoteReference w:id=\"1\"/></w:r></w:p>" +
+      '<w:sectPr><w:pgSz w:w="11906" w:h="16838"/></w:sectPr></w:body></w:document>';
+    const footnotes = '<?xml version="1.0"?><w:footnotes xmlns:w="http://schemas.openxmlformats.org/wordprocessingml/2006/main">' +
+      '<w:footnote w:id="1"><w:p><w:r><w:t>Note</w:t></w:r></w:p></w:footnote></w:footnotes>';
+    const styles = '<?xml version="1.0"?><w:styles xmlns:w="http://schemas.openxmlformats.org/wordprocessingml/2006/main">' +
+      '<w:style w:type="paragraph" w:styleId="FootnoteText"><w:name w:val="footnote text"/><w:rPr><w:sz w:val="20"/></w:rPr></w:style></w:styles>';
+    const docx = zipSync({
+      "[Content_Types].xml": strToU8("<Types/>"),
+      "_rels/.rels": strToU8("<Relationships/>"),
+      "word/document.xml": strToU8(doc),
+      "word/footnotes.xml": strToU8(footnotes),
+      "word/styles.xml": strToU8(styles),
+      "word/_rels/document.xml.rels": strToU8(`<Relationships xmlns="http://schemas.openxmlformats.org/package/2006/relationships"></Relationships>`),
+    });
+    const host = document.createElement("div");
+    document.body.appendChild(host);
+    const ed = createDocxEditor(host, docx);
+    // sz 20 half-points = 10pt: the note area inherits the document's footnote-text size.
+    expect((host.querySelector(".docxedit-noteslayer") as HTMLElement).style.fontSize).toBe("10pt");
+    ed.destroy();
+    host.remove();
+  });
+
+  it("renders footnotes at the document's Footnote style size (odt)", () => {
+    const content =
+      '<?xml version="1.0"?><office:document-content xmlns:office="urn:oasis:names:tc:opendocument:xmlns:office:1.0" ' +
+      'xmlns:text="urn:oasis:names:tc:opendocument:xmlns:text:1.0"><office:body><office:text>' +
+      '<text:p>Body text<text:note text:note-class="footnote" text:id="ftn1"><text:note-citation>1</text:note-citation>' +
+      "<text:note-body><text:p>Note</text:p></text:note-body></text:note></text:p>" +
+      "</office:text></office:body></office:document-content>";
+    const styles =
+      '<?xml version="1.0"?><office:document-styles xmlns:office="urn:oasis:names:tc:opendocument:xmlns:office:1.0" ' +
+      'xmlns:style="urn:oasis:names:tc:opendocument:xmlns:style:1.0" xmlns:fo="urn:oasis:names:tc:opendocument:xmlns:xsl-fo-compatible:1.0">' +
+      '<office:styles><style:style style:name="Footnote" style:family="paragraph" style:class="extra">' +
+      '<style:text-properties fo:font-size="10pt"/></style:style></office:styles></office:document-styles>';
+    const odt = zipSync({
+      mimetype: [strToU8("application/vnd.oasis.opendocument.text"), { level: 0 }],
+      "content.xml": strToU8(content),
+      "styles.xml": strToU8(styles),
+      "META-INF/manifest.xml": strToU8("<m/>"),
+    });
+    const host = document.createElement("div");
+    document.body.appendChild(host);
+    const ed = createOdtEditor(host, odt);
+    expect((host.querySelector(".docxedit-noteslayer") as HTMLElement).style.fontSize).toBe("10pt");
+    ed.destroy();
+    host.remove();
+  });
+
   it("renders and round-trips furigana / ruby (docx)", async () => {
     const { strFromU8, unzipSync } = await import("fflate");
     const doc = `<?xml version="1.0"?><w:document xmlns:w="http://schemas.openxmlformats.org/wordprocessingml/2006/main"><w:body>` +

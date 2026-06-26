@@ -6,6 +6,7 @@ import { t } from "../../i18n";
 export interface FloatBarDeps {
   wrap: HTMLElement;
   regions: HTMLElement[];
+  inEditingHost: (el: HTMLElement | null) => boolean;
   getActiveEl: () => HTMLElement;
   beginFormatChange: () => void;
   exec: (cmd: string, val?: string) => void;
@@ -16,7 +17,7 @@ export interface FloatBarDeps {
 }
 
 export function setupFloatBar(deps: FloatBarDeps) {
-  const { wrap, regions, getActiveEl, beginFormatChange, exec, queryState, withSc, vertical } = deps;
+  const { wrap, regions, inEditingHost, getActiveEl, beginFormatChange, exec, queryState, withSc, vertical } = deps;
   const coarse = typeof window.matchMedia === "function" && window.matchMedia("(hover: none), (pointer: coarse)").matches;
   const floatBar = document.createElement("div");
   floatBar.className = `docxedit-floatbar${vertical ? " is-vertical" : ""}`;
@@ -114,7 +115,7 @@ export function setupFloatBar(deps: FloatBarDeps) {
     const range = sel.getRangeAt(0);
     const n = range.startContainer;
     const el = n.nodeType === 3 ? n.parentElement : (n as HTMLElement);
-    if (!el || !regions.some((r) => r.contains(el))) return null;
+    if (!inEditingHost(el)) return null;
     const rect = range.getBoundingClientRect();
     return rect && (rect.width > 0 || rect.height > 0) ? rect : null;
   };
