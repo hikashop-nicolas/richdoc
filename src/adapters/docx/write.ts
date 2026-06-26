@@ -963,9 +963,43 @@ const relsPathFor = (partPath: string): string => {
 /** Rewrite the normal notes in word/footnotes.xml / endnotes.xml from the edited bodies, keeping
     the separator / continuation-separator notes (id <= 0 or a w:type). Updates an existing part
     only (creating one from scratch is for the insert-authoring step). */
+const CT_FOOTNOTES = "application/vnd.openxmlformats-officedocument.wordprocessingml.footnotes+xml";
+const CT_ENDNOTES = "application/vnd.openxmlformats-officedocument.wordprocessingml.endnotes+xml";
+const REL_FOOTNOTES = "http://schemas.openxmlformats.org/officeDocument/2006/relationships/footnotes";
+const REL_ENDNOTES = "http://schemas.openxmlformats.org/officeDocument/2006/relationships/endnotes";
+
+/** Add a relationship from document.xml to a target part (idempotent by target). */
+function addDocRel(files: Record<string, Uint8Array>, type: string, target: string): void {
+  const key = "word/_rels/document.xml.rels";
+  const doc = files[key]
+    ? new DOMParser().parseFromString(strFromU8(files[key]!), "application/xml")
+    : new DOMParser().parseFromString(`<Relationships xmlns="${PKG}"></Relationships>`, "application/xml");
+  if (Array.from(doc.getElementsByTagName("Relationship")).some((r) => r.getAttribute("Target") === target)) return;
+  let max = 0;
+  for (const r of Array.from(doc.getElementsByTagName("Relationship"))) {
+    const m = /^rId(\d+)$/.exec(r.getAttribute("Id") ?? "");
+    if (m) max = Math.max(max, Number(m[1]));
+  }
+  const rel = doc.createElementNS(PKG, "Relationship");
+  rel.setAttribute("Id", `rId${max + 1}`);
+  rel.setAttribute("Type", type);
+  rel.setAttribute("Target", target);
+  doc.documentElement!.appendChild(rel);
+  files[key] = strToU8(new XMLSerializer().serializeToString(doc));
+}
+
 function rebuildNotes(files: Record<string, Uint8Array>, part: "footnotes" | "endnotes", kind: "footnote" | "endnote", notes: Note[]): void {
   const key = `word/${part}.xml`;
-  if (!files[key]) return;
+  if (!files[key]) {
+    if (!notes.some((n) => n.kind === kind)) return; // nothing of this kind to write
+    // Mint the part with the standard separator notes, register it, and relate it from the body.
+    const root = part === "footnotes" ? "w:footnotes" : "w:endnotes";
+    const tag = part === "footnotes" ? "w:footnote" : "w:endnote";
+    const seps = `<${tag} w:type="separator" w:id="-1"><w:p><w:r><w:separator/></w:r></w:p></${tag}><${tag} w:type="continuationSeparator" w:id="0"><w:p><w:r><w:continuationSeparator/></w:r></w:p></${tag}>`;
+    files[key] = strToU8(`<?xml version="1.0" encoding="UTF-8" standalone="yes"?><${root} xmlns:w="${W}">${seps}</${root}>`);
+    ensureOverride(files, `/${key}`, part === "footnotes" ? CT_FOOTNOTES : CT_ENDNOTES);
+    addDocRel(files, part === "footnotes" ? REL_FOOTNOTES : REL_ENDNOTES, `${part}.xml`);
+  }
   const doc = new DOMParser().parseFromString(strFromU8(files[key]!), "application/xml");
   const root = doc.documentElement;
   if (!root) return;

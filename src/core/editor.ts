@@ -341,26 +341,70 @@ export function createRichEditor(container: HTMLElement, adapter: Adapter, optio
   noteslayer.className = "docxedit-noteslayer";
   noteslayer.hidden = true;
   scroll.appendChild(noteslayer);
-  const renderNotes = () => {
-    const refs = Array.from(doc.querySelectorAll<HTMLElement>(".docx-fnref"));
+  let footnotesPerPage = false; // the single-section path renders footnotes at each page bottom
+  // Number every reference in document order (footnotes and endnotes as separate sequences).
+  const numberRefs = (): { ref: HTMLElement; kind: "footnote" | "endnote"; num: number; id: string }[] => {
     let fn = 0, en = 0;
-    const rows: HTMLElement[] = [];
-    for (const ref of refs) {
+    return Array.from(doc.querySelectorAll<HTMLElement>(".docx-fnref")).map((ref) => {
       const kind = ref.getAttribute("data-fn-kind") === "endnote" ? "endnote" : "footnote";
-      ref.textContent = String(kind === "endnote" ? ++en : ++fn); // display number, by document order
-      const nb = noteBands.get(ref.getAttribute("data-fn-id") ?? "");
-      if (!nb) continue;
-      const row = document.createElement("div");
-      row.className = "docxedit-note-row";
-      const num = document.createElement("span");
-      num.className = "docxedit-note-num";
-      num.contentEditable = "false";
-      num.textContent = `${ref.textContent}.`;
-      row.append(num, nb.el);
-      rows.push(row);
+      const num = kind === "endnote" ? ++en : ++fn;
+      ref.textContent = String(num);
+      return { ref, kind, num, id: ref.getAttribute("data-fn-id") ?? "" };
+    });
+  };
+  // A "N. <editable note body>" row for the notes area / a page's footnote area.
+  const noteRow = (num: number, id: string): HTMLElement | null => {
+    const nb = noteBands.get(id);
+    if (!nb) return null;
+    const row = document.createElement("div");
+    row.className = "docxedit-note-row";
+    const n = document.createElement("span");
+    n.className = "docxedit-note-num";
+    n.contentEditable = "false";
+    n.textContent = `${num}.`;
+    row.append(n, nb.el);
+    return row;
+  };
+  // Doc-end notes area: endnotes always, plus footnotes when the layout does not place them per page.
+  const renderNotes = () => {
+    const rows: HTMLElement[] = [];
+    for (const r of numberRefs()) {
+      if (r.kind === "footnote" && footnotesPerPage) continue;
+      const row = noteRow(r.num, r.id);
+      if (row) rows.push(row);
     }
     noteslayer.replaceChildren(...rows);
     noteslayer.hidden = rows.length === 0;
+  };
+  // Insert a footnote / endnote at the caret: a reference in the body + a new empty editable note.
+  let noteSeq = 0;
+  const insertNote = (kind: "footnote" | "endnote") => {
+    const sel = window.getSelection();
+    if (!sel || !sel.rangeCount) return;
+    const range = sel.getRangeAt(0);
+    const node = range.startContainer;
+    const el = node.nodeType === 3 ? node.parentElement : (node as HTMLElement);
+    if (!el || !doc.contains(el)) return; // references live in the body
+    const id = `rdoc-note-new-${++noteSeq}`;
+    const sup = document.createElement("sup");
+    sup.className = "docx-fnref";
+    sup.setAttribute("data-fn-id", id);
+    sup.setAttribute("data-fn-kind", kind);
+    sup.contentEditable = "false";
+    sup.textContent = "*";
+    range.collapse(false);
+    range.insertNode(sup);
+    const nb = document.createElement("div");
+    nb.className = "docxedit-note";
+    nb.contentEditable = "true";
+    nb.spellcheck = false;
+    nb.innerHTML = "<p><br></p>";
+    nb.addEventListener("focus", () => { activeEl = nb; });
+    nb.addEventListener("input", () => mark());
+    noteBands.set(id, { el: nb, kind });
+    mark();
+    reflow();
+    setTimeout(() => { nb.focus(); placeCaret(nb, 0); }, 0);
   };
 
   // --- Pagination -----------------------------------------------------------
@@ -1027,6 +1071,7 @@ export function createRichEditor(container: HTMLElement, adapter: Adapter, optio
 
   const repaginate = () => {
     if (!paginated || editingBand) return;
+    footnotesPerPage = false; // only the single-section path places footnotes per page
     if (doc.querySelector("[data-rdoc-secbreak], [data-rdoc-secstart]")) return repaginateSections();
     if (isVertical()) return (geometry.columns ?? 0) > 1 ? repaginateVerticalColumns() : repaginateVertical();
     // Unwrap any vertical band wrappers left by a prior vertical-columns layout + reset doc sizing.
@@ -1080,7 +1125,27 @@ export function createRichEditor(container: HTMLElement, adapter: Adapter, optio
       }
     });
 
-    const { spacerBefore, cardCount } = paginate(heights, { pageStep, contentHeight }, forceBreakBefore);
+    // Footnotes: measure each referenced footnote body at content width, then reserve that space at
+    // the bottom of the page its reference lands on (paginate accounts for it). Endnotes go to the
+    // doc-end notes area (renderNotes), not per page.
+    const cw = geometry.widthPx - geometry.margin.left - geometry.margin.right;
+    const FN_SEP = 14; // gap + separator above the footnote area
+    const footRefs = numberRefs().filter((r) => r.kind === "footnote" && noteBands.has(r.id));
+    footnotesPerPage = true;
+    const kidIndexOf = (ref: HTMLElement) => kids.findIndex((k) => k.contains(ref));
+    const fnH = new Map<string, number>();
+    if (footRefs.length) {
+      measure.style.width = `${cw}px`;
+      for (const fr of footRefs) { const nb = noteBands.get(fr.id)!; measure.appendChild(nb.el); fnH.set(fr.id, nb.el.offsetHeight); }
+    }
+    const reserveFor = (pob: number[]): number[] => {
+      const r: number[] = [];
+      for (const fr of footRefs) { const ki = kidIndexOf(fr.ref); if (ki < 0) continue; const p = pob[ki]!; r[p] = (r[p] || FN_SEP) + (fnH.get(fr.id) ?? 0); }
+      return r;
+    };
+    let reserve = footRefs.length ? reserveFor(paginate(heights, { pageStep, contentHeight }, forceBreakBefore).pageOfBlock) : [];
+    const { spacerBefore, cardCount, pageOfBlock } = paginate(heights, { pageStep, contentHeight, reserveOf: (p) => reserve[p] || 0 }, forceBreakBefore);
+    reserve = footRefs.length ? reserveFor(pageOfBlock) : [];
 
     for (const [idx, h] of spacerBefore) {
       const sp = document.createElement("div");
@@ -1109,6 +1174,19 @@ export function createRichEditor(container: HTMLElement, adapter: Adapter, optio
         const fc = mkClone(footer, `top:${base + geometry.heightPx - contentBottomInset}px;left:0;width:100%`);
         setCloneFields(fc, p + 1, cardCount);
         hflayer.appendChild(fc);
+      }
+    }
+
+    // Footnotes: a per-page area just above the footer, holding the page's referenced notes.
+    if (footRefs.length) {
+      const byPage = new Map<number, typeof footRefs>();
+      for (const fr of footRefs) { const ki = kidIndexOf(fr.ref); if (ki < 0) continue; const p = pageOfBlock[ki]!; (byPage.get(p) ?? byPage.set(p, []).get(p)!).push(fr); }
+      for (const [p, frs] of byPage) {
+        const area = document.createElement("div");
+        area.className = "docxedit-fnarea";
+        area.style.cssText = `top:${p * pageStep + (geometry.heightPx - contentBottomInset) - (reserve[p] || 0)}px;left:${geometry.margin.left}px;width:${cw}px`;
+        for (const fr of frs) { const row = noteRow(fr.num, fr.id); if (row) area.appendChild(row); }
+        hflayer.appendChild(area);
       }
     }
 
@@ -1250,6 +1328,7 @@ export function createRichEditor(container: HTMLElement, adapter: Adapter, optio
     positionCards, addThreadCard, setActiveComment, allocId, freshParaId, insertImage, styleBar: bottomLeft,
     newStyles, newStyleCss, vertical: isVertical(),
     insertSectionBreak: sectionBreakBtn ? () => sectionBreakBtn.click() : null,
+    insertFootnote: () => insertNote("footnote"),
   });
   afterReflow = updateChangeButtons;
   updateChangeButtons();

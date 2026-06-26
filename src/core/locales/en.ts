@@ -165,6 +165,7 @@ const dict: Dict = {
   dirRtl: "Right-to-left",
   furigana: "Furigana (ruby)",
   furiganaPrompt: "Reading (furigana). Leave empty to remove:",
+  insertFootnote: "Insert footnote",
 };
 
 export default dict;

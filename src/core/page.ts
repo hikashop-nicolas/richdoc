@@ -28,6 +28,9 @@ export interface PageMetrics {
   pageStep: number;
   /** Usable content height per page: page height minus top and bottom margins. */
   contentHeight: number;
+  /** Extra space reserved at the bottom of a given page (e.g. for its footnotes), reducing how
+      much body content fits there. */
+  reserveOf?: (page: number) => number;
 }
 
 export interface PaginationResult {
@@ -35,6 +38,8 @@ export interface PaginationResult {
   spacerBefore: Map<number, number>;
   /** number of page cards to draw. */
   cardCount: number;
+  /** the page each block landed on (same length as `heights`). */
+  pageOfBlock: number[];
 }
 
 const EPS = 1; // sub-pixel overflow tolerance
@@ -47,13 +52,14 @@ const EPS = 1; // sub-pixel overflow tolerance
  */
 export function paginate(heights: number[], m: PageMetrics, forceBreakBefore?: ReadonlySet<number>): PaginationResult {
   const spacerBefore = new Map<number, number>();
-  if (m.contentHeight <= 0 || m.pageStep <= 0) return { spacerBefore, cardCount: 1 };
+  const pageOfBlock: number[] = [];
+  if (m.contentHeight <= 0 || m.pageStep <= 0) return { spacerBefore, cardCount: 1, pageOfBlock: heights.map(() => 0) };
 
   let localY = 0; // doc-local y where the next block goes (y=0 is page 0 content top)
   let page = 0;
   for (let i = 0; i < heights.length; i++) {
     const h = heights[i] ?? 0;
-    const pageBottom = page * m.pageStep + m.contentHeight;
+    const pageBottom = page * m.pageStep + m.contentHeight - (m.reserveOf?.(page) ?? 0);
     const pageTop = page * m.pageStep;
     const forced = forceBreakBefore?.has(i) ?? false;
     if (localY > pageTop && (forced || localY + h > pageBottom + EPS)) {
@@ -66,8 +72,9 @@ export function paginate(heights: number[], m: PageMetrics, forceBreakBefore?: R
       page = nextPage;
       localY = page * m.pageStep;
     }
+    pageOfBlock[i] = page;
     localY += h;
   }
   const cardCount = Math.max(page + 1, Math.ceil(localY / m.pageStep) || 1);
-  return { spacerBefore, cardCount };
+  return { spacerBefore, cardCount, pageOfBlock };
 }
