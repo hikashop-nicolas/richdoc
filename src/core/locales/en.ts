@@ -169,6 +169,8 @@ const dict: Dict = {
   footnote: "Footnote",
   endnote: "Endnote",
   insert: "Insert",
+  tabStop: "Tab stop (drag to move, click to change type, drag off to remove)",
+  tabStopType: "Tab stop type (click to change)",
 };
 
 export default dict;

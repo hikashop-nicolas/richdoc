@@ -37,6 +37,52 @@ export function setupPageView(deps: PageViewDeps) {
   const { page, pagebox, canvas, leftSpacer, rightArea, scroll, geometry, options, caps, getVertical, applyGeometry, mark, positionCards, reflow, scheduleReflow, markGeometryDirty, readSectionGeom, writeSectionGeom, insertSectionBreak } = deps;
   const vertical = () => getVertical();
 
+  // --- Tab-stop authoring state ---------------------------------------------
+  // Tab stops live as data-rdoc-tabstops JSON on each paragraph block; the ruler reads the caret
+  // block's stops to draw markers, and edits apply to every selected block (the caret block when
+  // collapsed), like the other paragraph formatting.
+  interface TabStop { pos: number; val: string; leader?: string }
+  const TAB_TYPES = ["left", "center", "right", "decimal"] as const;
+  let newTabType: (typeof TAB_TYPES)[number] = "left"; // the type given to stops added by clicking the ruler
+  const TAB_BLOCK_SEL = "p,h1,h2,h3,h4,h5,h6,li,blockquote";
+  const tabNear = (a: number, b: number) => Math.abs(a - b) < 6; // px tolerance to match a marker to a stop
+  const tabBlocks = (): HTMLElement[] => {
+    const sel = window.getSelection();
+    if (!sel || !sel.rangeCount) return [];
+    const blockOf = (n: Node | null): HTMLElement | null => {
+      const el = n ? (n.nodeType === 3 ? n.parentElement : (n as Element)) : null;
+      const b = el?.closest?.(TAB_BLOCK_SEL) as HTMLElement | null;
+      return b && page.contains(b) && !b.closest(".docxedit-note, .docxedit-hf-clone") ? b : null;
+    };
+    const range = sel.getRangeAt(0);
+    const start = blockOf(range.startContainer);
+    const end = blockOf(range.endContainer);
+    const out: HTMLElement[] = start ? [start] : [];
+    let n: HTMLElement | null = start;
+    while (n && n !== end) { n = n.nextElementSibling as HTMLElement | null; if (n && n.matches(TAB_BLOCK_SEL)) out.push(n); }
+    if (end && !out.includes(end)) out.push(end);
+    return out;
+  };
+  const parseStops = (b: HTMLElement): TabStop[] => {
+    try { const s = JSON.parse(b.getAttribute("data-rdoc-tabstops") || "[]"); return Array.isArray(s) ? s : []; } catch { return []; }
+  };
+  // Apply a mutation to the selected blocks' tab stops, rewrite the attr, and re-render. `live`
+  // re-lays the tabs only (cheap, during a drag); otherwise a full reflow settles pagination.
+  const applyTabEdit = (mutate: (stops: TabStop[]) => TabStop[], live = false): void => {
+    const blocks = tabBlocks();
+    if (!blocks.length) return;
+    for (const b of blocks) {
+      const stops = mutate(parseStops(b)).filter((s) => s.pos > 0).sort((a, c) => a.pos - c.pos);
+      if (stops.length) b.setAttribute("data-rdoc-tabstops", JSON.stringify(stops));
+      else {
+        b.removeAttribute("data-rdoc-tabstops"); // no stops left: reset the tab spans to the default grid
+        for (const tb of Array.from(b.querySelectorAll<HTMLElement>(".docx-tab"))) { tb.style.width = ""; tb.style.display = ""; tb.style.overflow = ""; tb.classList.remove("docx-tab-leader"); }
+      }
+    }
+    mark();
+    if (live) layoutTabs(); else reflow();
+  };
+
   // --- Per-page rulers ------------------------------------------------------
   // One ruler set (a horizontal ruler above + a vertical ruler to the left) is drawn per
   // rendered page, each sized to that page and graduated in cm, via an overlay synced to the
@@ -74,8 +120,9 @@ export function setupPageView(deps: PageViewDeps) {
 
   interface RulerSet {
     root: HTMLElement;
-    h: { r: HTMLElement; fill: HTMLElement; ticks: HTMLElement; left: HTMLElement; right: HTMLElement };
+    h: { r: HTMLElement; fill: HTMLElement; ticks: HTMLElement; left: HTMLElement; right: HTMLElement; tabmarks: HTMLElement };
     v: { r: HTMLElement; fill: HTMLElement; ticks: HTMLElement; top: HTMLElement; bottom: HTMLElement };
+    typeSel: HTMLElement;
   }
   const mkBar = (cls: string) => {
     const r = document.createElement("div");
@@ -159,21 +206,100 @@ export function setupPageView(deps: PageViewDeps) {
     root.className = "docxedit-rulerset";
     const h = mkBar("docxedit-ruler-h");
     const v = mkBar("docxedit-ruler-v");
+    const tabmarks = document.createElement("div");
+    tabmarks.className = "docxedit-tabmarks";
+    h.r.appendChild(tabmarks);
+    // The tab-type selector in the corner where the two rulers meet: cycles the type used for stops
+    // added by clicking the ruler (left -> center -> right -> decimal), Word-style.
+    const typeSel = document.createElement("button");
+    typeSel.type = "button";
+    typeSel.title = t("tabStopType");
+    typeSel.setAttribute("aria-label", t("tabStopType"));
+    const paintTypeSel = () => { typeSel.className = `docxedit-tabtype is-${newTabType}`; };
+    paintTypeSel();
+    typeSel.addEventListener("click", () => { newTabType = TAB_TYPES[(TAB_TYPES.indexOf(newTabType) + 1) % TAB_TYPES.length]!; paintTypeSel(); });
     const set: RulerSet = {
       root,
-      h: { ...h, left: mkHandle("docxedit-rh-h", t("marginLeft"), h.r), right: mkHandle("docxedit-rh-h", t("marginRight"), h.r) },
+      h: { ...h, tabmarks, left: mkHandle("docxedit-rh-h", t("marginLeft"), h.r), right: mkHandle("docxedit-rh-h", t("marginRight"), h.r) },
       v: { ...v, top: mkHandle("docxedit-rh-v", t("marginTop"), v.r), bottom: mkHandle("docxedit-rh-v", t("marginBottom"), v.r) },
+      typeSel,
     };
-    root.append(h.r, v.r);
+    root.append(h.r, v.r, typeSel);
     bindDrag(set.h.left, "h", "left");
     bindDrag(set.h.right, "h", "right");
     bindDrag(set.v.top, "v", "top");
     bindDrag(set.v.bottom, "v", "bottom");
+    // Click an empty spot on the horizontal ruler's content area to add a tab stop of the current type.
+    h.r.addEventListener("click", (e) => {
+      if (dragging) return;
+      if ((e.target as HTMLElement).closest(".docxedit-ruler-handle, .docxedit-tabmark")) return;
+      const pg = activePage();
+      if (!pg) return;
+      const g = pageGeomOf(pg), z = effectiveZoom();
+      let pos = (e.clientX - h.r.getBoundingClientRect().left) / z - g.m.left;
+      if (pos <= 0 || pos >= g.w - g.m.left - g.m.right) return; // only within the content area
+      const step = CM / 2;
+      const snapped = Math.round((g.m.left + pos) / step) * step - g.m.left;
+      if (Math.abs(snapped - pos) * z < 5) pos = snapped;
+      pos = Math.round(pos);
+      applyTabEdit((s) => [...s.filter((x) => !tabNear(x.pos, pos)), { pos, val: newTabType }]);
+      syncRulers();
+    });
     // Hover anywhere on a ruler: show the cursor's distance from the page's top-left corner.
     h.r.addEventListener("mousemove", (e) => { if (!dragging) showTipAt(e.clientX, e.clientY, (e.clientX - h.r.getBoundingClientRect().left) / effectiveZoom()); });
     v.r.addEventListener("mousemove", (e) => { if (!dragging) showTipAt(e.clientX, e.clientY, (e.clientY - v.r.getBoundingClientRect().top) / effectiveZoom()); });
     for (const bar of [h.r, v.r]) bar.addEventListener("mouseleave", () => { if (!dragging) rulerTip.hidden = true; });
     return set;
+  };
+  // A draggable tab-stop marker on the horizontal ruler. Drag to move (snap magnet, Alt bypasses),
+  // click (no move) to cycle its type, drag it down off the ruler to remove it.
+  const mkTabMark = (stop: TabStop, g: { m: { left: number } }, z: number, hRect: DOMRect): HTMLElement => {
+    const m = document.createElement("div");
+    m.className = `docxedit-tabmark is-${stop.val}${stop.leader ? " is-leader" : ""}`;
+    m.style.left = `${(g.m.left + stop.pos) * z}px`;
+    m.title = t("tabStop");
+    m.addEventListener("pointerdown", (e) => {
+      e.preventDefault();
+      e.stopPropagation();
+      dragging = true;
+      let moved = false, lastY = e.clientY, cur = stop.pos;
+      const startX = e.clientX;
+      try { m.setPointerCapture(e.pointerId); } catch { /* no pointer */ }
+      const onMove = (ev: PointerEvent) => {
+        lastY = ev.clientY;
+        if (Math.abs(ev.clientX - startX) > 3) moved = true;
+        if (!moved) return;
+        let pos = (ev.clientX - hRect.left) / z - g.m.left;
+        if (!ev.altKey) { const step = CM / 2; const sn = Math.round((g.m.left + pos) / step) * step - g.m.left; if (Math.abs(sn - pos) * z < 5) pos = sn; }
+        pos = Math.round(Math.max(0, pos));
+        applyTabEdit((s) => s.map((x) => (tabNear(x.pos, cur) ? { ...x, pos } : x)), true);
+        cur = pos;
+        m.style.left = `${(g.m.left + cur) * z}px`;
+        showTipAt(ev.clientX, ev.clientY, g.m.left + cur);
+      };
+      const onUp = (ev: PointerEvent) => {
+        try { m.releasePointerCapture(ev.pointerId); } catch { /* not captured */ }
+        m.removeEventListener("pointermove", onMove);
+        m.removeEventListener("pointerup", onUp);
+        dragging = false;
+        rulerTip.hidden = true;
+        if (!moved) { const i = (TAB_TYPES.indexOf(stop.val as (typeof TAB_TYPES)[number]) + 1) % TAB_TYPES.length; applyTabEdit((s) => s.map((x) => (tabNear(x.pos, cur) ? { ...x, val: TAB_TYPES[i]! } : x))); }
+        else if (lastY > hRect.bottom + 14) applyTabEdit((s) => s.filter((x) => !tabNear(x.pos, cur))); // dragged off: remove
+        else reflow();
+        syncRulers();
+      };
+      m.addEventListener("pointermove", onMove);
+      m.addEventListener("pointerup", onUp);
+    });
+    return m;
+  };
+  // Draw the caret paragraph's tab stops as markers on the horizontal ruler.
+  const renderTabMarks = (g: { m: { left: number } }, z: number, hRect: DOMRect): void => {
+    if (!set) return;
+    set.h.tabmarks.replaceChildren();
+    const block = tabBlocks()[0];
+    if (!block) return;
+    for (const stop of parseStops(block)) if (stop.pos > 0) set.h.tabmarks.appendChild(mkTabMark(stop, g, z, hRect));
   };
 
   // A page's unscaled geometry: a per-section box carries its own size/margins (edited through the
@@ -243,6 +369,9 @@ export function setupPageView(deps: PageViewDeps) {
     set.v.top.style.top = `${g.m.top * z}px`;
     set.v.bottom.style.top = `${(g.h - g.m.bottom) * z}px`;
     for (const hd of [set.h.left, set.h.right, set.v.top, set.v.bottom]) hd.style.display = ""; // draggable on every page
+    // tab-type selector in the corner + the caret paragraph's tab-stop markers
+    set.typeSel.style.cssText = `left:${x - RT}px;top:${y - RT}px;width:${RT}px;height:${RT}px`;
+    renderTabMarks(g, z, set.h.r.getBoundingClientRect());
   };
   const updateRulers = syncRulers; // applyZoom and reflow call this
   // Move the ruler to whatever page the caret is on (coalesced; setTimeout survives backgrounding).

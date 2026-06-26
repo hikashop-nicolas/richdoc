@@ -169,6 +169,8 @@ const dict: Dict = {
   footnote: "Note de bas de page",
   endnote: "Note de fin",
   insert: "Insérer",
+  tabStop: "Taquet de tabulation (glisser pour déplacer, cliquer pour changer de type, glisser hors de la règle pour retirer)",
+  tabStopType: "Type de taquet (cliquer pour changer)",
 };
 
 export default dict;

@@ -55,10 +55,16 @@ context (a paragraph, or the document body) is regenerated from the edited HTML.
   to the right in vertical/tategaki, automatically), and written back. The `w:rubyPr` is preserved.
   A toolbar button authors it: wrap a selection in ruby with a prompted reading, edit the reading
   of an existing ruby, or remove it (empty reading) keeping the base text.
-- **Tabs**: a tab character round-trips (docx `w:tab`, odt `text:tab`) and renders at
-  tab stops (the browser's `tab-size`, i.e. the default 0.5in grid); Tab inserts one,
-  Shift+Tab removes it; copy/paste yields a real tab. A paragraph's custom tab stops
-  are preserved through edits.
+- **Tabs + custom tab stops**: a tab character round-trips (docx `w:tab`, odt `text:tab`); Tab
+  inserts one, Shift+Tab removes it, copy/paste yields a real tab. A paragraph's custom tab stops
+  round-trip and are **rendered at their real positions with alignment** (left / center / right /
+  decimal, plus dot leaders): a per-paragraph layout pass sizes each tab span so the following
+  segment aligns to its governing stop, resolving each tab against its own live x (so wrapped lines
+  and successive tabs work) and falling back to the default 0.5in grid past the last stop. The
+  horizontal ruler **authors** them: a corner type selector cycles the type for new stops, clicking
+  the ruler adds a stop, dragging a marker moves it (snap magnet), clicking a marker cycles its type,
+  and dragging it off the ruler removes it; edits apply to the selected blocks. Vertical (tategaki)
+  text keeps the default grid (deferred).
 - **Floating / anchored images + text wrap**: inline, wrap (square), tight, break
   (top-and-bottom), behind text, in front of text; alignment; alt text; the wrap
   padding (distance kept clear of text) round-trips; behind / front are draggable to
@@ -100,15 +106,13 @@ including the ruler, the floating toolbar, and **multi-column vertical text (N s
 plus furigana. The only vertical edge left: a *mid-document section* that is BOTH vertical AND
 multi-column (the whole-document vertical-columns path handles the common case; a vertical
 section box with `w:cols` renders as a single vertical flow). See `_plans/SECTIONS_PLAN.md`.
-2. **Tab-stop positioning + authoring.** Tabs and a paragraph's custom stops now
-   round-trip (see bucket A), but custom stop *positions* render at the default 0.5in
-   grid (preserved on save, not shown at their real x), and right / center / decimal
-   alignment is approximated as left. A ruler to add/move stops and honour their
-   alignment is the remaining work (browsers don't render arbitrary stops natively).
+2. **Tab-stop positioning + authoring** is now done (see bucket A): custom stops render at their
+   real positions with left / center / right / decimal alignment and dot leaders, and the ruler
+   authors them. Only vertical (tategaki) tab alignment is deferred (kept on the default grid).
 3. **Style authoring depth.** Editing now preserves a style's other properties and
    its inheritance (see bucket A), but the dialog still only *authors* the common
-   properties; tab stops, borders and the long tail cannot yet be set from the UI
-   (tab stops overlap with C2).
+   properties; borders and the long tail cannot yet be set from the UI (tab stops can now be set
+   per-paragraph via the ruler, though not yet as part of a named style definition).
 4. **Image layout fine detail.** Wrap mode (incl. tight), alignment, behind/front
    offset and wrap padding now round-trip and are authorable. What remains is minor:
    square/tight use alignment only (a file's exact `posOffset` for a wrapped image is
@@ -178,5 +182,5 @@ which they do.
   they survive a save; only the default header/footer is shown for editing.
 - The odt adapter mirrors docx for floating images (`draw:frame` anchor-type +
   a graphic style carrying `style:wrap` / `style:run-through` / `style:horizontal-pos`,
-  and `svg:x`/`svg:y` for behind/front). The remaining gaps still shared with docx
-  are the section model and tab stops (C1, C2).
+  and `svg:x`/`svg:y` for behind/front). The section model and tab stops are shared with docx and
+  now complete; the odt tab stops (`style:tab-stops`) render and author the same way.

@@ -214,6 +214,26 @@
 .docxedit-rh-v { left: 4px; margin-top: -5px; border-top: 5px solid transparent; border-bottom: 5px solid transparent; border-left: 9px solid #5b6b7b; cursor: ns-resize; }
 .docxedit-rh-v::before { top: -6px; bottom: -6px; left: -4px; right: -13px; }
 .docxedit-ruler-handle:hover { border-top-color: #2f3c4a; border-left-color: #2f3c4a; }
+/* Tab-stop markers on the horizontal ruler + the corner type selector. Each marker draws a small
+   shape per alignment type (L / reversed-L / centred / decimal). The marker's stop edge sits at its
+   left offset (left tabs left-aligned, right tabs right-aligned, center/decimal centred). */
+.docxedit-tabmarks { position: absolute; left: 0; right: 0; top: 0; bottom: 0; pointer-events: none; z-index: 2; }
+.docxedit-tabmark { position: absolute; bottom: 1px; width: 9px; height: 9px; box-sizing: border-box; pointer-events: auto; cursor: pointer; }
+.docxedit-tabmark.is-left { transform: translateX(0); border-left: 2px solid #2f3c4a; border-bottom: 2px solid #2f3c4a; }
+.docxedit-tabmark.is-right { transform: translateX(-100%); border-right: 2px solid #2f3c4a; border-bottom: 2px solid #2f3c4a; }
+.docxedit-tabmark.is-center, .docxedit-tabmark.is-decimal { transform: translateX(-50%); border-bottom: 2px solid #2f3c4a; }
+.docxedit-tabmark.is-center::before, .docxedit-tabmark.is-decimal::before { content: ""; position: absolute; left: 50%; top: 0; bottom: 0; border-left: 2px solid #2f3c4a; transform: translateX(-1px); }
+.docxedit-tabmark.is-decimal::after { content: ""; position: absolute; left: 50%; bottom: -1px; width: 2px; height: 2px; border-radius: 50%; background: #2f3c4a; transform: translateX(1.5px); }
+.docxedit-tabmark.is-leader { filter: none; }
+.docxedit-tabmark:hover { border-color: #6e7bff; }
+.docxedit-tabmark.is-center:hover::before, .docxedit-tabmark.is-decimal:hover::before { border-color: #6e7bff; }
+.docxedit-tabtype { position: absolute; z-index: 3; background: #d7dde4; border: none; box-shadow: inset 0 0 0 1px #c2cad3; padding: 0; cursor: pointer; }
+.docxedit-tabtype:hover { background: #e7ecf1; }
+.docxedit-tabtype::before { content: ""; position: absolute; left: 50%; top: 50%; width: 8px; height: 8px; box-sizing: border-box; transform: translate(-50%, -45%); }
+.docxedit-tabtype.is-left::before { border-left: 2px solid #2f3c4a; border-bottom: 2px solid #2f3c4a; }
+.docxedit-tabtype.is-right::before { border-right: 2px solid #2f3c4a; border-bottom: 2px solid #2f3c4a; }
+.docxedit-tabtype.is-center::before, .docxedit-tabtype.is-decimal::before { border: 2px solid #2f3c4a; border-top: none; }
+.docxedit-tabtype.is-decimal::after { content: ""; position: absolute; left: 50%; top: 50%; width: 2px; height: 2px; border-radius: 50%; background: #2f3c4a; transform: translate(3px, 2px); }
 
 /* Paginated view: the page becomes a positioning context; per-page cards are drawn in a
    layer behind the single continuous body, which carries inert spacer gaps at breaks. */
