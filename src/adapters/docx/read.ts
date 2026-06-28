@@ -814,11 +814,13 @@ function readNotes(files: Record<string, Uint8Array>, part: "footnotes" | "endno
   return out;
 }
 
-function refTarget(sectPr: Element | undefined, tag: string, rels: Map<string, string>): string | undefined {
+function refTarget(sectPr: Element | undefined, tag: string, rels: Map<string, string>, type: "default" | "first" | "even" = "default"): string | undefined {
   if (!sectPr) return undefined;
   const refs = Array.from(sectPr.getElementsByTagName(tag));
-  const pick = refs.find((r) => (r.getAttribute("w:type") ?? "default") === "default") ?? refs[0];
-  const id = pick?.getAttribute("r:id");
+  const pick = type === "default"
+    ? (refs.find((r) => (r.getAttribute("w:type") ?? "default") === "default") ?? refs[0])
+    : refs.find((r) => r.getAttribute("w:type") === type);
+  const id = pick?.getAttributeNS(R, "id") ?? pick?.getAttribute("r:id");
   return id ? rels.get(id) : undefined;
 }
 
@@ -828,6 +830,10 @@ export interface DocxParts {
   footer: string;
   headerPath?: string; // archive key of the header part, for write-back
   footerPath?: string;
+  headerFirst?: { html: string; path?: string }; // first-page / even-page header & footer variants
+  footerFirst?: { html: string; path?: string };
+  headerEven?: { html: string; path?: string };
+  footerEven?: { html: string; path?: string };
   sectionBands?: Record<string, { html: string; path: string }>; // per-section header/footer by r:id
   notes?: { id: string; kind: "footnote" | "endnote"; html: string }[]; // footnote/endnote bodies by id
   comments: CommentThread[]; // top-level threads in document order, replies nested
@@ -846,8 +852,9 @@ const twipToPx = (v: string | null | undefined): number | undefined => {
   return Number.isFinite(n) ? n / 15 : undefined;
 };
 
-/** Read page size and margins from a w:sectPr into view geometry (px). */
-function parsePageGeometry(sectPr: Element | undefined): PageGeometry | undefined {
+/** Read page size and margins from a w:sectPr into view geometry (px). `evenOdd` comes from
+    settings.xml (a document-level flag), so it is passed in rather than read from the sectPr. */
+function parsePageGeometry(sectPr: Element | undefined, evenOdd = false): PageGeometry | undefined {
   if (!sectPr) return undefined;
   const pgSz = sectPr.getElementsByTagName("w:pgSz")[0];
   const w = twipToPx(pgSz?.getAttributeNS(W, "w") ?? pgSz?.getAttribute("w:w"));
@@ -867,7 +874,10 @@ function parsePageGeometry(sectPr: Element | undefined): PageGeometry | undefine
   const numCols = Number(cols?.getAttributeNS(W, "num") ?? cols?.getAttribute("w:num"));
   const columns = Number.isFinite(numCols) && numCols > 1 ? numCols : undefined;
   const colGap = twipToPx(cols?.getAttributeNS(W, "space") ?? cols?.getAttribute("w:space"));
-  return { widthPx: Math.round(w), heightPx: Math.round(h), margin: { top: m("top"), right: m("right"), bottom: m("bottom"), left: m("left") }, vertical, rtl, columns, columnGapPx: columns ? Math.round(colGap ?? 36) : undefined };
+  // Different first page: w:sectPr/w:titlePg (a present, non-false element).
+  const tp = sectPr.getElementsByTagName("w:titlePg")[0];
+  const titlePage = !!tp && (tp.getAttributeNS(W, "val") ?? tp.getAttribute("w:val") ?? "1") !== "0";
+  return { widthPx: Math.round(w), heightPx: Math.round(h), margin: { top: m("top"), right: m("right"), bottom: m("bottom"), left: m("left") }, vertical, rtl, columns, columnGapPx: columns ? Math.round(colGap ?? 36) : undefined, titlePage: titlePage || undefined, evenOdd: evenOdd || undefined };
 }
 
 /** The archive key for a relationship target relative to word/ (e.g. "header1.xml"). */
@@ -1022,6 +1032,18 @@ export function docxToParts(bytes: Uint8Array): DocxParts {
   const sectPr = Array.from(body.getElementsByTagName("w:sectPr")).pop();
   const headerTarget = refTarget(sectPr, "w:headerReference", rels);
   const footerTarget = refTarget(sectPr, "w:footerReference", rels);
+  // First-page / even-page header & footer variant parts (read whichever the document declares).
+  const variantBand = (tag: string, type: "first" | "even") => {
+    const tgt = refTarget(sectPr, tag, rels, type);
+    return tgt ? { html: renderRefPart(files, tgt), path: partKey(tgt, files) } : undefined;
+  };
+  // Different odd & even pages is a document-level setting in word/settings.xml.
+  const evenOdd = (() => {
+    const s = files["word/settings.xml"];
+    if (!s) return false;
+    const e = new DOMParser().parseFromString(strFromU8(s), "application/xml").getElementsByTagName("w:evenAndOddHeaders")[0];
+    return !!e && (e.getAttributeNS(W, "val") ?? e.getAttribute("w:val") ?? "1") !== "0";
+  })();
   // Distinct per-section header/footer parts, keyed by r:id (matching data-rdoc-sec*key on the
   // boundary paragraphs). Every header/footer reference in any sectPr resolves here.
   const sectionBands: Record<string, { html: string; path: string }> = {};
@@ -1081,10 +1103,14 @@ export function docxToParts(bytes: Uint8Array): DocxParts {
     footer: renderRefPart(files, footerTarget),
     headerPath: partKey(headerTarget, files),
     footerPath: partKey(footerTarget, files),
+    headerFirst: variantBand("w:headerReference", "first"),
+    footerFirst: variantBand("w:footerReference", "first"),
+    headerEven: variantBand("w:headerReference", "even"),
+    footerEven: variantBand("w:footerReference", "even"),
     sectionBands,
     notes: [...readNotes(files, "footnotes", "footnote"), ...readNotes(files, "endnotes", "endnote")],
     comments: threads,
-    page: parsePageGeometry(sectPr),
+    page: parsePageGeometry(sectPr, evenOdd),
     paragraphStyles: ps.paragraphStyles,
     characterStyles: ps.characterStyles,
     styleDefs: ps.styleDefs,

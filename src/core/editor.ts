@@ -109,6 +109,27 @@ export function createRichEditor(container: HTMLElement, adapter: Adapter, optio
   };
   let header = band("docxedit-header", t("header"), parts.header);
   let footer = band("docxedit-footer", t("footer"), parts.footer);
+  // First-page / even-page header & footer variants (the default lives in header/footer). Each is an
+  // editable source band shown on the matching pages; null when the document doesn't declare it.
+  let headerFirst = parts.headerFirst ? band("docxedit-header", t("header"), parts.headerFirst.html) : null;
+  let footerFirst = parts.footerFirst ? band("docxedit-footer", t("footer"), parts.footerFirst.html) : null;
+  let headerEven = parts.headerEven ? band("docxedit-header", t("header"), parts.headerEven.html) : null;
+  let footerEven = parts.footerEven ? band("docxedit-footer", t("footer"), parts.footerEven.html) : null;
+  // The source band to show for a role on a given 0-based page: the first-page variant on page 0
+  // (titlePage), the even variant on even-numbered pages (evenOdd; page index 1 = page 2), else the
+  // default; a missing variant falls back to the default.
+  const pickHF = (role: "header" | "footer", page: number): HTMLElement | null => {
+    const def = role === "header" ? header : footer;
+    if (geometry.titlePage && page === 0) return (role === "header" ? headerFirst : footerFirst) ?? def;
+    if (geometry.evenOdd && page % 2 === 1) return (role === "header" ? headerEven : footerEven) ?? def;
+    return def;
+  };
+  // The space a role reserves: the tallest of its present variants, so no page's variant overlaps
+  // the body even though the paginator uses one uniform content height for all pages.
+  const hfHeight = (role: "header" | "footer"): number => {
+    const bands = role === "header" ? [header, headerFirst, headerEven] : [footer, footerFirst, footerEven];
+    return Math.max(0, ...bands.map((b) => b?.offsetHeight ?? 0));
+  };
   // Distinct per-section header/footer source bands, keyed by the key a section's boundary
   // paragraph carries (data-rdoc-sec*key). Each is editable + saved back to its own part.
   const secBands = new Map<string, { el: HTMLElement; path: string }>();
@@ -149,8 +170,7 @@ export function createRichEditor(container: HTMLElement, adapter: Adapter, optio
   if (paginated) {
     page.classList.add("is-paginated");
     page.append(pagelayer, doc, hflayer);
-    if (header) measure.appendChild(header);
-    if (footer) measure.appendChild(footer);
+    for (const b of [header, footer, headerFirst, footerFirst, headerEven, footerEven]) if (b) measure.appendChild(b);
     for (const { el } of secBands.values()) measure.appendChild(el); // off-screen, for measuring
     page.appendChild(measure);
   } else {
@@ -549,6 +569,14 @@ export function createRichEditor(container: HTMLElement, adapter: Adapter, optio
       else if (k === "NUMPAGES") f.textContent = String(total);
     }
   };
+  // Clone the header and footer variant that applies to page `p` (0-based) into the overlay, with
+  // the given positioning. Shared by every paginate path so first/even variants render everywhere.
+  const cloneHF = (p: number, total: number, headerCss: string, footerCss: string): void => {
+    const hSrc = pickHF("header", p);
+    if (hSrc) { const hc = mkClone(hSrc, headerCss); setCloneFields(hc, p + 1, total); hflayer.appendChild(hc); }
+    const fSrc = pickHF("footer", p);
+    if (fSrc) { const fc = mkClone(fSrc, footerCss); setCloneFields(fc, p + 1, total); hflayer.appendChild(fc); }
+  };
   const tocSig = new WeakMap<Element, string>();
   const decorateFields = (cardCount: number, pageStep: number, vertical: boolean): void => {
     for (const f of Array.from(doc.querySelectorAll<HTMLElement>('.docx-field[data-field="NUMPAGES"]'))) f.textContent = String(cardCount);
@@ -600,8 +628,8 @@ export function createRichEditor(container: HTMLElement, adapter: Adapter, optio
     // Header/footer are horizontal bands at the page top/bottom (measured at page width); the
     // body columns fill the height between them.
     measure.style.width = `${geometry.widthPx}px`;
-    const headerH = header ? header.offsetHeight : 0;
-    const footerH = footer ? footer.offsetHeight : 0;
+    const headerH = hfHeight("header");
+    const footerH = hfHeight("footer");
     const contentTop = geometry.margin.top + headerH;
     const contentBottomInset = geometry.margin.bottom + footerH;
     doc.style.height = `${geometry.heightPx}px`;
@@ -651,16 +679,7 @@ export function createRichEditor(container: HTMLElement, adapter: Adapter, optio
       card.style.height = `${geometry.heightPx}px`;
       pagelayer.appendChild(card);
       const rightPx = p * pageStep;
-      if (header) {
-        const hc = mkClone(header, `top:${geometry.margin.top}px;right:${rightPx}px;width:${geometry.widthPx}px`);
-        setCloneFields(hc, p + 1, cardCount);
-        hflayer.appendChild(hc);
-      }
-      if (footer) {
-        const fc = mkClone(footer, `top:${geometry.heightPx - contentBottomInset}px;right:${rightPx}px;width:${geometry.widthPx}px`);
-        setCloneFields(fc, p + 1, cardCount);
-        hflayer.appendChild(fc);
-      }
+      cloneHF(p, cardCount, `top:${geometry.margin.top}px;right:${rightPx}px;width:${geometry.widthPx}px`, `top:${geometry.heightPx - contentBottomInset}px;right:${rightPx}px;width:${geometry.widthPx}px`);
     }
 
     // Footnotes: per page, a vertical band at the left edge of the content (just inside the left
@@ -698,8 +717,8 @@ export function createRichEditor(container: HTMLElement, adapter: Adapter, optio
     const { left, right } = geometry.margin;
     const contentExtent = geometry.widthPx - left - right;
     measure.style.width = `${geometry.widthPx}px`;
-    const headerH = header ? header.offsetHeight : 0;
-    const footerH = footer ? footer.offsetHeight : 0;
+    const headerH = hfHeight("header");
+    const footerH = hfHeight("footer");
     const contentTop = geometry.margin.top + headerH;
     const contentBottomInset = geometry.margin.bottom + footerH;
     const contentHeight = geometry.heightPx - contentTop - contentBottomInset;
@@ -774,16 +793,7 @@ export function createRichEditor(container: HTMLElement, adapter: Adapter, optio
       card.style.width = `${geometry.widthPx}px`;
       card.style.height = `${geometry.heightPx}px`;
       pagelayer.appendChild(card);
-      if (header) {
-        const hc = mkClone(header, `top:${geometry.margin.top}px;right:${p * pageStep}px;width:${geometry.widthPx}px`);
-        setCloneFields(hc, p + 1, cardCount);
-        hflayer.appendChild(hc);
-      }
-      if (footer) {
-        const fc = mkClone(footer, `top:${geometry.heightPx - contentBottomInset}px;right:${p * pageStep}px;width:${geometry.widthPx}px`);
-        setCloneFields(fc, p + 1, cardCount);
-        hflayer.appendChild(fc);
-      }
+      cloneHF(p, cardCount, `top:${geometry.margin.top}px;right:${p * pageStep}px;width:${geometry.widthPx}px`, `top:${geometry.heightPx - contentBottomInset}px;right:${p * pageStep}px;width:${geometry.widthPx}px`);
     }
     // Footnotes: a vertical band down each page's left edge, beside the narrowed text bands.
     drawFootnoteAreas(footRefs, fnRow, true, pageOfBand(bands),
@@ -856,8 +866,8 @@ export function createRichEditor(container: HTMLElement, adapter: Adapter, optio
       }
     }
     measure.style.width = `${geometry.widthPx}px`;
-    const headerH = header ? header.offsetHeight : 0;
-    const footerH = footer ? footer.offsetHeight : 0;
+    const headerH = hfHeight("header");
+    const footerH = hfHeight("footer");
     const contentTop = geometry.margin.top + headerH;
     const contentBottomInset = geometry.margin.bottom + footerH;
     const contentHeight = geometry.heightPx - contentTop - contentBottomInset;
@@ -951,16 +961,7 @@ export function createRichEditor(container: HTMLElement, adapter: Adapter, optio
       card.style.top = `${base}px`;
       card.style.height = `${geometry.heightPx}px`;
       pagelayer.appendChild(card);
-      if (header) {
-        const hc = mkClone(header, `top:${base + geometry.margin.top}px;left:0;width:100%`);
-        setCloneFields(hc, p + 1, cardCount);
-        hflayer.appendChild(hc);
-      }
-      if (footer) {
-        const fc = mkClone(footer, `top:${base + geometry.heightPx - contentBottomInset}px;left:0;width:100%`);
-        setCloneFields(fc, p + 1, cardCount);
-        hflayer.appendChild(fc);
-      }
+      cloneHF(p, cardCount, `top:${base + geometry.margin.top}px;left:0;width:100%`, `top:${base + geometry.heightPx - contentBottomInset}px;left:0;width:100%`);
     }
     // Footnotes: a full-width area below all columns, just above the footer, on each page.
     drawFootnoteAreas(footRefs, fnRow, false, pageOf(wrappers),
@@ -1254,8 +1255,8 @@ export function createRichEditor(container: HTMLElement, adapter: Adapter, optio
 
     // measure header/footer at full page width (their own padding provides the margins)
     measure.style.width = `${geometry.widthPx}px`;
-    const headerH = header ? header.offsetHeight : 0;
-    const footerH = footer ? footer.offsetHeight : 0;
+    const headerH = hfHeight("header");
+    const footerH = hfHeight("footer");
     const contentTop = geometry.margin.top + headerH;
     const contentBottomInset = geometry.margin.bottom + footerH;
     const contentHeight = geometry.heightPx - contentTop - contentBottomInset;
@@ -1317,16 +1318,7 @@ export function createRichEditor(container: HTMLElement, adapter: Adapter, optio
       card.style.top = `${base}px`;
       card.style.height = `${geometry.heightPx}px`;
       pagelayer.appendChild(card);
-      if (header) {
-        const hc = mkClone(header, `top:${base + geometry.margin.top}px;left:0;width:100%`);
-        setCloneFields(hc, p + 1, cardCount);
-        hflayer.appendChild(hc);
-      }
-      if (footer) {
-        const fc = mkClone(footer, `top:${base + geometry.heightPx - contentBottomInset}px;left:0;width:100%`);
-        setCloneFields(fc, p + 1, cardCount);
-        hflayer.appendChild(fc);
-      }
+      cloneHF(p, cardCount, `top:${base + geometry.margin.top}px;left:0;width:100%`, `top:${base + geometry.heightPx - contentBottomInset}px;left:0;width:100%`);
     }
 
     // Footnotes: a per-page area just above the footer, holding the page's referenced notes.
@@ -1511,6 +1503,12 @@ export function createRichEditor(container: HTMLElement, adapter: Adapter, optio
       // has none, so fall back to the "header"/"footer" sentinel the adapters create from.
       if (header && !isBandEmpty(header)) editedParts.push({ path: parts.headerPath ?? "header", html: header.innerHTML });
       if (footer && !isBandEmpty(footer)) editedParts.push({ path: parts.footerPath ?? "footer", html: footer.innerHTML });
+      // First/even variants: saved only while their flag is on (toggling off drops them). The
+      // sentinel paths tell the adapter which w:type / odt slot to write into.
+      if (geometry.titlePage && headerFirst && !isBandEmpty(headerFirst)) editedParts.push({ path: parts.headerFirst?.path ?? "header:first", html: headerFirst.innerHTML });
+      if (geometry.titlePage && footerFirst && !isBandEmpty(footerFirst)) editedParts.push({ path: parts.footerFirst?.path ?? "footer:first", html: footerFirst.innerHTML });
+      if (geometry.evenOdd && headerEven && !isBandEmpty(headerEven)) editedParts.push({ path: parts.headerEven?.path ?? "header:even", html: headerEven.innerHTML });
+      if (geometry.evenOdd && footerEven && !isBandEmpty(footerEven)) editedParts.push({ path: parts.footerEven?.path ?? "footer:even", html: footerEven.innerHTML });
       for (const { el, path } of secBands.values()) if (!isBandEmpty(el)) editedParts.push({ path, html: el.innerHTML }); // distinct per-section bands
       // Footnote / endnote bodies still referenced in the body, in document order.
       const refIds = new Set(Array.from(doc.querySelectorAll(".docx-fnref")).map((r) => r.getAttribute("data-fn-id")));

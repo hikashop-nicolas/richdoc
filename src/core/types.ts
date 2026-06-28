@@ -52,6 +52,10 @@ export interface PageGeometry {
   columns?: number;
   /** Gap between columns, in px. */
   columnGapPx?: number;
+  /** Different first-page header/footer (docx w:titlePg, odt first-page master). */
+  titlePage?: boolean;
+  /** Different odd & even page header/footer (docx w:evenAndOddHeaders, odt *-left). */
+  evenOdd?: boolean;
 }
 
 /** The editable model the engine renders: body + header/footer HTML, comments, fonts. */
@@ -61,6 +65,12 @@ export interface RichDoc {
   footer: string;
   headerPath?: string; // adapter-specific key of the header part, for write-back
   footerPath?: string;
+  /** First-page and even-page header/footer variants (the default lives in header/footer above).
+      Present only when the document declares them; `path` is the adapter write-back key. */
+  headerFirst?: { html: string; path?: string };
+  footerFirst?: { html: string; path?: string };
+  headerEven?: { html: string; path?: string };
+  footerEven?: { html: string; path?: string };
   /** Distinct per-section header/footer parts, keyed by an opaque key that a section's boundary
       paragraph carries (data-rdoc-secheaderkey / data-rdoc-secfooterkey). `path` is the
       adapter-specific write-back key (docx: the real part path; odt: "header@<master>"). */
