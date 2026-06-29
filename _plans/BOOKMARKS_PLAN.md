@@ -36,7 +36,17 @@
   formats (start in one paragraph, end in another, valid in ooxml/odf). The only gap was the engine's
   cross-ref text, which ran the blocks together ("a gammadelta b"); it now flattens the cloned range
   with a space at each block boundary and collapses whitespace, while leaving inline runs untouched.
-- Deferred (still TODO): cross-refs to equations.
+- **Deferred item 4 DONE**: cross-references to equations. An equation cross-ref is just a caption
+  cross-ref against a third sequence, so "equation" was added as a caption kind (SEQ "Equation" /
+  text:sequence "Equation"), numbering independently. A general "Insert caption" tool (insert menu) is
+  the entry point: pick Figure/Table/Equation + optional text, captioning the caret's block (equations
+  have no image/table to hang off). The cross-ref dialog gained an "Equations" target type. Reading
+  maps a seq id of Equation to the equation kind.
+- **All deferred items are now done.** Possible future work, none currently planned: an actual equation
+  editor (equations themselves are still passthrough OMML/MathML); complex SEQ fields in the fldChar
+  form for captions read fine but the caption-paragraph tagging relies on a fldSimple-shaped seq span,
+  so a fldChar SEQ inside a paragraph is modelled as a seq field but its paragraph is still tagged a
+  caption via the same inner-scan, which works; outline-numbered heading references.
 
 ## Where we are today
 

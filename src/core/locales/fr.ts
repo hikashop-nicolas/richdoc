@@ -194,6 +194,10 @@ const dict: Dict = {
   refBelow: "ci-dessous",
   refFormatLabel: "Libellé et numéro",
   refFormatCaptionText: "Texte de la légende",
+  captionEquation: "Équation",
+  refEquations: "Équations",
+  insertCaption: "Insérer une légende",
+  captionType: "Libellé",
 };
 
 export default dict;

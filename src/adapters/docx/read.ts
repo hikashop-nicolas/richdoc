@@ -795,8 +795,9 @@ function renderBlocks(container: Element, ctx: RenderCtx): string {
       const lvl = Math.min(6, info.heading);
       html += `<h${lvl}${blockStyleAttr(info)}>${inner || "<br>"}</h${lvl}>`;
     } else {
-      // A paragraph carrying a caption sequence field is a figure/table caption (type from the seq id).
-      const capAttr = inner.includes('data-field="seq"') ? ` data-rdoc-caption="${/data-seq="Table"/i.test(inner) ? "table" : "figure"}"` : "";
+      // A paragraph carrying a caption sequence field is a figure/table/equation caption (type from the seq id).
+      const capKind = /data-seq="Table"/i.test(inner) ? "table" : /data-seq="Equation"/i.test(inner) ? "equation" : "figure";
+      const capAttr = inner.includes('data-field="seq"') ? ` data-rdoc-caption="${capKind}"` : "";
       html += `<p${blockStyleAttr(info)}${capAttr}>${inner || "<br>"}</p>`;
     }
     // A next-page section break ends the page after its paragraph; show it (display only, the

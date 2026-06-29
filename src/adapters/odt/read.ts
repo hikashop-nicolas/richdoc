@@ -774,8 +774,9 @@ function blockToHtml(el: Element, ctx: RCtx): string {
       return odtTableHtml(el, ctx);
     case "text:p": {
       const inner = inlineToHtml(el, ctx);
-      // A paragraph carrying a caption sequence field is a figure/table caption (type from the seq name).
-      const capAttr = inner.includes('data-field="seq"') ? ` data-rdoc-caption="${/data-seq="[^"]*[Tt]able/.test(inner) ? "table" : "figure"}"` : "";
+      // A paragraph carrying a caption sequence field is a figure/table/equation caption (type from the seq name).
+      const capKind = /data-seq="[^"]*[Tt]able/.test(inner) ? "table" : /data-seq="[^"]*[Ee]quation/.test(inner) ? "equation" : "figure";
+      const capAttr = inner.includes('data-field="seq"') ? ` data-rdoc-caption="${capKind}"` : "";
       return `${before}<p${alignAttr()}${namedAttr()}${breakAttr}${tabAttr}${capAttr}>${inner || "<br>"}</p>${after}`;
     }
     default:

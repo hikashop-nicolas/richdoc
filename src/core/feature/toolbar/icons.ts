@@ -41,6 +41,10 @@ export const bookmarkIcon =
 // A cross-reference: a link arrow pointing to a target line.
 export const xrefIcon =
   '<svg width="14" height="14" viewBox="0 0 16 16" fill="none" stroke="currentColor" stroke-width="1.3" stroke-linecap="round" stroke-linejoin="round"><path d="M2 4h6M2 8h4"/><path d="M9 11h4M11 9l2 2-2 2"/></svg>';
+// A caption: a framed item with a short label line beneath it.
+export const captionIcon =
+  '<svg width="14" height="14" viewBox="0 0 16 16" fill="none" stroke="currentColor" stroke-width="1.2" aria-hidden="true">' +
+  '<rect x="2.5" y="2" width="11" height="7" rx="1"/><path d="M5 12h6M4 14.5h8" stroke-linecap="round"/></svg>';
 // A note (footnote or endnote): text lines with a small superscript mark.
 export const footnoteIcon =
   '<svg width="14" height="14" viewBox="0 0 16 16" fill="none" stroke="currentColor" stroke-width="1.3" stroke-linecap="round" aria-hidden="true">' +

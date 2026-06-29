@@ -4,14 +4,14 @@
 // is how the cross-reference dialog lists it and how the adapters tag it on a round-trip.
 import { t } from "../i18n";
 
-export type CaptionKind = "figure" | "table";
+export type CaptionKind = "figure" | "table" | "equation";
 
 // The sequence identifier stored on the field (the Word SEQ name / odf sequence name). Kept distinct
 // from the visible label, which is localised.
-export const SEQ_ID: Record<CaptionKind, string> = { figure: "Figure", table: "Table" };
+export const SEQ_ID: Record<CaptionKind, string> = { figure: "Figure", table: "Table", equation: "Equation" };
 
 export function captionLabel(kind: CaptionKind): string {
-  return kind === "table" ? t("captionTable") : t("captionFigure");
+  return kind === "table" ? t("captionTable") : kind === "equation" ? t("captionEquation") : t("captionFigure");
 }
 
 /** The auto-numbering field shown inside a caption (non-editable; decorateFields sets its number). */

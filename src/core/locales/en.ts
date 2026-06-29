@@ -194,6 +194,10 @@ const dict: Dict = {
   refBelow: "below",
   refFormatLabel: "Label and number",
   refFormatCaptionText: "Caption text",
+  captionEquation: "Equation",
+  refEquations: "Equations",
+  insertCaption: "Insert caption",
+  captionType: "Label",
 };
 
 export default dict;

@@ -9,9 +9,10 @@ import { setupTrackChanges } from "../track-changes";
 import { setupStyles } from "./styles";
 import { setupFloatBar } from "./float-bar";
 import { setupShortcuts } from "./shortcuts";
+import { applyCaption, topBlock, captionText, captionAfter, type CaptionKind } from "../caption";
 import {
   alignIcon, indentIcon, bulletIcon, numberIcon, linkIcon, pbIcon, imgIcon, cmtIcon,
-  supIcon, subIcon, lineSpacingIcon, tableIcon, fieldIcon, furiganaIcon, footnoteIcon, bookmarkIcon, xrefIcon, caret, styleGroupSvg, insertGroupSvg,
+  supIcon, subIcon, lineSpacingIcon, tableIcon, fieldIcon, furiganaIcon, footnoteIcon, bookmarkIcon, xrefIcon, captionIcon, caret, styleGroupSvg, insertGroupSvg,
 } from "./icons";
 import type { Adapter, Capabilities, CommentThread, EditorOptions, NewStyle, RichDoc } from "../../types";
 
@@ -912,7 +913,7 @@ export function setupToolbar(deps: ToolbarDeps) {
     }
     return name;
   };
-  type XrefKind = "heading" | "bookmark" | "figure" | "table";
+  type XrefKind = "heading" | "bookmark" | "figure" | "table" | "equation";
   // The cross-reference targets of a kind, in document order: headings / captioned figures / captioned
   // tables (each referenced via a wrapping bookmark), or named bookmarks.
   const xrefTargets = (kind: XrefKind): { label: string; el: HTMLElement }[] => {
@@ -942,18 +943,19 @@ export function setupToolbar(deps: ToolbarDeps) {
   const tBookmark = mkXrefRadio("rdoc-xref-kind", "bookmark", t("refBookmarks"), false);
   const tFigure = mkXrefRadio("rdoc-xref-kind", "figure", t("refFigures"), false);
   const tTable = mkXrefRadio("rdoc-xref-kind", "table", t("refTables"), false);
+  const tEquation = mkXrefRadio("rdoc-xref-kind", "equation", t("refEquations"), false);
   const xrefKinds: { input: HTMLInputElement; kind: XrefKind }[] = [
     { input: tHeading.input, kind: "heading" }, { input: tBookmark.input, kind: "bookmark" },
-    { input: tFigure.input, kind: "figure" }, { input: tTable.input, kind: "table" },
+    { input: tFigure.input, kind: "figure" }, { input: tTable.input, kind: "table" }, { input: tEquation.input, kind: "equation" },
   ];
-  typeRow.append(tHeading.lab, tBookmark.lab, tFigure.lab, tTable.lab);
+  typeRow.append(tHeading.lab, tBookmark.lab, tFigure.lab, tTable.lab, tEquation.lab);
   const targetSel = document.createElement("select");
   targetSel.className = "docxedit-dialog-font";
   let xrefEls: HTMLElement[] = [];
   const fillTargets = () => {
     const kind = xrefKinds.find((k) => k.input.checked)?.kind ?? "heading";
-    // "Label and number" / "Caption text" only make sense for captioned figures/tables.
-    const caption = kind === "figure" || kind === "table";
+    // "Label and number" / "Caption text" only make sense for captioned figures/tables/equations.
+    const caption = kind === "figure" || kind === "table" || kind === "equation";
     fmtLabel.lab.hidden = !caption;
     fmtCaptionText.lab.hidden = !caption;
     if (!caption && (fmtLabel.input.checked || fmtCaptionText.input.checked)) fmtText.input.checked = true;
@@ -1021,10 +1023,76 @@ export function setupToolbar(deps: ToolbarDeps) {
     mark();
   });
 
+  // Insert caption dialog: pick a label (Figure / Table / Equation) and optional text, captioning the
+  // block at the caret. This is the entry point for equation captions (which have no image/table to hang off).
+  const capOverlay = document.createElement("div");
+  capOverlay.className = "docxedit-dialog-overlay";
+  capOverlay.hidden = true;
+  const capPanel = document.createElement("div");
+  capPanel.className = "docxedit-dialog docxedit-caption";
+  const capTitle = document.createElement("div");
+  capTitle.className = "docxedit-dialog-title";
+  capTitle.textContent = t("insertCaption");
+  const mkCapField = (label: string, control: HTMLElement): HTMLElement => {
+    const row = document.createElement("label");
+    row.className = "docxedit-dialog-row docxedit-imgdialog-field";
+    const span = document.createElement("span");
+    span.textContent = label;
+    row.append(span, control);
+    return row;
+  };
+  const capTypeSel = document.createElement("select");
+  capTypeSel.className = "docxedit-dialog-font";
+  for (const [val, key] of [["figure", "captionFigure"], ["table", "captionTable"], ["equation", "captionEquation"]] as const) capTypeSel.add(new Option(t(key), val));
+  capTypeSel.value = "equation";
+  const capTextInput = document.createElement("input");
+  capTextInput.type = "text";
+  capTextInput.className = "docxedit-dialog-font";
+  const capActions = document.createElement("div");
+  capActions.className = "docxedit-dialog-row docxedit-dialog-actions";
+  const capCancel = document.createElement("button");
+  capCancel.type = "button"; capCancel.className = "docxedit-menu-item"; capCancel.textContent = t("cancel");
+  const capInsertBtn = document.createElement("button");
+  capInsertBtn.type = "button"; capInsertBtn.className = "docxedit-menu-item docxedit-dialog-primary"; capInsertBtn.textContent = t("insert");
+  capActions.append(capCancel, capInsertBtn);
+  capPanel.append(capTitle, mkCapField(t("captionType"), capTypeSel), mkCapField(t("caption"), capTextInput), capActions);
+  capOverlay.appendChild(capPanel);
+  wrap.appendChild(capOverlay);
+  const closeCap = () => { capOverlay.hidden = true; };
+  const captionBlock = (): HTMLElement | null => {
+    const sel = window.getSelection();
+    if (!sel || !sel.rangeCount) return null;
+    const c = sel.getRangeAt(0).startContainer;
+    const el = c.nodeType === 3 ? c.parentElement : (c as Element);
+    return el && doc.contains(el) ? topBlock(el, doc) : null;
+  };
+  const prefillCaption = () => {
+    const block = captionBlock();
+    const cap = block ? captionAfter(block, capTypeSel.value as CaptionKind) : null;
+    capTextInput.value = cap ? captionText(cap) : "";
+  };
+  const openCaptionDialog = () => {
+    captureSel();
+    prefillCaption();
+    capOverlay.hidden = false;
+    capTextInput.focus();
+  };
+  capTypeSel.addEventListener("change", prefillCaption);
+  capOverlay.addEventListener("mousedown", (e) => { if (e.target === capOverlay) closeCap(); });
+  capCancel.addEventListener("click", closeCap);
+  capInsertBtn.addEventListener("click", () => {
+    closeCap();
+    restoreSel();
+    const block = captionBlock();
+    if (!block) return;
+    applyCaption(block, capTypeSel.value as CaptionKind, capTextInput.value);
+    mark();
+  });
+
   // Two clusters collapse into a single dropdown button when the toolbar runs out of room:
   // the character-formatting controls ("style"), and the insert controls.
   const styleSrc: (HTMLElement | null)[] = [boldBtn, italicBtn, underlineBtn, strikeBtn, supBtn, subBtn, caps.textColor ? colorInput : null, caps.textColor ? bgWrap : null, caps.fontControls ? fontSel : null, caps.fontControls ? sizeSel : null];
-  const insertSrc: (HTMLElement | null)[] = [caps.images ? iconBtn(imgIcon, t("insertImage"), insertImage) : null, caps.tables ? tableBtn : null, caps.fields ? fieldsBtn : null, caps.comments ? iconBtn(cmtIcon, t("addComment"), addComment) : null, caps.pageBreak ? iconBtn(pbIcon, t("insertPageBreak"), insertPageBreak) : null, linkBtn, iconBtn(footnoteIcon, t("insertNote"), openNoteDialog), iconBtn(bookmarkIcon, t("insertBookmark"), insertBookmark), iconBtn(xrefIcon, t("insertCrossRef"), openXrefDialog), caps.verticalText ? furiganaBtn : null];
+  const insertSrc: (HTMLElement | null)[] = [caps.images ? iconBtn(imgIcon, t("insertImage"), insertImage) : null, caps.tables ? tableBtn : null, caps.fields ? fieldsBtn : null, caps.comments ? iconBtn(cmtIcon, t("addComment"), addComment) : null, caps.pageBreak ? iconBtn(pbIcon, t("insertPageBreak"), insertPageBreak) : null, linkBtn, iconBtn(footnoteIcon, t("insertNote"), openNoteDialog), iconBtn(captionIcon, t("insertCaption"), openCaptionDialog), iconBtn(bookmarkIcon, t("insertBookmark"), insertBookmark), iconBtn(xrefIcon, t("insertCrossRef"), openXrefDialog), caps.verticalText ? furiganaBtn : null];
   const styleControls = styleSrc.filter((n): n is HTMLElement => n != null);
   const insertControls = insertSrc.filter((n): n is HTMLElement => n != null);
   // A collapsible cluster: a slot that holds the controls inline or a group button + a popover.
