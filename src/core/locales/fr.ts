@@ -201,6 +201,7 @@ const dict: Dict = {
   linkWeb: "Adresse web",
   linkInDoc: "Emplacement dans ce document",
   linkFollow: "Ctrl/Cmd+clic pour suivre",
+  outline: "Plan du document",
 };
 
 export default dict;

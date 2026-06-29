@@ -172,7 +172,23 @@
 .docxedit-bg { display: inline-flex; align-items: center; gap: 2px; }
 .docxedit-bg-clear { min-width: 26px; }
 
+/* The middle row: an optional outline pane on the left, then the scrolling page area. */
+.docxedit-main { display: flex; flex: 1; min-height: 0; }
 .docxedit-scroll { flex: 1; min-height: 0; overflow: auto; display: flex; flex-direction: column; align-items: safe center; padding: 24px; }
+/* Document outline (navigation) pane. */
+.docxedit-outline { flex: 0 0 240px; min-height: 0; overflow: auto; background: #3a3d42; color: #e6e8ec; border-right: 1px solid #2b2f36; display: flex; flex-direction: column; font: 13px/1.4 system-ui, sans-serif; }
+.docxedit-outline[hidden] { display: none; }
+.docxedit-outline-title { padding: 10px 12px; font-weight: 600; color: #aeb4bd; text-transform: uppercase; font-size: 11px; letter-spacing: .04em; border-bottom: 1px solid #2b2f36; }
+.docxedit-outline-list { padding: 4px 0; }
+.docxedit-outline-empty { padding: 10px 12px; color: #888; font-style: italic; }
+.docxedit-outline-row { display: block; width: 100%; text-align: left; background: none; border: none; color: inherit; cursor: pointer; padding: 4px 12px; border-radius: 0; white-space: nowrap; overflow: hidden; text-overflow: ellipsis; font: inherit; }
+.docxedit-outline-row:hover { background: rgba(110,123,255,.18); }
+.docxedit-outline-h1 { font-weight: 600; }
+.docxedit-outline-h2 { padding-left: 26px; }
+.docxedit-outline-h3 { padding-left: 40px; color: #c4c9d2; }
+.docxedit-bottombar-btn { display: inline-flex; align-items: center; justify-content: center; padding: 3px 7px; background: #2b2f36; color: #cfd3da; border: 1px solid #4a4f57; border-radius: 6px; cursor: pointer; }
+.docxedit-bottombar-btn:hover { border-color: #6e7bff; }
+.docxedit-bottombar-btn.is-on { background: #6e7bff; color: #fff; border-color: #6e7bff; }
 /* Symmetric margins keep the page centred; the right one holds the comments column. */
 .docxedit-canvas { display: flex; align-items: flex-start; gap: 18px; flex: 0 0 auto; }
 .docxedit-margin { flex: 0 1 250px; min-width: 0; }

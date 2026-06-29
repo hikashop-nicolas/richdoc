@@ -1097,6 +1097,37 @@ describe("shared engine mount", () => {
     host.remove();
   });
 
+  it("lists the document's headings in the outline pane and updates on edit", () => {
+    const doc = `<?xml version="1.0"?><w:document xmlns:w="http://schemas.openxmlformats.org/wordprocessingml/2006/main"><w:body>` +
+      `<w:p><w:pPr><w:pStyle w:val="Heading1"/></w:pPr><w:r><w:t>Intro</w:t></w:r></w:p>` +
+      `<w:p><w:pPr><w:pStyle w:val="Heading2"/></w:pPr><w:r><w:t>Detail</w:t></w:r></w:p>` +
+      `<w:p><w:r><w:t>body</w:t></w:r></w:p>` +
+      `</w:body></w:document>`;
+    const bytes = zipSync({
+      "[Content_Types].xml": strToU8("<Types/>"),
+      "_rels/.rels": strToU8("<Relationships/>"),
+      "word/document.xml": strToU8(doc),
+      "word/_rels/document.xml.rels": strToU8(`<Relationships xmlns="http://schemas.openxmlformats.org/package/2006/relationships"></Relationships>`),
+    });
+    const host = document.createElement("div");
+    document.body.appendChild(host);
+    const ed = createDocxEditor(host, bytes);
+    const pane = host.querySelector(".docxedit-outline") as HTMLElement;
+    expect(pane.hidden).toBe(true); // collapsed by default
+    (host.querySelector(".docxedit-bottombar-btn") as HTMLButtonElement).click(); // open the outline
+    expect(pane.hidden).toBe(false);
+    const rows = [...host.querySelectorAll(".docxedit-outline-row")].map((r) => r.textContent);
+    expect(rows).toEqual(["Intro", "Detail"]);
+    // clicking a row scrolls its heading into view
+    const h2 = host.querySelector(".docxedit-doc h2") as HTMLElement;
+    let scrolled: Element | null = null;
+    h2.scrollIntoView = function () { scrolled = this; };
+    ([...host.querySelectorAll(".docxedit-outline-row")].find((r) => r.textContent === "Detail") as HTMLButtonElement).click();
+    expect(scrolled).toBe(h2);
+    ed.destroy();
+    host.remove();
+  });
+
   it("resolves a cross-reference to a bookmark that spans a block boundary, separating the blocks", () => {
     const bm = (id: string, end = false) =>
       `<w:bookmark${end ? "End" : "Start"} w:id="${id}"${end ? "" : ` w:name="${id}"`}/>`;

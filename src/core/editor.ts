@@ -12,6 +12,7 @@ import { setupImageLayout } from "./feature/image-layout";
 import { setupPageView } from "./feature/page-view";
 import { setupToolbar } from "./feature/toolbar";
 import { setupTableEdit } from "./feature/table-edit";
+import { setupOutline } from "./feature/outline";
 import "../adapters/docx/docxedit.css";
 
 export function createRichEditor(container: HTMLElement, adapter: Adapter, options: EditorOptions = {}): RichEditor {
@@ -370,7 +371,13 @@ export function createRichEditor(container: HTMLElement, adapter: Adapter, optio
   if (sectionBreakBtn) bottomRight.append(sectionBreakBtn);
   bottomRight.append(pageSetupBtn, zoomSlider, zoomLabel);
   bottomBar.append(bottomLeft, bottomRight);
-  wrap.append(toolbar, scroll, bottomBar);
+  // The outline pane sits left of the scroll area in a flex row; its toggle lives in the status bar.
+  const outline = setupOutline({ doc });
+  const main = document.createElement("div");
+  main.className = "docxedit-main";
+  main.append(outline.pane, scroll);
+  bottomLeft.append(outline.toggleBtn);
+  wrap.append(toolbar, main, bottomBar);
   container.appendChild(wrap);
 
   // Footnote / endnote area below the pages. References are renumbered in document order and each
@@ -1578,7 +1585,7 @@ export function createRichEditor(container: HTMLElement, adapter: Adapter, optio
     insertSectionBreak: sectionBreakBtn ? () => sectionBreakBtn.click() : null,
     insertNote: (kind, text) => insertNote(kind, text),
   });
-  afterReflow = updateChangeButtons;
+  afterReflow = () => { updateChangeButtons(); outline.refresh(); };
   updateChangeButtons();
 
   // Table editing toolbar (shown while the caret is in a table cell).
@@ -1617,6 +1624,7 @@ export function createRichEditor(container: HTMLElement, adapter: Adapter, optio
       teardownToolbar();
       tableEdit?.teardown();
       imageLayout?.teardown();
+      outline.teardown();
       teardownPageView();
       wrap.remove();
     },
