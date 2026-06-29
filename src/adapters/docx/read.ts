@@ -538,9 +538,27 @@ const inlinePassthrough = (el: Element): string => `<span class="docx-pass" cont
 function inlineToHtml(p: Element, ctx: RenderCtx): string {
   let html = "";
   for (const id of ctx.openComments) html += `<span class="docx-comment" data-comment-id="${escapeAttr(id)}">`;
+  let field: FieldState | null = null;
   for (const node of Array.from(p.childNodes)) {
     if (node.nodeType !== 1) continue;
     const el = node as Element;
+    // A complex field in progress: consume every node up to its matching end, then emit the field.
+    if (field) {
+      const fc = el.tagName === "w:r" ? fldCharType(el) : null;
+      field.raw += inlinePassthrough(el);
+      if (fc === "begin") field.depth++;
+      else if (fc === "end") { if (--field.depth === 0) { html += finishField(field); field = null; } }
+      else if (fc === "separate" && field.depth === 1) field.phase = "result";
+      else if (field.depth === 1) {
+        if (field.phase === "instr") field.instr += instrTextOf(el);
+        else field.result += el.textContent ?? "";
+      }
+      continue;
+    }
+    if (el.tagName === "w:r" && fldCharType(el) === "begin") {
+      field = { depth: 1, phase: "instr", instr: "", result: "", raw: inlinePassthrough(el) };
+      continue;
+    }
     if (el.tagName === "w:commentRangeStart") {
       const id = el.getAttribute("w:id") ?? "";
       html += commentMark(el);
@@ -587,6 +605,7 @@ function inlineToHtml(p: Element, ctx: RenderCtx): string {
       html += inlinePassthrough(el);
     }
   }
+  if (field) html += field.raw; // a malformed field with no end: keep its runs verbatim
   for (let i = 0; i < ctx.openComments.size; i++) html += "</span>"; // closed here, reopened next paragraph
   return html;
 }
@@ -839,6 +858,27 @@ function xrefHtml(name: string, fmt: "text" | "page", cached: string): string {
 function parseSeqInstr(instr: string): string | null {
   const m = /^\s*SEQ\s+(\S+)/i.exec(instr);
   return m ? m[1]! : null;
+}
+// The w:fldChar type ("begin" | "separate" | "end") carried by a run, or null if it has none.
+function fldCharType(run: Element): string | null {
+  return run.getElementsByTagName("w:fldChar")[0]?.getAttribute("w:fldCharType") ?? null;
+}
+// The instruction text held by a run's w:instrText children (a complex field's instr is split across runs).
+function instrTextOf(run: Element): string {
+  let s = "";
+  for (const it of Array.from(run.getElementsByTagName("w:instrText"))) s += it.textContent ?? "";
+  return s;
+}
+// State for a complex field (fldChar begin ... instr ... separate ... result ... end). `raw` is the
+// per-run passthrough used verbatim when the field is not one we model; `result` is the cached text.
+interface FieldState { depth: number; phase: "instr" | "result"; instr: string; result: string; raw: string }
+// Turn a finished complex field into a cross-ref / caption seq element, or its verbatim passthrough.
+function finishField(field: FieldState): string {
+  const ref = parseRefInstr(field.instr);
+  if (ref) return xrefHtml(ref.name, ref.fmt, field.result);
+  const seq = parseSeqInstr(field.instr);
+  if (seq) return seqFieldHtml(seq, field.result);
+  return field.raw; // PAGE / TOC / DATE / unknown: keep the original runs
 }
 // A caption auto-number field; the engine renumbers each sequence on reflow.
 function seqFieldHtml(id: string, cached: string): string {

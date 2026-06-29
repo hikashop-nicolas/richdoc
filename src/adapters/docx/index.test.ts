@@ -1197,6 +1197,33 @@ describe("list fidelity: nesting and ordered/bullet", () => {
     expect(html).toContain('data-seq="Figure"');
   });
 
+  it("reads complex (fldChar) REF/PAGEREF and SEQ fields, not just fldSimple", () => {
+    const r = (xml: string) => `<w:r>${xml}</w:r>`;
+    const ref = (instr: string, cached: string) =>
+      r('<w:fldChar w:fldCharType="begin"/>') +
+      r(`<w:instrText xml:space="preserve">${instr}</w:instrText>`) +
+      r('<w:fldChar w:fldCharType="separate"/>') +
+      r(`<w:t>${cached}</w:t>`) +
+      r('<w:fldChar w:fldCharType="end"/>');
+    const doc = `<?xml version="1.0"?>
+<w:document xmlns:w="http://schemas.openxmlformats.org/wordprocessingml/2006/main">
+ <w:body>
+  <w:p>${ref(" REF intro \\h ", "Introduction")} on page ${ref(" PAGEREF intro ", "3")}</w:p>
+  <w:p>Figure ${ref(" SEQ Figure \\* ARABIC ", "2")}: chart</w:p>
+  <w:p>Built ${ref(" DATE ", "2026-01-01")}</w:p>
+ </w:body>
+</w:document>`;
+    const html = docxToHtml(makeDocx(doc));
+    expect(html).toContain('data-rdoc-xref="intro"');
+    expect(html).toContain('data-rdoc-xref-fmt="text"');
+    expect(html).toContain('data-rdoc-xref-fmt="page"');
+    expect(html).toContain(">Introduction</a>"); // the cached result becomes the xref text
+    expect(html).toContain('data-rdoc-caption="figure"');
+    expect(html).toContain('data-seq="Figure"');
+    expect(html).not.toMatch(/REF intro/); // the instruction text is no longer shown
+    expect(html).toContain("docx-pass"); // the unmodelled DATE field stays passthrough
+  });
+
   it("writes a caption paragraph back as a Caption-styled SEQ field", () => {
     const body =
       '<p data-rdoc-caption="table">Table <span class="docx-field docx-field-seq" data-field="seq" data-seq="Table" contenteditable="false">1</span>: Results</p>';

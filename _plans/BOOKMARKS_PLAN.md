@@ -21,9 +21,13 @@
   bookmark). Instead it WRAPS the element's content in a real `docx-bookmark` / `docx-bookmark-end`
   anchor pair (`_Ref<n>`), so it round-trips through the existing bookmark write path and the engine
   reads the text from the wrapped range.
-- Deferred (still TODO): caption number via complex SEQ fields (fldChar) reads as passthrough (only
-  fldSimple SEQ is modelled); reference formats beyond text/page (label+number vs caption-text-only,
-  above/below, paragraph number); cross-refs to equations.
+- **Deferred item 1 DONE**: complex (fldChar begin/instr/separate/result/end) fields are now modelled
+  on docx read, not just fldSimple. A state machine in the inline reader collects the field, then maps
+  REF/PAGEREF -> xref and SEQ -> caption seq (cached result becomes the shown text); PAGE/TOC/DATE/etc.
+  stay verbatim passthrough. They write back as fldSimple (complex -> simple, Word-equivalent). odt has
+  no complex-field concept, so this is docx-only.
+- Deferred (still TODO): reference formats beyond text/page (label+number vs caption-text-only,
+  above/below, paragraph number); range bookmark fidelity across block boundaries; cross-refs to equations.
 
 ## Where we are today
 
