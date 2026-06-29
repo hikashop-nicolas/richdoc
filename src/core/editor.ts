@@ -595,6 +595,22 @@ export function createRichEditor(container: HTMLElement, adapter: Adapter, optio
     const fSrc = pickHF("footer", p);
     if (fSrc) { const fc = mkClone(fSrc, footerCss); setCloneFields(fc, p + 1, total); hflayer.appendChild(fc); }
   };
+  // Flatten a fragment to one line, inserting a space at each block boundary so a range bookmark that
+  // spans paragraphs does not run its text together ("a gammadelta b"); whitespace is then collapsed.
+  const BLOCK_TAGS = /^(P|H[1-6]|LI|DIV|TD|TH|BLOCKQUOTE|PRE|TR)$/;
+  const fragText = (node: Node): string => {
+    let out = "";
+    for (const child of Array.from(node.childNodes)) {
+      if (child.nodeType === 3) { out += child.textContent ?? ""; continue; }
+      if (child.nodeType !== 1) continue;
+      const el = child as HTMLElement;
+      const block = BLOCK_TAGS.test(el.tagName);
+      if (block && out && !out.endsWith(" ")) out += " ";
+      out += fragText(el);
+      if (block) out += " ";
+    }
+    return out;
+  };
   // The display text for a cross-reference to `target`: a heading's text, a range bookmark's spanned
   // text, or the bookmark name as a fallback for a point bookmark.
   const xrefTargetText = (target: HTMLElement, name: string): string => {
@@ -605,7 +621,7 @@ export function createRichEditor(container: HTMLElement, adapter: Adapter, optio
       const r = document.createRange();
       r.setStartAfter(target);
       r.setEndBefore(end);
-      const txt = r.toString().trim();
+      const txt = fragText(r.cloneContents()).replace(/\s+/g, " ").trim();
       if (txt) return txt;
     }
     return name;

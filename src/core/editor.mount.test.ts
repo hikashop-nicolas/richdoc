@@ -1096,4 +1096,27 @@ describe("shared engine mount", () => {
     ed.destroy();
     host.remove();
   });
+
+  it("resolves a cross-reference to a bookmark that spans a block boundary, separating the blocks", () => {
+    const bm = (id: string, end = false) =>
+      `<w:bookmark${end ? "End" : "Start"} w:id="${id}"${end ? "" : ` w:name="${id}"`}/>`;
+    const doc = `<?xml version="1.0"?><w:document xmlns:w="http://schemas.openxmlformats.org/wordprocessingml/2006/main"><w:body>` +
+      `<w:p><w:r><w:t xml:space="preserve">Alpha </w:t></w:r>${bm("span1")}<w:r><w:t>beta gamma</w:t></w:r></w:p>` +
+      `<w:p><w:r><w:t>delta epsilon</w:t></w:r>${bm("span1", true)}<w:r><w:t xml:space="preserve"> zeta</w:t></w:r></w:p>` +
+      `<w:p><w:fldSimple w:instr=" REF span1 \\h "><w:r><w:t>x</w:t></w:r></w:fldSimple></w:p>` +
+      `</w:body></w:document>`;
+    const bytes = zipSync({
+      "[Content_Types].xml": strToU8("<Types/>"),
+      "_rels/.rels": strToU8("<Relationships/>"),
+      "word/document.xml": strToU8(doc),
+      "word/_rels/document.xml.rels": strToU8(`<Relationships xmlns="http://schemas.openxmlformats.org/package/2006/relationships"></Relationships>`),
+    });
+    const host = document.createElement("div");
+    document.body.appendChild(host);
+    const ed = createDocxEditor(host, bytes);
+    const xref = host.querySelector(".docx-xref");
+    expect(xref?.textContent).toBe("beta gamma delta epsilon"); // a space at the block boundary, not "gammadelta"
+    ed.destroy();
+    host.remove();
+  });
 });

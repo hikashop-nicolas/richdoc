@@ -32,7 +32,11 @@
   narrower bookmark inside the caption (start..number, or after the ": "..end), so they round-trip as
   ordinary bookmarks with plain text format and the engine reads the right sub-range. "Paragraph number"
   was intentionally skipped (our headings are not outline-numbered, so it would render empty).
-- Deferred (still TODO): range bookmark fidelity across block boundaries; cross-refs to equations.
+- **Deferred item 3 DONE**: range bookmarks already round-tripped across block boundaries in both
+  formats (start in one paragraph, end in another, valid in ooxml/odf). The only gap was the engine's
+  cross-ref text, which ran the blocks together ("a gammadelta b"); it now flattens the cloned range
+  with a space at each block boundary and collapses whitespace, while leaving inline runs untouched.
+- Deferred (still TODO): cross-refs to equations.
 
 ## Where we are today
 
