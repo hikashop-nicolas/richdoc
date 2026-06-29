@@ -975,6 +975,13 @@ describe("odt bookmarks and cross-references", () => {
     expect(html).toContain('data-rdoc-xref="intro"');
   });
 
+  it("round-trips an internal hyperlink (xlink:href=#name)", () => {
+    const out = htmlToOdt('<p>See <a href="#intro">the intro</a></p>', makeOdt());
+    const xml = strFromU8(unzipSync(out)["content.xml"]);
+    expect(xml).toMatch(/<text:a[^>]*xlink:href="#intro"/);
+    expect(odtToHtml(out)).toContain('href="#intro"');
+  });
+
   it("round-trips an above/below cross-reference via reference-format=direction", () => {
     const body = '<p><a class="docx-xref" data-rdoc-xref="intro" data-rdoc-xref-fmt="direction" contenteditable="false">below</a></p>';
     const out = htmlToOdt(body, makeOdt());

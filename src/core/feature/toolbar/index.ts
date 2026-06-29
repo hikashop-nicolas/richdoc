@@ -286,12 +286,9 @@ export function setupToolbar(deps: ToolbarDeps) {
 
   // Toolbar: shared controls always shown; image/comment/page-break/track-changes are
   // gated by the adapter's capabilities so a format can hide what it cannot serialize.
-  const insertLink = () => {
-    const url = prompt(t("linkPrompt"), "https://");
-    if (url === null) return;
-    if (url === "") exec("unlink");
-    else exec("createLink", url);
-  };
+  // The link dialog is built later (it reuses the cross-reference target helpers); insertLink just opens it.
+  let openLinkDialog: () => void = () => {};
+  const insertLink = () => openLinkDialog();
   const linkBtn = iconBtn(linkIcon, withSc(t("linkAria"), "K"), insertLink);
   // Furigana (ruby): wrap the selection in <ruby>base<rt>reading</rt></ruby>, or edit / remove the
   // reading when the caret is already inside a ruby.
@@ -1087,6 +1084,112 @@ export function setupToolbar(deps: ToolbarDeps) {
     if (!block) return;
     applyCaption(block, capTypeSel.value as CaptionKind, capTextInput.value);
     mark();
+  });
+
+  // Link dialog: a web address, or a place in this document (a heading / bookmark / caption, referenced
+  // by an href="#name" anchor). An in-document target without a name yet gets a wrapping bookmark minted.
+  const linkOverlay = document.createElement("div");
+  linkOverlay.className = "docxedit-dialog-overlay";
+  linkOverlay.hidden = true;
+  const linkPanel = document.createElement("div");
+  linkPanel.className = "docxedit-dialog docxedit-link";
+  const linkTitle = document.createElement("div");
+  linkTitle.className = "docxedit-dialog-title";
+  linkTitle.textContent = t("link");
+  const linkModeRow = document.createElement("div");
+  linkModeRow.className = "docxedit-dialog-row docxedit-noteinsert-kind";
+  const mWeb = mkXrefRadio("rdoc-link-mode", "web", t("linkWeb"), true);
+  const mDoc = mkXrefRadio("rdoc-link-mode", "doc", t("linkInDoc"), false);
+  linkModeRow.append(mWeb.lab, mDoc.lab);
+  const linkUrlInput = document.createElement("input");
+  linkUrlInput.type = "text";
+  linkUrlInput.className = "docxedit-dialog-font";
+  linkUrlInput.placeholder = "https://";
+  const linkUrlRow = document.createElement("div");
+  linkUrlRow.className = "docxedit-dialog-row";
+  linkUrlRow.append(linkUrlInput);
+  const linkTargetSel = document.createElement("select");
+  linkTargetSel.className = "docxedit-dialog-font";
+  const linkTargetRow = document.createElement("div");
+  linkTargetRow.className = "docxedit-dialog-row";
+  linkTargetRow.append(linkTargetSel);
+  let linkTargets: { label: string; el: HTMLElement }[] = [];
+  const LINK_GROUPS: [XrefKind, () => string][] = [
+    ["heading", () => t("refHeadings")], ["bookmark", () => t("refBookmarks")],
+    ["figure", () => t("refFigures")], ["table", () => t("refTables")], ["equation", () => t("refEquations")],
+  ];
+  const fillLinkTargets = () => {
+    linkTargets = [];
+    linkTargetSel.replaceChildren();
+    for (const [kind, label] of LINK_GROUPS) {
+      const items = xrefTargets(kind);
+      if (!items.length) continue;
+      const og = document.createElement("optgroup");
+      og.label = label();
+      for (const it of items) {
+        const o = document.createElement("option");
+        o.value = String(linkTargets.length);
+        o.textContent = it.label;
+        og.appendChild(o);
+        linkTargets.push(it);
+      }
+      linkTargetSel.appendChild(og);
+    }
+  };
+  const syncLinkMode = () => { linkUrlRow.hidden = !mWeb.input.checked; linkTargetRow.hidden = mWeb.input.checked; };
+  mWeb.input.addEventListener("change", syncLinkMode);
+  mDoc.input.addEventListener("change", syncLinkMode);
+  const linkActions = document.createElement("div");
+  linkActions.className = "docxedit-dialog-row docxedit-dialog-actions";
+  const linkCancel = document.createElement("button");
+  linkCancel.type = "button"; linkCancel.className = "docxedit-menu-item"; linkCancel.textContent = t("cancel");
+  const linkApply = document.createElement("button");
+  linkApply.type = "button"; linkApply.className = "docxedit-menu-item docxedit-dialog-primary"; linkApply.textContent = t("insert");
+  linkActions.append(linkCancel, linkApply);
+  linkPanel.append(linkTitle, linkModeRow, linkUrlRow, linkTargetRow, linkActions);
+  linkOverlay.appendChild(linkPanel);
+  wrap.appendChild(linkOverlay);
+  const closeLink = () => { linkOverlay.hidden = true; };
+  openLinkDialog = () => {
+    captureSel();
+    // Prefill the web field from an existing link on the selection.
+    const a = getActiveEl()?.closest?.("a[href]") as HTMLAnchorElement | null;
+    const existing = a?.getAttribute("href") ?? "";
+    const inDoc = existing.startsWith("#");
+    mWeb.input.checked = !inDoc;
+    mDoc.input.checked = inDoc;
+    linkUrlInput.value = inDoc ? "" : existing;
+    fillLinkTargets();
+    syncLinkMode();
+    linkOverlay.hidden = false;
+    (mWeb.input.checked ? linkUrlInput : linkTargetSel).focus();
+  };
+  linkOverlay.addEventListener("mousedown", (e) => { if (e.target === linkOverlay) closeLink(); });
+  linkCancel.addEventListener("click", closeLink);
+  linkApply.addEventListener("click", () => {
+    closeLink();
+    restoreSel();
+    if (mWeb.input.checked) {
+      const url = linkUrlInput.value.trim();
+      if (url) exec("createLink", url); else exec("unlink");
+      return;
+    }
+    const target = linkTargets[Number(linkTargetSel.value)];
+    if (!target) return;
+    const name = target.el.hasAttribute("data-rdoc-bm") ? target.el.getAttribute("data-rdoc-bm") || "" : blockBmName(target.el);
+    if (!name) return;
+    const tagInternalLinks = () => doc.querySelectorAll<HTMLElement>('a[href^="#"]:not([title])').forEach((a) => a.setAttribute("title", t("linkFollow")));
+    const sel = window.getSelection();
+    if (sel && !sel.isCollapsed) { exec("createLink", "#" + name); tagInternalLinks(); return; }
+    // Nothing selected: drop in the target's label as the link text.
+    if (sel && sel.rangeCount) {
+      const a2 = document.createElement("a");
+      a2.setAttribute("href", "#" + name);
+      a2.setAttribute("title", t("linkFollow"));
+      a2.textContent = target.label;
+      const r = sel.getRangeAt(0); r.insertNode(a2); r.setStartAfter(a2); r.collapse(true);
+      mark();
+    }
   });
 
   // Two clusters collapse into a single dropdown button when the toolbar runs out of room:

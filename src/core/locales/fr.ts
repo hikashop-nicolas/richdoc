@@ -198,6 +198,9 @@ const dict: Dict = {
   refEquations: "Équations",
   insertCaption: "Insérer une légende",
   captionType: "Libellé",
+  linkWeb: "Adresse web",
+  linkInDoc: "Emplacement dans ce document",
+  linkFollow: "Ctrl/Cmd+clic pour suivre",
 };
 
 export default dict;

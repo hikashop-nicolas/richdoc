@@ -59,7 +59,10 @@
   fields menu, written as `w:fldSimple` (docx) / `text:page-number` (odt), and recomputed live by
   `decorateFields()` on every reflow (the TOC field rebuilds its rows from the live headings - the
   closest analog to an auto-updating cross-reference).
-- Hyperlinks round-trip as `<a href>`; internal anchor links are not handled yet.
+- Hyperlinks round-trip as `<a href>`. Internal anchor links (`href="#name"` to a bookmark / heading /
+  caption) are now handled too: the link dialog offers a web address or an in-document target (minting a
+  wrapping bookmark for a heading/caption), ctrl/cmd-click follows the link, and they round-trip as a
+  docx `w:hyperlink w:anchor` / odf `xlink:href="#name"`.
 
 ## Scope
 

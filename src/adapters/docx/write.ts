@@ -393,7 +393,16 @@ function appendInline(ctx: DocxCtx, node: Node, parent: Element, f: Fmt, del = f
       continue;
     }
     if (tag === "a") {
-      const id = addHyperlinkRel(ctx, el.getAttribute("href") ?? "");
+      const href = el.getAttribute("href") ?? "";
+      if (href.startsWith("#")) {
+        // An internal link to a bookmark: w:hyperlink w:anchor (no relationship).
+        const link = ctx.doc.createElementNS(W, "w:hyperlink");
+        link.setAttributeNS(W, "w:anchor", href.slice(1));
+        appendInline(ctx, el, link, f, del, change);
+        parent.appendChild(link);
+        continue;
+      }
+      const id = addHyperlinkRel(ctx, href);
       if (id) {
         const link = ctx.doc.createElementNS(W, "w:hyperlink");
         link.setAttributeNS(R, "r:id", id);

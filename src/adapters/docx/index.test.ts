@@ -1184,6 +1184,22 @@ describe("list fidelity: nesting and ordered/bullet", () => {
     expect(html).toContain('data-rdoc-xref="intro"');
   });
 
+  it("round-trips an internal hyperlink as a w:hyperlink w:anchor", () => {
+    const out = htmlToDocx('<p>See <a href="#intro">the intro</a></p>', makeDocx());
+    const xml = strFromU8(unzipSync(out)["word/document.xml"]!);
+    expect(xml).toMatch(/<w:hyperlink[^>]*w:anchor="intro"/);
+    expect(xml).not.toMatch(/r:id="rId/); // no external relationship was minted
+    expect(docxToHtml(out)).toContain('<a href="#intro">');
+  });
+
+  it("reads a w:hyperlink w:anchor as an internal link", () => {
+    const doc = `<?xml version="1.0"?>
+<w:document xmlns:w="http://schemas.openxmlformats.org/wordprocessingml/2006/main">
+ <w:body><w:p><w:hyperlink w:anchor="intro"><w:r><w:t>go</w:t></w:r></w:hyperlink></w:p></w:body>
+</w:document>`;
+    expect(docxToHtml(makeDocx(doc))).toContain('<a href="#intro">go</a>');
+  });
+
   it("round-trips an above/below cross-reference via the \\p switch", () => {
     const body = '<p><a class="docx-xref" data-rdoc-xref="intro" data-rdoc-xref-fmt="direction" contenteditable="false">below</a></p>';
     const out = htmlToDocx(body, makeDocx());

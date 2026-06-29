@@ -198,6 +198,9 @@ const dict: Dict = {
   refEquations: "Equations",
   insertCaption: "Insert caption",
   captionType: "Label",
+  linkWeb: "Web address",
+  linkInDoc: "Place in this document",
+  linkFollow: "Ctrl/Cmd-click to follow",
 };
 
 export default dict;

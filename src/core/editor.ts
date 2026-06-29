@@ -1515,6 +1515,16 @@ export function createRichEditor(container: HTMLElement, adapter: Adapter, optio
   // Clicking a table-of-contents row scrolls to its heading (rows match headings in order); clicking
   // a cross-reference jumps to its target bookmark / heading.
   doc.addEventListener("click", (e) => {
+    // Ctrl/Cmd-click an internal link (href="#name") jumps to the bookmark / heading it targets.
+    const link = (e.target as HTMLElement).closest?.("a[href^='#']") as HTMLAnchorElement | null;
+    if (link && (e.metaKey || e.ctrlKey)) {
+      e.preventDefault();
+      const name = decodeURIComponent((link.getAttribute("href") || "").slice(1));
+      const tgt = Array.from(doc.querySelectorAll<HTMLElement>("[data-rdoc-bm]")).find((el) => el.getAttribute("data-rdoc-bm") === name)
+        ?? Array.from(doc.querySelectorAll<HTMLElement>("[id]")).find((el) => el.id === name);
+      tgt?.scrollIntoView({ block: "center", behavior: "smooth" });
+      return;
+    }
     const xref = (e.target as HTMLElement).closest?.(".docx-xref") as HTMLElement | null;
     if (xref) {
       const name = xref.getAttribute("data-rdoc-xref");

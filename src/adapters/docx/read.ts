@@ -596,7 +596,8 @@ function inlineToHtml(p: Element, ctx: RenderCtx): string {
       else html += inlinePassthrough(el); // PAGE / other simple fields stay as-is
     } else if (el.tagName === "w:hyperlink") {
       const id = el.getAttributeNS(R, "id") ?? el.getAttribute("r:id") ?? "";
-      const href = ctx.rels.get(id) ?? "";
+      const anchor = el.getAttribute("w:anchor"); // an internal link to a bookmark
+      const href = id ? (ctx.rels.get(id) ?? "") : anchor ? "#" + anchor : "";
       let inner = "";
       for (const r of Array.from(el.getElementsByTagName("w:r"))) inner += hasDrawing(r) ? imageHtml(r, ctx) : runToHtml(r);
       html += `<a href="${escapeHtml(href)}">${inner}</a>`;
