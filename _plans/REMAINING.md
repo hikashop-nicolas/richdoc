@@ -49,6 +49,15 @@ context (a paragraph, or the document body) is regenerated from the edited HTML.
   the reflow; the wrappers are stripped on save and `w:cols` round-trips.
 - Header / footer (the default one), with live page-number / page-count / TOC
   fields.
+- **First-page and even/odd header & footer variants**: the document's first-page and even-page
+  header/footer are read, rendered on the right pages (first on page 1, even on even pages, default
+  otherwise; the reserve uses the tallest variant), and individually editable. Two "Different first
+  page" / "Different odd & even pages" checkboxes in the Page setup dialog author them (turning one
+  on adds the empty variant bands, off drops them). docx writes the typed `w:headerReference`
+  variants, `w:titlePg`, and `w:evenAndOddHeaders` (minting settings.xml if absent); odt writes
+  even pages via `style:header-left` / `style:footer-left`. odt first-page (the separate
+  next-style-name master) is the one piece deferred: it renders + toggles but is not yet saved.
+  Design in `_plans/HEADERS_PLAN.md`.
 - Inline images, hyperlinks.
 - **Furigana / ruby**: `w:ruby` (docx) / `text:ruby` (odt) read, rendered as a native HTML
   `<ruby>base<rt>reading</rt></ruby>` (the browser places the reading above in horizontal text and
@@ -151,8 +160,6 @@ authorable; they are realistic to do, just not yet built.
 - Bookmarks (`w:bookmarkStart/End`) and cross-references - no insert UI.
 - Complex fields - only PAGE / NUMPAGES / TOC are authored; date, file name,
   author, etc. are preserved but not insertable.
-- First-page / even-odd header & footer parts - preserved as files; only the
-  default header/footer is editable.
 - Page borders, page-number restart - preserved on the trailing section, not
   authorable.
 
@@ -178,8 +185,8 @@ which they do.
 
 - Single-section documents keep their full section properties (columns, borders,
   page-number restart, etc.); per-section authoring (C1) is the real risk.
-- First/even/odd and per-section header/footer *parts* are not regenerated, so
-  they survive a save; only the default header/footer is shown for editing.
+- First-page and even/odd header/footer variants are now read, rendered and authored (see bucket A);
+  odt first-page is the only deferred piece. Per-section header/footer parts are preserved + editable.
 - The odt adapter mirrors docx for floating images (`draw:frame` anchor-type +
   a graphic style carrying `style:wrap` / `style:run-through` / `style:horizontal-pos`,
   and `svg:x`/`svg:y` for behind/front). The section model and tab stops are shared with docx and

@@ -895,4 +895,24 @@ describe("odt named character styles", () => {
     const content = strFromU8(unzipSync(out)["content.xml"]);
     expect(content).toMatch(/<text:span[^>]*text:style-name="Emphasis"[^>]*>em<\/text:span>/);
   });
+
+  it("reads and writes an even-page (left) header variant (odt)", () => {
+    const styles = `<?xml version="1.0"?><office:document-styles xmlns:office="urn:oasis:names:tc:opendocument:xmlns:office:1.0" xmlns:style="urn:oasis:names:tc:opendocument:xmlns:style:1.0" xmlns:text="urn:oasis:names:tc:opendocument:xmlns:text:1.0" xmlns:fo="urn:oasis:names:tc:opendocument:xmlns:xsl-fo-compatible:1.0">` +
+      `<office:automatic-styles><style:page-layout style:name="pm1"><style:page-layout-properties fo:page-width="21cm" fo:page-height="29.7cm" fo:margin-top="2cm" fo:margin-right="2cm" fo:margin-bottom="2cm" fo:margin-left="2cm"/></style:page-layout></office:automatic-styles>` +
+      `<office:master-styles><style:master-page style:name="Standard" style:page-layout-name="pm1"><style:header><text:p>ODD</text:p></style:header><style:header-left><text:p>EVEN</text:p></style:header-left></style:master-page></office:master-styles></office:document-styles>`;
+    const odt = zipSync({
+      mimetype: [strToU8("application/vnd.oasis.opendocument.text"), { level: 0 }],
+      "content.xml": strToU8(CONTENT),
+      "styles.xml": strToU8(styles),
+      "META-INF/manifest.xml": strToU8("<m/>"),
+    });
+    const parts = odtToParts(odt);
+    expect(parts.header).toContain("ODD");
+    expect(parts.headerEven?.html).toContain("EVEN");
+    expect(parts.page?.evenOdd).toBe(true);
+    // write the even variant back (edited content) to style:header-left
+    const out = htmlToOdt("<p>body</p>", odt, { parts: [{ path: "header-left@Standard", html: "<p>EVEN2</p>" }] });
+    const sx = strFromU8(unzipSync(out)["styles.xml"]);
+    expect(sx).toMatch(/<style:header-left>[\s\S]*EVEN2[\s\S]*<\/style:header-left>/);
+  });
 });

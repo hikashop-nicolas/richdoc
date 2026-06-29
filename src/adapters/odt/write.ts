@@ -797,7 +797,10 @@ function ensureMasterPage(doc: Document): Element | null {
     "header"/"footer" for the default master, or "header@<master>"/"footer@<master>" for a
     distinct per-section master. */
 function applyHeaderFooter(files: Record<string, Uint8Array>, parts: { path: string; html: string }[]): void {
-  const hf = parts.filter((p) => /^(header|footer)(@|$)/.test(p.path));
+  // "header"/"footer" (default), "header@M"/"footer@M" (per-section master), "header-left@M"/
+  // "footer-left@M" (even-page variant), and the "header:even"/"footer:even" sentinels from a
+  // freshly-toggled even variant. ("header:first" is docx-only; odt first page is not authored yet.)
+  const hf = parts.filter((p) => /^(header|footer)(-left)?(@|$)/.test(p.path) || /^(header|footer):even$/.test(p.path));
   if (!hf.length || !files["styles.xml"]) return;
   const doc = new DOMParser().parseFromString(strFromU8(files["styles.xml"]), "application/xml");
   const defaultMaster = ensureMasterPage(doc);
@@ -815,11 +818,16 @@ function applyHeaderFooter(files: Record<string, Uint8Array>, parts: { path: str
     changes: [],
   };
   for (const p of hf) {
-    const at = p.path.indexOf("@");
-    const role = at < 0 ? p.path : p.path.slice(0, at); // "header" | "footer"
-    const master = at < 0 ? defaultMaster : byName(p.path.slice(at + 1));
+    const evenSentinel = /^(header|footer):even$/.exec(p.path);
+    let role: string, isLeft: boolean, master: Element | null;
+    if (evenSentinel) { role = evenSentinel[1]!; isLeft = true; master = defaultMaster; }
+    else {
+      const m = /^(header|footer)(-left)?(?:@(.+))?$/.exec(p.path);
+      if (!m) continue;
+      role = m[1]!; isLeft = !!m[2]; master = m[3] ? byName(m[3]) : defaultMaster;
+    }
     if (!master) continue;
-    const tag = role === "header" ? "style:header" : "style:footer";
+    const tag = (role === "header" ? "style:header" : "style:footer") + (isLeft ? "-left" : "");
     let el = master.getElementsByTagName(tag)[0];
     if (!el) {
       el = doc.createElementNS(NS.style, tag);
