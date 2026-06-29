@@ -56,9 +56,8 @@ context (a paragraph, or the document body) is regenerated from the edited HTML.
   on adds the empty variant bands, off drops them). docx writes the typed `w:headerReference`
   variants, `w:titlePg`, and `w:evenAndOddHeaders` (minting settings.xml if absent); odt writes the
   even and first-page variants as `style:header-left` / `style:footer-left` and `style:header-first` /
-  `style:footer-first` (ODF 1.3). Both formats round-trip. (One odt edge: an enabled-but-empty
-  first-page header is not representable without content, since ODF keys the variant off the element's
-  presence.) Design in `_plans/HEADERS_PLAN.md`.
+  `style:footer-first` (ODF 1.3). An enabled-but-empty variant is still written (an empty element),
+  so a blank first/even page round-trips in both formats. Design in `_plans/HEADERS_PLAN.md`.
 - Inline images, hyperlinks.
 - **Furigana / ruby**: `w:ruby` (docx) / `text:ruby` (odt) read, rendered as a native HTML
   `<ruby>base<rt>reading</rt></ruby>` (the browser places the reading above in horizontal text and

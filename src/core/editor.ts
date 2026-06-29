@@ -1525,12 +1525,13 @@ export function createRichEditor(container: HTMLElement, adapter: Adapter, optio
       // has none, so fall back to the "header"/"footer" sentinel the adapters create from.
       if (header && !isBandEmpty(header)) editedParts.push({ path: parts.headerPath ?? "header", html: header.innerHTML });
       if (footer && !isBandEmpty(footer)) editedParts.push({ path: parts.footerPath ?? "footer", html: footer.innerHTML });
-      // First/even variants: saved only while their flag is on (toggling off drops them). The
-      // sentinel paths tell the adapter which w:type / odt slot to write into.
-      if (geometry.titlePage && headerFirst && !isBandEmpty(headerFirst)) editedParts.push({ path: parts.headerFirst?.path ?? "header:first", html: headerFirst.innerHTML });
-      if (geometry.titlePage && footerFirst && !isBandEmpty(footerFirst)) editedParts.push({ path: parts.footerFirst?.path ?? "footer:first", html: footerFirst.innerHTML });
-      if (geometry.evenOdd && headerEven && !isBandEmpty(headerEven)) editedParts.push({ path: parts.headerEven?.path ?? "header:even", html: headerEven.innerHTML });
-      if (geometry.evenOdd && footerEven && !isBandEmpty(footerEven)) editedParts.push({ path: parts.footerEven?.path ?? "footer:even", html: footerEven.innerHTML });
+      // First/even variants: saved whenever their flag is on (toggling off drops them), even when
+      // empty, so an enabled-but-blank variant means a blank first/even page (which odt can only
+      // represent by writing the empty element). The sentinel paths tell the adapter the slot.
+      if (geometry.titlePage && headerFirst) editedParts.push({ path: parts.headerFirst?.path ?? "header:first", html: headerFirst.innerHTML });
+      if (geometry.titlePage && footerFirst) editedParts.push({ path: parts.footerFirst?.path ?? "footer:first", html: footerFirst.innerHTML });
+      if (geometry.evenOdd && headerEven) editedParts.push({ path: parts.headerEven?.path ?? "header:even", html: headerEven.innerHTML });
+      if (geometry.evenOdd && footerEven) editedParts.push({ path: parts.footerEven?.path ?? "footer:even", html: footerEven.innerHTML });
       for (const { el, path } of secBands.values()) if (!isBandEmpty(el)) editedParts.push({ path, html: el.innerHTML }); // distinct per-section bands
       // Footnote / endnote bodies still referenced in the body, in document order.
       const refIds = new Set(Array.from(doc.querySelectorAll(".docx-fnref")).map((r) => r.getAttribute("data-fn-id")));

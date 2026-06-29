@@ -933,5 +933,8 @@ describe("odt named character styles", () => {
     const out = htmlToOdt("<p>body</p>", odt, { parts: [{ path: "header:first", html: "<p>TITLE2</p>" }] });
     const sx = strFromU8(unzipSync(out)["styles.xml"]);
     expect(sx).toMatch(/<style:header-first>[\s\S]*TITLE2[\s\S]*<\/style:header-first>/);
+    // an enabled-but-empty first header still writes the element, so a blank first page round-trips
+    const blank = htmlToOdt("<p>body</p>", odt, { parts: [{ path: "header:first", html: "<p><br></p>" }] });
+    expect(strFromU8(unzipSync(blank)["styles.xml"])).toContain("style:header-first");
   });
 });

@@ -71,8 +71,8 @@ drops them (back to default everywhere). Writes the flags into the geometry/mode
   `style:header` serves odd/right pages.
 - first page: ODF 1.3 has `style:header-first` / `style:footer-first` as master-page children,
   exactly parallel to `style:header-left` (no separate next-style-name master needed). Read/write
-  them the same way as even/odd. DONE. (Edge: an enabled-but-empty first-page header is not
-  representable, ODF keys the variant off the element's presence.)
+  them the same way as even/odd. DONE. An enabled-but-empty variant is written as an empty element
+  (getBytes saves a variant whenever its flag is on), so a blank first/even page round-trips.
 
 ## Tests
 
