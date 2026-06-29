@@ -171,6 +171,8 @@ const dict: Dict = {
   insert: "Insert",
   tabStop: "Tab stop (drag to move, click to change type, drag off to remove)",
   tabStopType: "Tab stop type (click to change)",
+  differentFirstPage: "Different first page",
+  differentEvenOdd: "Different odd & even pages",
 };
 
 export default dict;

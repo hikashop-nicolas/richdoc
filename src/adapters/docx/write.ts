@@ -1096,17 +1096,13 @@ function ensureOverride(files: Record<string, Uint8Array>, partName: string, mim
   files[key] = strToU8(new XMLSerializer().serializeToString(doc));
 }
 
-/** Create a new header/footer part from edited HTML and wire it into the body section:
-    a new word/<kind>N.xml, a relationship in document.xml.rels, a w:headerReference /
-    w:footerReference in the section properties, and a content-type override. */
-function createHeaderFooterPart(files: Record<string, Uint8Array>, kind: "header" | "footer", html: string): void {
-  if (!files["word/document.xml"]) return;
+/** Mint a new word/<kind>N.xml from edited HTML, register its relationship + content-type, and
+    return the document relationship id (no section reference is added; callers wire that). */
+function mintPartFile(files: Record<string, Uint8Array>, kind: "header" | "footer", html: string): string {
   const isHeader = kind === "header";
   let n = 1;
   while (files[`word/${kind}${n}.xml`]) n++;
   const partPath = `word/${kind}${n}.xml`;
-
-  // Build the part from the edited HTML, reusing the body block conversion.
   const decls = Object.entries(NS_DECLS).map(([k, v]) => `${k}="${v}"`).join(" ");
   const partDoc = new DOMParser().parseFromString(`<${isHeader ? "w:hdr" : "w:ftr"} ${decls}></${isHeader ? "w:hdr" : "w:ftr"}>`, "application/xml");
   const container = partDoc.documentElement!;
@@ -1119,7 +1115,6 @@ function createHeaderFooterPart(files: Record<string, Uint8Array>, kind: "header
   if (ctx.relsAdded) files[`word/_rels/${kind}${n}.xml.rels`] = strToU8(new XMLSerializer().serializeToString(relsDoc));
   ensureOverride(files, `/${partPath}`, isHeader ? CT_HEADER : CT_FOOTER);
 
-  // Relationship from the document to the new part.
   const relsPath = "word/_rels/document.xml.rels";
   const dRels = files[relsPath]
     ? new DOMParser().parseFromString(strFromU8(files[relsPath]!), "application/xml")
@@ -1136,17 +1131,90 @@ function createHeaderFooterPart(files: Record<string, Uint8Array>, kind: "header
   rel.setAttribute("Target", `${kind}${n}.xml`);
   dRels.documentElement!.appendChild(rel);
   files[relsPath] = strToU8(new XMLSerializer().serializeToString(dRels));
+  return rid;
+}
 
-  // Reference it from the section properties (header/footer refs lead the sectPr sequence).
+/** Create a new default header/footer part and reference it from the body section. */
+function createHeaderFooterPart(files: Record<string, Uint8Array>, kind: "header" | "footer", html: string): void {
+  if (!files["word/document.xml"]) return;
+  const rid = mintPartFile(files, kind, html);
   const bodyDoc = new DOMParser().parseFromString(strFromU8(files["word/document.xml"]!), "application/xml");
   const sectPr = Array.from(bodyDoc.getElementsByTagName("w:sectPr")).pop();
   if (sectPr) {
-    const ref = bodyDoc.createElementNS(W, isHeader ? "w:headerReference" : "w:footerReference");
+    const ref = bodyDoc.createElementNS(W, kind === "header" ? "w:headerReference" : "w:footerReference");
     ref.setAttributeNS(W, "w:type", "default");
     ref.setAttributeNS(R, "r:id", rid);
     sectPr.insertBefore(ref, sectPr.firstChild);
     files["word/document.xml"] = strToU8(new XMLSerializer().serializeToString(bodyDoc));
   }
+}
+
+/** Apply the document-level header/footer variants + their on/off flags to the trailing section
+    and settings.xml. `variants` holds the edited HTML for any UI-created (sentinel) variant part. */
+function applyHFVariants(files: Record<string, Uint8Array>, geometry: PageGeometry, variants: Map<string, string>): void {
+  if (!files["word/document.xml"]) return;
+  const flagOf = (v: "first" | "even") => (v === "first" ? !!geometry.titlePage : !!geometry.evenOdd);
+  // Mint any sentinel variant parts first (each adds a document relationship); collect their rids.
+  const minted = new Map<string, string>(); // `${role}:${variant}` -> rId
+  for (const variant of ["first", "even"] as const) {
+    if (!flagOf(variant)) continue;
+    for (const role of ["header", "footer"] as const) {
+      const html = variants.get(`${role}:${variant}`);
+      if (html != null) minted.set(`${role}:${variant}`, mintPartFile(files, role, html));
+    }
+  }
+  const doc = new DOMParser().parseFromString(strFromU8(files["word/document.xml"]!), "application/xml");
+  const sectPr = Array.from(doc.getElementsByTagName("w:sectPr")).pop();
+  if (!sectPr) return;
+  // Different first page: the w:titlePg flag in the trailing sectPr.
+  const tp = sectPr.getElementsByTagName("w:titlePg")[0];
+  if (geometry.titlePage && !tp) sectPr.appendChild(doc.createElementNS(W, "w:titlePg"));
+  else if (!geometry.titlePage && tp) tp.remove();
+  for (const variant of ["first", "even"] as const) {
+    for (const role of ["header", "footer"] as const) {
+      const refTag = role === "header" ? "w:headerReference" : "w:footerReference";
+      const existing = Array.from(sectPr.getElementsByTagName(refTag)).filter((r) => r.getAttribute("w:type") === variant);
+      const rid = minted.get(`${role}:${variant}`);
+      if (rid) { for (const e of existing) e.remove(); const ref = doc.createElementNS(W, refTag); ref.setAttributeNS(W, "w:type", variant); ref.setAttributeNS(R, "r:id", rid); sectPr.insertBefore(ref, sectPr.firstChild); }
+      else if (!flagOf(variant)) for (const e of existing) e.remove(); // flag off: drop the typed reference (part orphaned, harmless)
+      // flag on without a minted part: an existing typed reference rides along untouched.
+    }
+  }
+  files["word/document.xml"] = strToU8(new XMLSerializer().serializeToString(doc));
+  setEvenAndOddHeaders(files, !!geometry.evenOdd);
+}
+
+/** Set or clear the document-level w:evenAndOddHeaders flag in word/settings.xml (minting the part,
+    its content-type and the document relationship when it is turned on and the part is absent). */
+function setEvenAndOddHeaders(files: Record<string, Uint8Array>, on: boolean): void {
+  const key = "word/settings.xml";
+  if (!files[key]) {
+    if (!on) return;
+    files[key] = strToU8(`<?xml version="1.0" encoding="UTF-8" standalone="yes"?><w:settings xmlns:w="${W}"><w:evenAndOddHeaders/></w:settings>`);
+    ensureOverride(files, "/word/settings.xml", "application/vnd.openxmlformats-officedocument.wordprocessingml.settings+xml");
+    const relsPath = "word/_rels/document.xml.rels";
+    const dRels = files[relsPath]
+      ? new DOMParser().parseFromString(strFromU8(files[relsPath]!), "application/xml")
+      : new DOMParser().parseFromString(`<Relationships xmlns="${PKG}"></Relationships>`, "application/xml");
+    if (!Array.from(dRels.getElementsByTagName("Relationship")).some((r) => r.getAttribute("Target") === "settings.xml")) {
+      let maxR = 0;
+      for (const r of Array.from(dRels.getElementsByTagName("Relationship"))) { const m = /^rId(\d+)$/.exec(r.getAttribute("Id") ?? ""); if (m) maxR = Math.max(maxR, Number(m[1])); }
+      const rel = dRels.createElementNS(PKG, "Relationship");
+      rel.setAttribute("Id", `rId${maxR + 1}`);
+      rel.setAttribute("Type", "http://schemas.openxmlformats.org/officeDocument/2006/relationships/settings");
+      rel.setAttribute("Target", "settings.xml");
+      dRels.documentElement!.appendChild(rel);
+      files[relsPath] = strToU8(new XMLSerializer().serializeToString(dRels));
+    }
+    return;
+  }
+  const doc = new DOMParser().parseFromString(strFromU8(files[key]!), "application/xml");
+  const root = doc.documentElement;
+  if (!root) return;
+  const cur = root.getElementsByTagName("w:evenAndOddHeaders")[0];
+  if (on && !cur) root.insertBefore(doc.createElementNS(W, "w:evenAndOddHeaders"), root.firstChild);
+  else if (!on && cur) cur.remove();
+  files[key] = strToU8(new XMLSerializer().serializeToString(doc));
 }
 
 const REL_COMMENTS = "http://schemas.openxmlformats.org/officeDocument/2006/relationships/comments";
@@ -1649,8 +1717,12 @@ export function htmlToDocx(
   for (const p of parts ?? []) bandHtml.set(p.path, p.html);
   rebuildPart(files, "word/document.xml", html, bandHtml);
   if (opts?.newStyles?.length) addNewStyles(files, opts.newStyles);
+  // First/even variant parts created in-editor arrive as "header:first" / "footer:even" sentinels;
+  // hold them out of the generic loop and mint them with their typed reference in applyHFVariants.
+  const hfVariants = new Map<string, string>();
   for (const p of parts ?? []) {
     if (/^new(header|footer):/.test(p.path)) continue; // an unlinked section's part: minted in buildSectPr
+    if (/^(header|footer):(first|even)$/.test(p.path)) { hfVariants.set(p.path, p.html); continue; }
     // "header" / "footer" are sentinels for a band created in-editor (no existing part).
     if (p.path === "header" || p.path === "footer") createHeaderFooterPart(files, p.path, p.html);
     else rebuildPart(files, p.path, p.html);
@@ -1661,7 +1733,7 @@ export function htmlToDocx(
   applyReplies(files, opts?.replies ?? []);
   applyDone(files, opts?.done ?? new Map());
   applyDeletedComments(files, opts?.deletedComments ?? []);
-  if (opts?.pageGeometry) applyPageMargins(files, opts.pageGeometry);
+  if (opts?.pageGeometry) { applyPageMargins(files, opts.pageGeometry); applyHFVariants(files, opts.pageGeometry, hfVariants); }
   return zipSync(files);
 }
 

@@ -1110,4 +1110,42 @@ describe("list fidelity: nesting and ordered/bullet", () => {
     expect(doc).toMatch(/w:numId[^>]*w:val="1"/); // bullet reused
     expect(doc).toMatch(/w:numId[^>]*w:val="2"/); // ordered reused
   });
+
+  it("reads first-page and even/odd header & footer variants", () => {
+    const doc = `<?xml version="1.0"?><w:document xmlns:w="http://schemas.openxmlformats.org/wordprocessingml/2006/main" xmlns:r="http://schemas.openxmlformats.org/officeDocument/2006/relationships"><w:body><w:p><w:r><w:t>Body</w:t></w:r></w:p>` +
+      `<w:sectPr><w:headerReference w:type="default" r:id="rH1"/><w:headerReference w:type="first" r:id="rH2"/><w:headerReference w:type="even" r:id="rH3"/><w:titlePg/><w:pgSz w:w="11906" w:h="16838"/></w:sectPr></w:body></w:document>`;
+    const hdr = (t: string) => `<?xml version="1.0"?><w:hdr xmlns:w="http://schemas.openxmlformats.org/wordprocessingml/2006/main"><w:p><w:r><w:t>${t}</w:t></w:r></w:p></w:hdr>`;
+    const rels = `<Relationships xmlns="http://schemas.openxmlformats.org/package/2006/relationships"><Relationship Id="rH1" Type="http://schemas.openxmlformats.org/officeDocument/2006/relationships/header" Target="header1.xml"/><Relationship Id="rH2" Type="http://schemas.openxmlformats.org/officeDocument/2006/relationships/header" Target="header2.xml"/><Relationship Id="rH3" Type="http://schemas.openxmlformats.org/officeDocument/2006/relationships/header" Target="header3.xml"/></Relationships>`;
+    const zip = zipSync({
+      "[Content_Types].xml": strToU8("<Types/>"),
+      "_rels/.rels": strToU8("<Relationships/>"),
+      "word/document.xml": strToU8(doc),
+      "word/settings.xml": strToU8('<?xml version="1.0"?><w:settings xmlns:w="http://schemas.openxmlformats.org/wordprocessingml/2006/main"><w:evenAndOddHeaders/></w:settings>'),
+      "word/header1.xml": strToU8(hdr("DEF")),
+      "word/header2.xml": strToU8(hdr("FIRST")),
+      "word/header3.xml": strToU8(hdr("EVEN")),
+      "word/_rels/document.xml.rels": strToU8(rels),
+    });
+    const parts = docxToParts(zip);
+    expect(parts.headerFirst?.html).toContain("FIRST");
+    expect(parts.headerEven?.html).toContain("EVEN");
+    expect(parts.page?.titlePage).toBe(true);
+    expect(parts.page?.evenOdd).toBe(true);
+  });
+
+  it("writes header/footer variant parts + their flags from the model", () => {
+    const out = htmlToDocx("<p>Body</p>", makeDocx(), [
+      { path: "header:first", html: "<p>FIRSTH</p>" },
+      { path: "footer:even", html: "<p>EVENF</p>" },
+    ], { pageGeometry: { widthPx: 794, heightPx: 1123, margin: { top: 96, right: 96, bottom: 96, left: 96 }, titlePage: true, evenOdd: true } });
+    const files = unzipSync(out);
+    const docXml = strFromU8(files["word/document.xml"]!);
+    expect(docXml).toContain("w:titlePg");
+    expect(docXml).toMatch(/headerReference[^>]*w:type="first"/);
+    expect(docXml).toMatch(/footerReference[^>]*w:type="even"/);
+    expect(strFromU8(files["word/settings.xml"]!)).toContain("w:evenAndOddHeaders");
+    const partTexts = Object.entries(files).filter(([k]) => /word\/(header|footer)\d+\.xml/.test(k)).map(([, v]) => strFromU8(v)).join("\n");
+    expect(partTexts).toContain("FIRSTH");
+    expect(partTexts).toContain("EVENF");
+  });
 });

@@ -171,6 +171,8 @@ const dict: Dict = {
   insert: "Insérer",
   tabStop: "Taquet de tabulation (glisser pour déplacer, cliquer pour changer de type, glisser hors de la règle pour retirer)",
   tabStopType: "Type de taquet (cliquer pour changer)",
+  differentFirstPage: "Première page différente",
+  differentEvenOdd: "Pages paires et impaires différentes",
 };
 
 export default dict;

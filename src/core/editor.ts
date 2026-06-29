@@ -127,8 +127,9 @@ export function createRichEditor(container: HTMLElement, adapter: Adapter, optio
   // The space a role reserves: the tallest of its present variants, so no page's variant overlaps
   // the body even though the paginator uses one uniform content height for all pages.
   const hfHeight = (role: "header" | "footer"): number => {
-    const bands = role === "header" ? [header, headerFirst, headerEven] : [footer, footerFirst, footerEven];
-    return Math.max(0, ...bands.map((b) => b?.offsetHeight ?? 0));
+    const first = geometry.titlePage ? (role === "header" ? headerFirst : footerFirst) : null;
+    const even = geometry.evenOdd ? (role === "header" ? headerEven : footerEven) : null;
+    return Math.max(0, ...[role === "header" ? header : footer, first, even].map((b) => b?.offsetHeight ?? 0));
   };
   // Distinct per-section header/footer source bands, keyed by the key a section's boundary
   // paragraph carries (data-rdoc-sec*key). Each is editable + saved back to its own part.
@@ -334,12 +335,29 @@ export function createRichEditor(container: HTMLElement, adapter: Adapter, optio
   };
 
   // Page view: rulers (margin handles) + zoom + the centred canvas around the page box.
+  // Turn the document's first-page / even-odd header & footer variants on or off. On: ensure the
+  // variant source bands exist (empty, like Word, so an enabled-but-empty first header just leaves
+  // page 1 blank); off: keep any band in memory but stop showing/saving it (pickHF + hfHeight +
+  // getBytes all gate on the flag, so re-enabling restores the content).
+  const toggleHFVariant = (variant: "first" | "even", on: boolean): void => {
+    const ensure = (cur: HTMLElement | null, role: "header" | "footer"): HTMLElement | null => {
+      if (!on || cur) return cur;
+      const el = band(role === "header" ? "docxedit-header" : "docxedit-footer", t(role), "<p><br></p>");
+      if (el) measure.appendChild(el);
+      return el;
+    };
+    if (variant === "first") { geometry.titlePage = on || undefined; headerFirst = ensure(headerFirst, "header"); footerFirst = ensure(footerFirst, "footer"); }
+    else { geometry.evenOdd = on || undefined; headerEven = ensure(headerEven, "header"); footerEven = ensure(footerEven, "footer"); }
+    geometryDirty = true;
+    mark();
+    reflow();
+  };
   const { applyZoom, effectiveZoom, zoomSlider, zoomLabel, pageSetupBtn, sectionBreakBtn, teardown: teardownPageView } = setupPageView({
     page, pagebox, canvas, leftSpacer, rightArea, scroll, geometry, options, caps,
     getVertical: () => isVertical(),
     applyGeometry, mark, positionCards, reflow: () => reflow(), scheduleReflow: () => scheduleReflow(),
     markGeometryDirty: () => { geometryDirty = true; },
-    readSectionGeom, writeSectionGeom, insertSectionBreak,
+    readSectionGeom, writeSectionGeom, insertSectionBreak, toggleHFVariant,
   });
   // Bottom bar: paragraph/character style pickers on the left, zoom on the right. Keeps the
   // top toolbar focused on formatting/insert controls.
@@ -1197,16 +1215,20 @@ export function createRichEditor(container: HTMLElement, adapter: Adapter, optio
     boxMeta.forEach(({ box, g, fH, headerEl, footerEl, boundaryEl }, i) => {
       const cw = g.w - g.ml - g.mr;
       const left = dx + box.offsetLeft + g.ml;
-      if (headerEl && !isBandEmpty(headerEl)) {
+      // A section using the document default gets the first/even variant for its page; a section with
+      // its own band keeps it. (i is the cumulative 0-based page index.)
+      const hSrc = headerEl === header ? pickHF("header", i) : headerEl;
+      const fSrc = footerEl === footer ? pickHF("footer", i) : footerEl;
+      if (hSrc && !isBandEmpty(hSrc)) {
         const top = dy + box.offsetTop + g.mt;
-        const hc = mkClone(headerEl, `top:${top}px;left:${left}px;width:${cw}px`);
+        const hc = mkClone(hSrc, `top:${top}px;left:${left}px;width:${cw}px`);
         setCloneFields(hc, i + 1, total);
         hflayer.appendChild(hc);
         if (boundaryEl) hflayer.appendChild(mkLinkChip("header", boundaryEl, `top:${top}px;left:${left + cw - 18}px`));
       }
-      if (footerEl && !isBandEmpty(footerEl)) {
+      if (fSrc && !isBandEmpty(fSrc)) {
         const top = dy + box.offsetTop + g.h - g.mb - fH;
-        const fc = mkClone(footerEl, `top:${top}px;left:${left}px;width:${cw}px`);
+        const fc = mkClone(fSrc, `top:${top}px;left:${left}px;width:${cw}px`);
         setCloneFields(fc, i + 1, total);
         hflayer.appendChild(fc);
         if (boundaryEl) hflayer.appendChild(mkLinkChip("footer", boundaryEl, `top:${top}px;left:${left + cw - 18}px`));

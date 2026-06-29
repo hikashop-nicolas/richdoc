@@ -31,10 +31,12 @@ export interface PageViewDeps {
   writeSectionGeom: (g: SecGeom) => void;
   /** Insert a next-page section break after the caret's paragraph (mutates the model). */
   insertSectionBreak: () => void;
+  /** Turn the document's first-page / even-odd header & footer variants on or off. */
+  toggleHFVariant: (variant: "first" | "even", on: boolean) => void;
 }
 
 export function setupPageView(deps: PageViewDeps) {
-  const { page, pagebox, canvas, leftSpacer, rightArea, scroll, geometry, options, caps, getVertical, applyGeometry, mark, positionCards, reflow, scheduleReflow, markGeometryDirty, readSectionGeom, writeSectionGeom, insertSectionBreak } = deps;
+  const { page, pagebox, canvas, leftSpacer, rightArea, scroll, geometry, options, caps, getVertical, applyGeometry, mark, positionCards, reflow, scheduleReflow, markGeometryDirty, readSectionGeom, writeSectionGeom, insertSectionBreak, toggleHFVariant } = deps;
   const vertical = () => getVertical();
 
   // --- Tab-stop authoring state ---------------------------------------------
@@ -589,6 +591,19 @@ export function setupPageView(deps: PageViewDeps) {
   marginCustomRow.append(fMT.wrap, fMR.wrap, fMB.wrap, fML.wrap);
   const { row: colRow, sel: colSel } = mkSelectRow(t("columns"), [["1", "1"], ["2", "2"], ["3", "3"]]);
   const { row: dirRow, sel: dirSel } = mkSelectRow(t("textDirection"), [["horizontal", t("dirHorizontal")], ["vertical", t("dirVertical")], ["rtl", t("dirRtl")]]);
+  // Document-level header/footer variant toggles (apply to the whole document, not just one section).
+  const mkCheckRow = (label: string): { row: HTMLElement; input: HTMLInputElement } => {
+    const row = document.createElement("label");
+    row.className = "docxedit-dialog-row docxedit-pagesetup-check";
+    const input = document.createElement("input");
+    input.type = "checkbox";
+    const span = document.createElement("span");
+    span.textContent = label;
+    row.append(input, span);
+    return { row, input };
+  };
+  const { row: firstRow, input: firstCheck } = mkCheckRow(t("differentFirstPage"));
+  const { row: evenRow, input: evenCheck } = mkCheckRow(t("differentEvenOdd"));
   const syncCustom = () => {
     const customSize = sizeSel.value === "custom";
     customRow.hidden = !customSize;
@@ -604,7 +619,7 @@ export function setupPageView(deps: PageViewDeps) {
   const psActions = document.createElement("div");
   psActions.className = "docxedit-dialog-row docxedit-dialog-actions";
   psActions.append(psCancel, psApply);
-  psPanel.append(psTitle, sizeRow, customRow, orientRow, marginRow, marginCustomRow, colRow, ...(caps.verticalText ? [dirRow] : []), psActions);
+  psPanel.append(psTitle, sizeRow, customRow, orientRow, marginRow, marginCustomRow, colRow, ...(caps.verticalText ? [dirRow] : []), firstRow, evenRow, psActions);
   scroll.appendChild(psOverlay);
   const closePageSetup = () => { psOverlay.hidden = true; };
   const openPageSetup = () => {
@@ -621,6 +636,8 @@ export function setupPageView(deps: PageViewDeps) {
     mlIn.value = (g.ml / CM).toFixed(2);
     colSel.value = String(g.cols && g.cols > 1 ? g.cols : 1);
     dirSel.value = g.vertical ? "vertical" : g.rtl ? "rtl" : "horizontal";
+    firstCheck.checked = !!geometry.titlePage; // document-level, not per-section
+    evenCheck.checked = !!geometry.evenOdd;
     syncCustom();
     psOverlay.hidden = false;
   };
@@ -648,6 +665,9 @@ export function setupPageView(deps: PageViewDeps) {
     const g: SecGeom = { w, h, mt, mr, mb, ml, cols: c > 1 ? c : undefined, colGap: c > 1 ? (cur.colGap ?? 36) : undefined };
     if (caps.verticalText) { g.vertical = dirSel.value === "vertical" || undefined; g.rtl = dirSel.value === "rtl" || undefined; }
     writeSectionGeom(g);
+    // Document-level header/footer variants: only act on a change (so existing bands are kept).
+    if (!!geometry.titlePage !== firstCheck.checked) toggleHFVariant("first", firstCheck.checked);
+    if (!!geometry.evenOdd !== evenCheck.checked) toggleHFVariant("even", evenCheck.checked);
     reflow();
     applyZoom();
     mark();

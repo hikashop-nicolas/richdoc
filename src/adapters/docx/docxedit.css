@@ -150,6 +150,8 @@
 .docxedit-noteinsert-opt { display: inline-flex; align-items: center; gap: 4px; cursor: pointer; }
 .docxedit-dialog-font { flex: 1; min-width: 120px; padding: 6px 8px; border: 1px solid #4a4f57; border-radius: 6px; background: #1f2329; color: #e6e8ec; }
 .docxedit-dialog-color { display: inline-flex; align-items: center; gap: 5px; }
+.docxedit-pagesetup-check { display: flex; align-items: center; gap: 7px; cursor: pointer; }
+.docxedit-pagesetup-check input { margin: 0; }
 .docxedit-dialog-primary { background: #6e7bff; color: #fff; }
 .docxedit-dialog-primary:hover { background: #5b69ff; }
 /* Cell-border preset grid inside the cell menu. */
