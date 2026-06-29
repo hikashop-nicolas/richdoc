@@ -129,16 +129,16 @@ export function setupReferences(deps: ReferencesDeps) {
   const tFigure = mkXrefRadio("rdoc-xref-kind", "figure", t("refFigures"), false);
   const tTable = mkXrefRadio("rdoc-xref-kind", "table", t("refTables"), false);
   const tEquation = mkXrefRadio("rdoc-xref-kind", "equation", t("refEquations"), false);
-  const xrefKinds: { input: HTMLInputElement; kind: XrefKind }[] = [
-    { input: tHeading.input, kind: "heading" }, { input: tBookmark.input, kind: "bookmark" },
-    { input: tFigure.input, kind: "figure" }, { input: tTable.input, kind: "table" }, { input: tEquation.input, kind: "equation" },
+  const xrefKinds: { r: { lab: HTMLElement; input: HTMLInputElement }; kind: XrefKind }[] = [
+    { r: tHeading, kind: "heading" }, { r: tBookmark, kind: "bookmark" },
+    { r: tFigure, kind: "figure" }, { r: tTable, kind: "table" }, { r: tEquation, kind: "equation" },
   ];
   typeRow.append(tHeading.lab, tBookmark.lab, tFigure.lab, tTable.lab, tEquation.lab);
   const targetSel = document.createElement("select");
   targetSel.className = "docxedit-dialog-font";
   let xrefEls: HTMLElement[] = [];
   const fillTargets = () => {
-    const kind = xrefKinds.find((k) => k.input.checked)?.kind ?? "heading";
+    const kind = xrefKinds.find((k) => k.r.input.checked)?.kind ?? "heading";
     // "Label and number" / "Caption text" only make sense for captioned figures/tables/equations.
     const caption = kind === "figure" || kind === "table" || kind === "equation";
     fmtLabel.lab.hidden = !caption;
@@ -148,7 +148,7 @@ export function setupReferences(deps: ReferencesDeps) {
     xrefEls = list.map((x) => x.el);
     targetSel.replaceChildren(...list.map((x, i) => { const o = document.createElement("option"); o.value = String(i); o.textContent = x.label; return o; }));
   };
-  for (const k of xrefKinds) k.input.addEventListener("change", fillTargets);
+  for (const k of xrefKinds) k.r.input.addEventListener("change", fillTargets);
   const fmtRow = document.createElement("div");
   fmtRow.className = "docxedit-dialog-row docxedit-xref-fmt";
   const fmtText = mkXrefRadio("rdoc-xref-fmt", "text", t("refFormatText"), true);
@@ -170,7 +170,14 @@ export function setupReferences(deps: ReferencesDeps) {
   const closeXref = () => { xrefOverlay.hidden = true; };
   const openXrefDialog = () => {
     captureSel();
-    tHeading.input.checked = true;
+    // Declutter: show only the target kinds that have something to reference, and select the first.
+    let first: { lab: HTMLElement; input: HTMLInputElement } | null = null;
+    for (const k of xrefKinds) {
+      const has = xrefTargets(k.kind).length > 0;
+      k.r.lab.hidden = !has;
+      if (has && !first) first = k.r;
+    }
+    (first ?? tHeading).input.checked = true;
     fmtText.input.checked = true;
     fillTargets();
     xrefOverlay.hidden = false;

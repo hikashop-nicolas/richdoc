@@ -148,6 +148,7 @@
 .docxedit-dialog-textarea { width: 100%; box-sizing: border-box; resize: vertical; padding: 6px 8px; border: 1px solid #4a4f57; border-radius: 6px; background: #1f2329; color: #e6e8ec; font: inherit; }
 .docxedit-noteinsert-kind { gap: 16px; }
 .docxedit-noteinsert-opt { display: inline-flex; align-items: center; gap: 4px; cursor: pointer; }
+.docxedit-noteinsert-opt[hidden] { display: none; } /* inline-flex above beats the UA [hidden] rule */
 .docxedit-imgdialog-field > span { min-width: 64px; color: #aeb4bd; }
 .docxedit-dialog-font { flex: 1; min-width: 120px; padding: 6px 8px; border: 1px solid #4a4f57; border-radius: 6px; background: #1f2329; color: #e6e8ec; }
 .docxedit-dialog-color { display: inline-flex; align-items: center; gap: 5px; }
