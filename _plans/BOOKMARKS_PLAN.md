@@ -3,12 +3,27 @@
 ## Status
 
 - **Phase 1 DONE** (bookmarks + heading/bookmark cross-refs, both formats, round-trip + engine
-  resolution browser-verified). Phase 2 (captions + figure/table cross-refs) is next.
-- Design refinement vs the original plan: a heading cross-ref does NOT stamp `data-rdoc-bm` on the
-  heading element (that would not serialize, since neither odf nor ooxml treats a heading as a
-  bookmark). Instead it WRAPS the heading's content in a real `docx-bookmark` / `docx-bookmark-end`
+  resolution browser-verified).
+- **Phase 2 DONE** (captions + figure/table cross-refs, both formats, browser-verified). What shipped:
+  - Caption model: a paragraph carrying `data-rdoc-caption="figure|table"` with a `seq` field
+    (`<span class="docx-field docx-field-seq" data-field="seq" data-seq="Figure|Table">`). The engine's
+    decorateFields renumbers each sequence per type in document order, alongside PAGE/NUMPAGES.
+  - Image: the alt prompt became an "Image options" dialog (alt + caption). Table: an
+    "Add / edit caption" item in the cell menu (prompt). Both go through caption.ts
+    (buildCaption/applyCaption/captionText/captionAfter/topBlock).
+  - Cross-ref dialog gained Figure + Table target-type radios; the bookmark-wrap helper was
+    generalised from headings to any block (headings AND captions) as `blockBmName`.
+  - Round-trip: docx `SEQ <id> \* ARABIC` fldSimple + a "Caption" pStyle; odt `text:sequence`. A
+    paragraph is re-tagged as a caption on read from the presence of the seq field.
+  - Caption helpers live in `src/core/feature/caption.ts`.
+- Design refinement vs the original plan: a heading/caption cross-ref does NOT stamp `data-rdoc-bm`
+  on the element (that would not serialize, since neither odf nor ooxml treats a heading/caption as a
+  bookmark). Instead it WRAPS the element's content in a real `docx-bookmark` / `docx-bookmark-end`
   anchor pair (`_Ref<n>`), so it round-trips through the existing bookmark write path and the engine
-  reads the heading text from the wrapped range.
+  reads the text from the wrapped range.
+- Deferred (still TODO): caption number via complex SEQ fields (fldChar) reads as passthrough (only
+  fldSimple SEQ is modelled); reference formats beyond text/page (label+number vs caption-text-only,
+  above/below, paragraph number); cross-refs to equations.
 
 ## Where we are today
 

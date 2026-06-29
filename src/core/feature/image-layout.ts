@@ -4,6 +4,7 @@
 // wp:anchor / odt draw:frame); CSS renders them. Behind/front images can be dragged to position.
 import { t } from "../i18n";
 import type { ImageWrap } from "../types";
+import { applyCaption, captionAfter, captionText, topBlock } from "./caption";
 
 export interface ImageLayoutDeps {
   wrap: HTMLElement;
@@ -87,13 +88,62 @@ export function setupImageLayout(deps: ImageLayoutDeps) {
     sync();
     place();
   };
+  // A small dialog to set the image's alt text and an (optional) figure caption together.
+  const overlay = document.createElement("div");
+  overlay.className = "docxedit-dialog-overlay";
+  overlay.hidden = true;
+  const panel = document.createElement("div");
+  panel.className = "docxedit-dialog docxedit-imgdialog";
+  const dlgTitle = document.createElement("div");
+  dlgTitle.className = "docxedit-dialog-title";
+  dlgTitle.textContent = t("imageOptions");
+  const mkField = (label: string): { row: HTMLElement; input: HTMLInputElement } => {
+    const row = document.createElement("label");
+    row.className = "docxedit-dialog-row docxedit-imgdialog-field";
+    const span = document.createElement("span");
+    span.textContent = label;
+    const input = document.createElement("input");
+    input.type = "text";
+    input.className = "docxedit-dialog-font";
+    row.append(span, input);
+    return { row, input };
+  };
+  const altField = mkField(t("altText"));
+  const capField = mkField(t("caption"));
+  const dlgActions = document.createElement("div");
+  dlgActions.className = "docxedit-dialog-row docxedit-dialog-actions";
+  const dlgCancel = document.createElement("button");
+  dlgCancel.type = "button"; dlgCancel.className = "docxedit-menu-item"; dlgCancel.textContent = t("cancel");
+  const dlgApply = document.createElement("button");
+  dlgApply.type = "button"; dlgApply.className = "docxedit-menu-item docxedit-dialog-primary"; dlgApply.textContent = t("apply");
+  dlgActions.append(dlgCancel, dlgApply);
+  panel.append(dlgTitle, altField.row, capField.row, dlgActions);
+  overlay.appendChild(panel);
+  wrap.appendChild(overlay);
+  // The dialog keeps its own image reference: opening it moves focus, which deselects the image
+  // (img -> null), so apply must act on the image captured when the dialog opened.
+  let dlgImg: HTMLImageElement | null = null;
+  const closeDlg = (): void => { overlay.hidden = true; dlgImg = null; };
   const editAlt = (): void => {
     if (!img) return;
-    const v = prompt(t("imageAltPrompt"), img.getAttribute("alt") || "");
-    if (v === null) return;
-    img.setAttribute("alt", v);
-    mark();
+    dlgImg = img;
+    altField.input.value = img.getAttribute("alt") || "";
+    const block = topBlock(img, doc);
+    const cap = block ? captionAfter(block, "figure") : null;
+    capField.input.value = cap ? captionText(cap) : "";
+    overlay.hidden = false;
+    altField.input.focus();
   };
+  dlgApply.addEventListener("click", () => {
+    if (!dlgImg) { closeDlg(); return; }
+    dlgImg.setAttribute("alt", altField.input.value);
+    const block = topBlock(dlgImg, doc);
+    if (block) applyCaption(block, "figure", capField.input.value);
+    closeDlg();
+    mark();
+  });
+  dlgCancel.addEventListener("click", closeDlg);
+  overlay.addEventListener("mousedown", (e) => { if (e.target === overlay) closeDlg(); });
 
   const wrapBtns: Record<string, HTMLButtonElement> = {
     inline: mkBtn(WRAP_ICONS.inline, t("wrapInline"), () => setWrap("inline")),
@@ -116,7 +166,7 @@ export function setupImageLayout(deps: ImageLayoutDeps) {
   altBtn.type = "button";
   altBtn.className = "docxedit-imgbar-btn docxedit-imgbar-alt";
   altBtn.textContent = t("altText");
-  altBtn.title = t("imageAltPrompt");
+  altBtn.title = t("imageOptions");
   altBtn.addEventListener("mousedown", (e) => e.preventDefault());
   altBtn.addEventListener("click", (e) => {
     e.stopPropagation();
@@ -201,6 +251,7 @@ export function setupImageLayout(deps: ImageLayoutDeps) {
     doc.removeEventListener("pointerup", onUp);
     scroll.removeEventListener("scroll", place);
     bar.remove();
+    overlay.remove();
   };
   return { onSelect, reposition: place, teardown };
 }

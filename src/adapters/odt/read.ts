@@ -210,6 +210,11 @@ function bmStartHtml(name: string): string {
 function bmEndHtml(name: string): string {
   return `<a class="docx-bookmark-end" data-rdoc-bm-id="${escapeAttr(name)}" data-rdoc-bm-end="${escapeAttr(name)}" contenteditable="false"></a>`;
 }
+// A caption auto-number (text:sequence) -> a seq field the engine renumbers; data-seq keeps the
+// sequence name verbatim so it groups and round-trips.
+function seqFieldHtml(name: string, cached: string): string {
+  return `<span class="docx-field docx-field-seq" data-field="seq" data-seq="${escapeAttr(name)}" contenteditable="false">${escapeHtml(cached)}</span>`;
+}
 
 /** A draw:frame holding a draw:image -> an <img> with a data URL; otherwise passthrough. The
  *  frame is stashed (data-odt-xml) so its layout + the draw:image href survive a save, and its
@@ -633,6 +638,9 @@ function inlineToHtml(el: Element, ctx: RCtx): string {
         html += `<a class="docx-xref" data-rdoc-xref="${escapeAttr(name)}" data-rdoc-xref-fmt="${fmt}" contenteditable="false">${escapeHtml(child.textContent ?? "")}</a>`;
         break;
       }
+      case "text:sequence":
+        html += seqFieldHtml(child.getAttribute("text:name") ?? "Figure", child.textContent ?? "");
+        break;
       default:
         // Unmodelled inline content (bookmarks, notes, change marks, ...) preserved verbatim.
         html += inlinePass(child);
@@ -765,7 +773,9 @@ function blockToHtml(el: Element, ctx: RCtx): string {
       return odtTableHtml(el, ctx);
     case "text:p": {
       const inner = inlineToHtml(el, ctx);
-      return `${before}<p${alignAttr()}${namedAttr()}${breakAttr}${tabAttr}>${inner || "<br>"}</p>${after}`;
+      // A paragraph carrying a caption sequence field is a figure/table caption (type from the seq name).
+      const capAttr = inner.includes('data-field="seq"') ? ` data-rdoc-caption="${/data-seq="[^"]*[Tt]able/.test(inner) ? "table" : "figure"}"` : "";
+      return `${before}<p${alignAttr()}${namedAttr()}${breakAttr}${tabAttr}${capAttr}>${inner || "<br>"}</p>${after}`;
     }
     default:
       // Tables, tracked-changes, sequence-decls, sections, ... preserved verbatim.

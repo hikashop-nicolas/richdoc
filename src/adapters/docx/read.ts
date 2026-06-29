@@ -570,8 +570,11 @@ function inlineToHtml(p: Element, ctx: RenderCtx): string {
       const name = id ? ctx.bmNames?.get(id) : undefined;
       if (name) html += bookmarkEndHtml(id, name); // skip ends of dropped bookmarks (e.g. _GoBack)
     } else if (el.tagName === "w:fldSimple") {
-      const ref = parseRefInstr(el.getAttribute("w:instr") ?? "");
+      const instr = el.getAttribute("w:instr") ?? "";
+      const ref = parseRefInstr(instr);
+      const seq = parseSeqInstr(instr);
       if (ref) html += xrefHtml(ref.name, ref.fmt, el.textContent ?? "");
+      else if (seq) html += seqFieldHtml(seq, el.textContent ?? "");
       else html += inlinePassthrough(el); // PAGE / other simple fields stay as-is
     } else if (el.tagName === "w:hyperlink") {
       const id = el.getAttributeNS(R, "id") ?? el.getAttribute("r:id") ?? "";
@@ -773,7 +776,9 @@ function renderBlocks(container: Element, ctx: RenderCtx): string {
       const lvl = Math.min(6, info.heading);
       html += `<h${lvl}${blockStyleAttr(info)}>${inner || "<br>"}</h${lvl}>`;
     } else {
-      html += `<p${blockStyleAttr(info)}>${inner || "<br>"}</p>`;
+      // A paragraph carrying a caption sequence field is a figure/table caption (type from the seq id).
+      const capAttr = inner.includes('data-field="seq"') ? ` data-rdoc-caption="${/data-seq="Table"/i.test(inner) ? "table" : "figure"}"` : "";
+      html += `<p${blockStyleAttr(info)}${capAttr}>${inner || "<br>"}</p>`;
     }
     // A next-page section break ends the page after its paragraph; show it (display only, the
     // real break rides the preserved w:sectPr re-injected on save).
@@ -829,6 +834,15 @@ function parseRefInstr(instr: string): { name: string; fmt: "text" | "page" } | 
 // fallback shown before the first reflow.
 function xrefHtml(name: string, fmt: "text" | "page", cached: string): string {
   return `<a class="docx-xref" data-rdoc-xref="${escapeAttr(name)}" data-rdoc-xref-fmt="${fmt}" contenteditable="false">${escapeHtml(cached)}</a>`;
+}
+// A " SEQ Figure \* ARABIC " field instruction -> the sequence id, or null for any other field.
+function parseSeqInstr(instr: string): string | null {
+  const m = /^\s*SEQ\s+(\S+)/i.exec(instr);
+  return m ? m[1]! : null;
+}
+// A caption auto-number field; the engine renumbers each sequence on reflow.
+function seqFieldHtml(id: string, cached: string): string {
+  return `<span class="docx-field docx-field-seq" data-field="seq" data-seq="${escapeAttr(id)}" contenteditable="false">${escapeHtml(cached)}</span>`;
 }
 
 // Footnote / endnote bodies from word/footnotes.xml or endnotes.xml, keyed by id (skipping the

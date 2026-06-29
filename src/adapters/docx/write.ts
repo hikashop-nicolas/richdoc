@@ -269,10 +269,12 @@ function appendInline(ctx: DocxCtx, node: Node, parent: Element, f: Fmt, del = f
     const el = child as HTMLElement;
     const tag = el.tagName.toLowerCase();
     if (tag === "ul" || tag === "ol" || tag === "li") continue; // nested lists are emitted as block paragraphs, not inline
-    // A field (page number / count): a w:fldSimple whose cached result is the displayed text.
+    // A field (page number / count / caption sequence): a w:fldSimple whose cached result is shown.
     if (el.classList.contains("docx-field")) {
+      const k = el.getAttribute("data-field") || "PAGE";
+      const instr = k === "seq" ? ` SEQ ${el.getAttribute("data-seq") || "Figure"} \\* ARABIC ` : ` ${k} `;
       const fld = ctx.doc.createElementNS(W, "w:fldSimple");
-      fld.setAttributeNS(W, "w:instr", ` ${el.getAttribute("data-field") || "PAGE"} `);
+      fld.setAttributeNS(W, "w:instr", instr);
       fld.appendChild(makeRun(ctx, el.textContent || "", f, del, change));
       parent.appendChild(fld);
       continue;
@@ -439,7 +441,8 @@ function makeParagraph(ctx: DocxCtx, src: HTMLElement, opts: { heading?: number;
   const beforePx = parseFloat(src.style.marginTop) || 0;
   const afterPx = parseFloat(src.style.marginBottom) || 0;
   const revPara = src.getAttribute("data-rev-para"); // "ins" | "del" paragraph-mark revision
-  const namedStyle = !opts.heading ? src.getAttribute("data-rdoc-style") : null; // a non-heading named style
+  // A non-heading named style; a caption paragraph defaults to the built-in "Caption" style.
+  const namedStyle = !opts.heading ? src.getAttribute("data-rdoc-style") || (src.hasAttribute("data-rdoc-caption") ? "Caption" : null) : null;
   const sectXml = src.getAttribute("data-docx-sectpr"); // a mid-document section break to re-emit
   const secGeom = src.getAttribute("data-rdoc-secbreak"); // this section's geometry (JSON), for rendering
   // Regenerate the sectPr from the JSON only when the section was edited / inserted; an untouched

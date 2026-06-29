@@ -1183,4 +1183,29 @@ describe("list fidelity: nesting and ordered/bullet", () => {
     expect(html).toContain('data-rdoc-bm="intro"');
     expect(html).toContain('data-rdoc-xref="intro"');
   });
+
+  it("reads a SEQ caption paragraph as a caption with a seq field", () => {
+    const doc = `<?xml version="1.0"?>
+<w:document xmlns:w="http://schemas.openxmlformats.org/wordprocessingml/2006/main">
+ <w:body>
+  <w:p><w:pPr><w:pStyle w:val="Caption"/></w:pPr><w:r><w:t xml:space="preserve">Figure </w:t></w:r><w:fldSimple w:instr=" SEQ Figure \\* ARABIC "><w:r><w:t>1</w:t></w:r></w:fldSimple><w:r><w:t>: A chart</w:t></w:r></w:p>
+ </w:body>
+</w:document>`;
+    const html = docxToHtml(makeDocx(doc));
+    expect(html).toContain('data-rdoc-caption="figure"');
+    expect(html).toContain('data-field="seq"');
+    expect(html).toContain('data-seq="Figure"');
+  });
+
+  it("writes a caption paragraph back as a Caption-styled SEQ field", () => {
+    const body =
+      '<p data-rdoc-caption="table">Table <span class="docx-field docx-field-seq" data-field="seq" data-seq="Table" contenteditable="false">1</span>: Results</p>';
+    const out = htmlToDocx(body, makeDocx());
+    const xml = strFromU8(unzipSync(out)["word/document.xml"]!);
+    expect(xml).toMatch(/w:instr=" SEQ Table/);
+    expect(xml).toMatch(/<w:pStyle w:val="Caption"/);
+    const html = docxToHtml(out);
+    expect(html).toContain('data-rdoc-caption="table"');
+    expect(html).toContain('data-seq="Table"');
+  });
 });

@@ -181,6 +181,14 @@ const dict: Dict = {
   refFormatText: "Texte",
   refFormatPage: "Numéro de page",
   untitled: "(sans titre)",
+  refFigures: "Figures",
+  refTables: "Tableaux",
+  captionFigure: "Figure",
+  captionTable: "Tableau",
+  caption: "Légende",
+  imageOptions: "Options de l'image",
+  captionPrompt: "Texte de la légende :",
+  addCaption: "Ajouter / modifier la légende",
 };
 
 export default dict;

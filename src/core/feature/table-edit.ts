@@ -4,6 +4,7 @@
 // edits the DOM and drops the per-format skeleton (data-*-xml) so the adapter rebuilds the
 // table from the DOM on save (reusing the preserved tblPr/tblGrid/tcPr / cell styles).
 import { t } from "../i18n";
+import { applyCaption, captionAfter, captionText, topBlock } from "./caption";
 
 export interface TableEditDeps {
   wrap: HTMLElement;
@@ -160,6 +161,20 @@ export function setupTableEdit(deps: TableEditDeps) {
     clearSelection();
     curCell = keep;
     dirty(table);
+  };
+
+  // Add / edit / clear the caption paragraph that sits just after the current table.
+  const editTableCaption = (): void => {
+    if (!curTable) return;
+    const root = curTable.closest<HTMLElement>('[contenteditable="true"]');
+    const block = root ? topBlock(curTable, root) : null;
+    if (!block) return;
+    const existing = captionAfter(block, "table");
+    const v = window.prompt(t("captionPrompt"), existing ? captionText(existing) : "");
+    if (v === null) return;
+    applyCaption(block, "table", v);
+    mark();
+    scheduleReflow();
   };
 
   // --- Structural operations (act on curCell / curTable) -------------------------------
@@ -461,7 +476,7 @@ export function setupTableEdit(deps: TableEditDeps) {
           { label: t("tableMergeRight"), fn: mergeRight },
           { label: t("tableSplit"), fn: splitCell },
         ];
-    for (const it of items) {
+    for (const it of [...items, { label: t("addCaption"), fn: editTableCaption }]) {
       const b = document.createElement("button");
       b.type = "button";
       b.className = "docxedit-menu-item";

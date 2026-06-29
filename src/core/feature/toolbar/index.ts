@@ -868,26 +868,29 @@ export function setupToolbar(deps: ToolbarDeps) {
     else { const r2 = range.cloneRange(); r2.collapse(false); r2.insertNode(end); range.collapse(true); range.insertNode(start); }
     mark();
   };
-  // A heading's referenceable bookmark name: reuse one already wrapping it, else wrap its content in a
-  // fresh _Ref bookmark so the cross-reference target survives a save (headings aren't bookmarks in odf/ooxml).
-  const headingBmName = (h: HTMLElement): string => {
-    const existing = h.querySelector<HTMLElement>(":scope > .docx-bookmark");
+  // A block's referenceable bookmark name (heading or caption): reuse one already wrapping it, else
+  // wrap its content in a fresh _Ref bookmark so the cross-ref target survives a save (neither odf nor
+  // ooxml treats a heading/caption as a bookmark, so a wrapping bookmark is what makes it referenceable).
+  const blockBmName = (block: HTMLElement): string => {
+    const existing = block.querySelector<HTMLElement>(":scope > .docx-bookmark");
     if (existing) return existing.getAttribute("data-rdoc-bm") || "";
     const id = String(nextBmId());
     const name = `_Ref${id}`;
     const start = mkBmEl("docx-bookmark", name, id);
     const end = mkBmEl("docx-bookmark-end", null, id);
     end.setAttribute("data-rdoc-bm-end", name);
-    h.insertBefore(start, h.firstChild);
-    h.appendChild(end);
+    block.insertBefore(start, block.firstChild);
+    block.appendChild(end);
     return name;
   };
-  // The cross-reference targets of a kind, in document order: headings (referenced via an auto-minted
-  // bookmark) or named bookmarks.
-  const xrefTargets = (kind: "heading" | "bookmark"): { label: string; el: HTMLElement }[] =>
-    kind === "heading"
-      ? Array.from(doc.querySelectorAll<HTMLElement>("h1,h2,h3")).filter((h) => !h.closest(".docx-field-toc")).map((h) => ({ label: (h.textContent || "").trim() || t("untitled"), el: h }))
-      : Array.from(doc.querySelectorAll<HTMLElement>(".docx-bookmark")).map((b) => ({ label: b.getAttribute("data-rdoc-bm") || "", el: b }));
+  type XrefKind = "heading" | "bookmark" | "figure" | "table";
+  // The cross-reference targets of a kind, in document order: headings / captioned figures / captioned
+  // tables (each referenced via a wrapping bookmark), or named bookmarks.
+  const xrefTargets = (kind: XrefKind): { label: string; el: HTMLElement }[] => {
+    if (kind === "bookmark") return Array.from(doc.querySelectorAll<HTMLElement>(".docx-bookmark")).map((b) => ({ label: b.getAttribute("data-rdoc-bm") || "", el: b }));
+    const sel = kind === "heading" ? "h1,h2,h3" : `[data-rdoc-caption="${kind}"]`;
+    return Array.from(doc.querySelectorAll<HTMLElement>(sel)).filter((h) => !h.closest(".docx-field-toc")).map((h) => ({ label: (h.textContent || "").trim() || t("untitled"), el: h }));
+  };
   const xrefOverlay = document.createElement("div");
   xrefOverlay.className = "docxedit-dialog-overlay";
   xrefOverlay.hidden = true;
@@ -908,18 +911,23 @@ export function setupToolbar(deps: ToolbarDeps) {
   };
   const tHeading = mkXrefRadio("rdoc-xref-kind", "heading", t("refHeadings"), true);
   const tBookmark = mkXrefRadio("rdoc-xref-kind", "bookmark", t("refBookmarks"), false);
-  typeRow.append(tHeading.lab, tBookmark.lab);
+  const tFigure = mkXrefRadio("rdoc-xref-kind", "figure", t("refFigures"), false);
+  const tTable = mkXrefRadio("rdoc-xref-kind", "table", t("refTables"), false);
+  const xrefKinds: { input: HTMLInputElement; kind: XrefKind }[] = [
+    { input: tHeading.input, kind: "heading" }, { input: tBookmark.input, kind: "bookmark" },
+    { input: tFigure.input, kind: "figure" }, { input: tTable.input, kind: "table" },
+  ];
+  typeRow.append(tHeading.lab, tBookmark.lab, tFigure.lab, tTable.lab);
   const targetSel = document.createElement("select");
   targetSel.className = "docxedit-dialog-font";
   let xrefEls: HTMLElement[] = [];
   const fillTargets = () => {
-    const kind = tBookmark.input.checked ? "bookmark" : "heading";
+    const kind = xrefKinds.find((k) => k.input.checked)?.kind ?? "heading";
     const list = xrefTargets(kind);
     xrefEls = list.map((x) => x.el);
     targetSel.replaceChildren(...list.map((x, i) => { const o = document.createElement("option"); o.value = String(i); o.textContent = x.label; return o; }));
   };
-  tHeading.input.addEventListener("change", fillTargets);
-  tBookmark.input.addEventListener("change", fillTargets);
+  for (const k of xrefKinds) k.input.addEventListener("change", fillTargets);
   const fmtRow = document.createElement("div");
   fmtRow.className = "docxedit-dialog-row docxedit-xref-fmt";
   const fmtText = mkXrefRadio("rdoc-xref-fmt", "text", t("refFormatText"), true);
@@ -948,8 +956,8 @@ export function setupToolbar(deps: ToolbarDeps) {
   xrefInsertBtn.addEventListener("click", () => {
     const target = xrefEls[Number(targetSel.value)];
     if (!target) { closeXref(); return; }
-    // A heading is referenced through a bookmark wrapping its content; a bookmark target by its own name.
-    const name = /^H[1-6]$/.test(target.tagName) ? headingBmName(target) : target.getAttribute("data-rdoc-bm") || "";
+    // A heading or caption is referenced through a bookmark wrapping its content; a bookmark by its name.
+    const name = target.hasAttribute("data-rdoc-bm") ? target.getAttribute("data-rdoc-bm") || "" : blockBmName(target);
     if (!name) { closeXref(); return; }
     const fmt = fmtPage.input.checked ? "page" : "text";
     closeXref();

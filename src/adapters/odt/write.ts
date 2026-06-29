@@ -338,6 +338,15 @@ function htmlInlineToOdf(node: Node, parent: Element, f: Fmt, ctx: OdfCtx): void
         const e = ctx.doc.createElementNS(NS.text, "text:page-count");
         e.appendChild(ctx.doc.createTextNode(el.textContent || "1"));
         parent.appendChild(e);
+      } else if (k === "seq") {
+        // A caption number: an auto-incrementing text:sequence keyed by its name.
+        const name = el.getAttribute("data-seq") || "Figure";
+        const e = ctx.doc.createElementNS(NS.text, "text:sequence");
+        e.setAttributeNS(NS.text, "text:name", name);
+        e.setAttributeNS(NS.text, "text:formula", `ooow:${name}+1`);
+        e.setAttributeNS(NS.style, "style:num-format", "1");
+        e.appendChild(ctx.doc.createTextNode(el.textContent || "1"));
+        parent.appendChild(e);
       }
       continue;
     }

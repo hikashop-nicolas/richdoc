@@ -615,6 +615,13 @@ export function createRichEditor(container: HTMLElement, adapter: Adapter, optio
     for (const f of Array.from(doc.querySelectorAll<HTMLElement>('.docx-field[data-field="NUMPAGES"]'))) f.textContent = String(cardCount);
     for (const f of Array.from(doc.querySelectorAll<HTMLElement>('.docx-field[data-field="PAGE"]')))
       f.textContent = String(vertical ? 1 : Math.max(1, Math.floor(f.offsetTop / pageStep) + 1));
+    // Caption numbers: number each sequence (data-seq) on its own, in document order.
+    const seqCounts = new Map<string, number>();
+    for (const s of Array.from(doc.querySelectorAll<HTMLElement>('.docx-field[data-field="seq"]'))) {
+      const n = (seqCounts.get(s.getAttribute("data-seq") || "") ?? 0) + 1;
+      seqCounts.set(s.getAttribute("data-seq") || "", n);
+      if (s.textContent !== String(n)) s.textContent = String(n);
+    }
     // Cross-references: recompute each xref's text from its target (a heading or bookmark carrying
     // the matching data-rdoc-bm) - its text, or its page number for the "page" format.
     const bmTarget = (name: string) => Array.from(doc.querySelectorAll<HTMLElement>("[data-rdoc-bm]")).find((e) => e.getAttribute("data-rdoc-bm") === name) ?? null;

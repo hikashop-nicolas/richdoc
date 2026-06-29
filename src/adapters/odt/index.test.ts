@@ -974,4 +974,21 @@ describe("odt bookmarks and cross-references", () => {
     expect(html).toContain('data-rdoc-bm="intro"');
     expect(html).toContain('data-rdoc-xref="intro"');
   });
+
+  it("reads a text:sequence caption and writes it back", () => {
+    const content = `<?xml version="1.0"?>
+<office:document-content ${NS} xmlns:style="urn:oasis:names:tc:opendocument:xmlns:style:1.0"><office:body><office:text>
+ <text:p>Table <text:sequence text:name="Table" text:formula="ooow:Table+1" style:num-format="1">1</text:sequence>: Results</text:p>
+</office:text></office:body></office:document-content>`;
+    const html = odtToHtml(makeOdt(content));
+    expect(html).toContain('data-rdoc-caption="table"');
+    expect(html).toContain('data-field="seq"');
+    expect(html).toContain('data-seq="Table"');
+
+    const body = '<p data-rdoc-caption="figure">Figure <span class="docx-field docx-field-seq" data-field="seq" data-seq="Figure" contenteditable="false">1</span>: A chart</p>';
+    const out = htmlToOdt(body, makeOdt());
+    const xml = strFromU8(unzipSync(out)["content.xml"]);
+    expect(xml).toMatch(/<text:sequence[^>]*text:name="Figure"/);
+    expect(odtToHtml(out)).toContain('data-rdoc-caption="figure"');
+  });
 });

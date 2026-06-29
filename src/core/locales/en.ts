@@ -181,6 +181,14 @@ const dict: Dict = {
   refFormatText: "Text",
   refFormatPage: "Page number",
   untitled: "(untitled)",
+  refFigures: "Figures",
+  refTables: "Tables",
+  captionFigure: "Figure",
+  captionTable: "Table",
+  caption: "Caption",
+  imageOptions: "Image options",
+  captionPrompt: "Caption text:",
+  addCaption: "Add / edit caption",
 };
 
 export default dict;

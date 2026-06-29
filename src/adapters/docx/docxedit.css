@@ -148,6 +148,7 @@
 .docxedit-dialog-textarea { width: 100%; box-sizing: border-box; resize: vertical; padding: 6px 8px; border: 1px solid #4a4f57; border-radius: 6px; background: #1f2329; color: #e6e8ec; font: inherit; }
 .docxedit-noteinsert-kind { gap: 16px; }
 .docxedit-noteinsert-opt { display: inline-flex; align-items: center; gap: 4px; cursor: pointer; }
+.docxedit-imgdialog-field > span { min-width: 64px; color: #aeb4bd; }
 .docxedit-dialog-font { flex: 1; min-width: 120px; padding: 6px 8px; border: 1px solid #4a4f57; border-radius: 6px; background: #1f2329; color: #e6e8ec; }
 .docxedit-dialog-color { display: inline-flex; align-items: center; gap: 5px; }
 .docxedit-pagesetup-check { display: flex; align-items: center; gap: 7px; cursor: pointer; }
@@ -365,6 +366,8 @@
 .docx-bookmark-end { border-left: 2px dotted rgba(150, 120, 220, .45); }
 .docx-xref { color: #5b6bd6; background: rgba(110,123,255,.08); border-radius: 2px; padding: 0 1px; cursor: pointer; }
 .docx-xref:hover { text-decoration: underline; }
+/* Figure / table captions: a smaller, muted, centred paragraph under the item. */
+[data-rdoc-caption] { font-size: .9em; color: #555; text-align: center; margin-top: .2em; }
 .docx-field-toc { border: 1px dashed #cdd3da; border-radius: 4px; padding: 8px 12px; margin: 0 0 .6em; }
 .docx-field-toc-title { font-weight: 600; margin-bottom: 4px; }
 .docx-field-toc-empty { color: #888; font-style: italic; }
