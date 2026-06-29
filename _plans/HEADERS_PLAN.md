@@ -69,11 +69,10 @@ drops them (back to default everywhere). Writes the flags into the geometry/mode
 - even/odd: read/write `style:header-left` / `style:footer-left` in the master page, and set the
   page-layout's `style:page-usage` so the left variant is used on even pages. The default
   `style:header` serves odd/right pages.
-- first page: ODF has no per-master "first" slot; it uses a **separate first master** whose
-  `style:next-style-name` points at the body master, applied to the first page. v1 plan: read it if
-  present (a master referenced as the first page), and on write create/maintain that first master.
-  This is the riskiest piece; if it proves heavy, ship odt even/odd now and odt first-page as a
-  fast-follow (docx first-page ships regardless). Will confirm during build.
+- first page: ODF 1.3 has `style:header-first` / `style:footer-first` as master-page children,
+  exactly parallel to `style:header-left` (no separate next-style-name master needed). Read/write
+  them the same way as even/odd. DONE. (Edge: an enabled-but-empty first-page header is not
+  representable, ODF keys the variant off the element's presence.)
 
 ## Tests
 

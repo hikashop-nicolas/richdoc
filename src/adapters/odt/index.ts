@@ -38,6 +38,8 @@ export function createOdtAdapter(bytes: Uint8Array): Adapter {
         sectionBands: parts.sectionBands,
         headerEven: parts.headerEven,
         footerEven: parts.footerEven,
+        headerFirst: parts.headerFirst,
+        footerFirst: parts.footerFirst,
         notes: parts.notes,
         comments: parts.comments,
         page: parts.page,

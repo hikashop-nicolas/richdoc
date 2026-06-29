@@ -65,7 +65,7 @@ interface RCtx {
   listRun: { last: number }; // running end-count of the last level-1 ordered list (for continue-numbering)
   tabStops: Map<string, TabStop[]>; // paragraph style-name -> custom tab stops (px)
   masterGeoms: Map<string, string>; // master-page name -> JSON page geometry (for per-section rendering)
-  masterBands?: Map<string, { header: string; footer: string; headerLeft?: string; footerLeft?: string }>; // master-page name -> its header/footer HTML (left = even pages)
+  masterBands?: Map<string, { header: string; footer: string; headerLeft?: string; footerLeft?: string; headerFirst?: string; footerFirst?: string }>; // master-page name -> its header/footer HTML (left = even, first = first page)
   notes?: { id: string; kind: "footnote" | "endnote"; html: string }[]; // footnote/endnote bodies, collected inline
 }
 
@@ -743,8 +743,8 @@ function blockToHtml(el: Element, ctx: RCtx): string {
 
 /** Header/footer HTML, read from the master page in styles.xml. */
 /** Header/footer HTML per master page (the default master plus any a section switches to). */
-function collectMasterBands(files: Record<string, Uint8Array>): Map<string, { header: string; footer: string; headerLeft?: string; footerLeft?: string }> {
-  const out = new Map<string, { header: string; footer: string; headerLeft?: string; footerLeft?: string }>();
+function collectMasterBands(files: Record<string, Uint8Array>): Map<string, { header: string; footer: string; headerLeft?: string; footerLeft?: string; headerFirst?: string; footerFirst?: string }> {
+  const out = new Map<string, { header: string; footer: string; headerLeft?: string; footerLeft?: string; headerFirst?: string; footerFirst?: string }>();
   const raw = files["styles.xml"];
   if (!raw) return out;
   const doc = new DOMParser().parseFromString(strFromU8(raw), "application/xml");
@@ -758,9 +758,10 @@ function collectMasterBands(files: Record<string, Uint8Array>): Map<string, { he
   };
   for (const master of Array.from(doc.getElementsByTagName("style:master-page"))) {
     const name = master.getAttribute("style:name");
-    // style:header-left / style:footer-left hold the even (left) page variant; absent = same as the
-    // default on every page. They only render the even variant when non-empty.
-    if (name) out.set(name, { header: render(master, "style:header"), footer: render(master, "style:footer"), headerLeft: render(master, "style:header-left") || undefined, footerLeft: render(master, "style:footer-left") || undefined });
+    // style:header-left / style:footer-left hold the even (left) page variant; style:header-first /
+    // style:footer-first (ODF 1.3) hold the first-page variant; absent = same as the default. Each
+    // only renders its variant when non-empty.
+    if (name) out.set(name, { header: render(master, "style:header"), footer: render(master, "style:footer"), headerLeft: render(master, "style:header-left") || undefined, footerLeft: render(master, "style:footer-left") || undefined, headerFirst: render(master, "style:header-first") || undefined, footerFirst: render(master, "style:footer-first") || undefined });
   }
   return out;
 }
@@ -798,7 +799,7 @@ function parsePageGeometry(files: Record<string, Uint8Array>): PageGeometry | un
   return { widthPx: Math.round(w), heightPx: Math.round(h), margin: { top: m("top"), right: m("right"), bottom: m("bottom"), left: m("left") }, vertical, rtl, columns, columnGapPx: columns ? Math.round(lenToPx(gapAttr) ?? 36) : undefined };
 }
 
-export function odtToParts(bytes: Uint8Array): { body: string; comments: CommentThread[]; header: string; footer: string; headerEven?: { html: string; path?: string }; footerEven?: { html: string; path?: string }; sectionBands?: Record<string, { html: string; path: string }>; notes?: { id: string; kind: "footnote" | "endnote"; html: string }[]; page?: PageGeometry; paragraphStyles?: { id: string; name: string }[]; characterStyles?: { id: string; name: string }[]; styleDefs?: { id: string; kind: "paragraph" | "character"; css: Record<string, string> }[]; styleCss?: string; noteCss?: string } {
+export function odtToParts(bytes: Uint8Array): { body: string; comments: CommentThread[]; header: string; footer: string; headerEven?: { html: string; path?: string }; footerEven?: { html: string; path?: string }; headerFirst?: { html: string; path?: string }; footerFirst?: { html: string; path?: string }; sectionBands?: Record<string, { html: string; path: string }>; notes?: { id: string; kind: "footnote" | "endnote"; html: string }[]; page?: PageGeometry; paragraphStyles?: { id: string; name: string }[]; characterStyles?: { id: string; name: string }[]; styleDefs?: { id: string; kind: "paragraph" | "character"; css: Record<string, string> }[]; styleCss?: string; noteCss?: string } {
   const files = unzipSync(bytes);
   const { header, footer } = readHeaderFooter(files);
   // Per-master header/footer HTML, so a section that switches master shows its own. Keyed for the
@@ -815,7 +816,10 @@ export function odtToParts(bytes: Uint8Array): { body: string; comments: Comment
   const defBand = defName ? masterBands.get(defName) : undefined;
   const headerEven = defBand?.headerLeft ? { html: defBand.headerLeft, path: `header-left@${defName}` } : undefined;
   const footerEven = defBand?.footerLeft ? { html: defBand.footerLeft, path: `footer-left@${defName}` } : undefined;
+  const headerFirst = defBand?.headerFirst ? { html: defBand.headerFirst, path: `header-first@${defName}` } : undefined;
+  const footerFirst = defBand?.footerFirst ? { html: defBand.footerFirst, path: `footer-first@${defName}` } : undefined;
   if (page && (headerEven || footerEven)) page.evenOdd = true;
+  if (page && (headerFirst || footerFirst)) page.titlePage = true;
   const ps = readOdtStyles(files["styles.xml"]);
   const content = files["content.xml"];
   if (!content) return { body: "", comments: [], header, footer, page };
@@ -847,7 +851,7 @@ export function odtToParts(bytes: Uint8Array): { body: string; comments: Comment
     if (block.tagName === "text:tracked-changes") continue; // metadata, parsed into ctx.changes
     html += blockToHtml(block, ctx);
   }
-  return { body: html || "<p><br></p>", comments: ctx.threads, header, footer, headerEven, footerEven, sectionBands, notes: ctx.notes, page, paragraphStyles: ps.paragraphStyles, characterStyles: ps.characterStyles, styleDefs: ps.styleDefs, styleCss: ps.css, noteCss: ps.noteCss };
+  return { body: html || "<p><br></p>", comments: ctx.threads, header, footer, headerEven, footerEven, headerFirst, footerFirst, sectionBands, notes: ctx.notes, page, paragraphStyles: ps.paragraphStyles, characterStyles: ps.characterStyles, styleDefs: ps.styleDefs, styleCss: ps.css, noteCss: ps.noteCss };
 }
 
 /** Convert an .odt's body to HTML. Returns "" if there is no editable text body. */

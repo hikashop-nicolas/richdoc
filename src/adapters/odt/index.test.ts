@@ -915,4 +915,23 @@ describe("odt named character styles", () => {
     const sx = strFromU8(unzipSync(out)["styles.xml"]);
     expect(sx).toMatch(/<style:header-left>[\s\S]*EVEN2[\s\S]*<\/style:header-left>/);
   });
+
+  it("reads and writes a first-page header variant (odt header-first)", () => {
+    const styles = `<?xml version="1.0"?><office:document-styles xmlns:office="urn:oasis:names:tc:opendocument:xmlns:office:1.0" xmlns:style="urn:oasis:names:tc:opendocument:xmlns:style:1.0" xmlns:text="urn:oasis:names:tc:opendocument:xmlns:text:1.0" xmlns:fo="urn:oasis:names:tc:opendocument:xmlns:xsl-fo-compatible:1.0">` +
+      `<office:automatic-styles><style:page-layout style:name="pm1"><style:page-layout-properties fo:page-width="21cm" fo:page-height="29.7cm" fo:margin-top="2cm" fo:margin-right="2cm" fo:margin-bottom="2cm" fo:margin-left="2cm"/></style:page-layout></office:automatic-styles>` +
+      `<office:master-styles><style:master-page style:name="Standard" style:page-layout-name="pm1"><style:header><text:p>MAIN</text:p></style:header><style:header-first><text:p>TITLE</text:p></style:header-first></style:master-page></office:master-styles></office:document-styles>`;
+    const odt = zipSync({
+      mimetype: [strToU8("application/vnd.oasis.opendocument.text"), { level: 0 }],
+      "content.xml": strToU8(CONTENT),
+      "styles.xml": strToU8(styles),
+      "META-INF/manifest.xml": strToU8("<m/>"),
+    });
+    const parts = odtToParts(odt);
+    expect(parts.headerFirst?.html).toContain("TITLE");
+    expect(parts.page?.titlePage).toBe(true);
+    // a freshly toggled first-page variant (sentinel path) writes into style:header-first
+    const out = htmlToOdt("<p>body</p>", odt, { parts: [{ path: "header:first", html: "<p>TITLE2</p>" }] });
+    const sx = strFromU8(unzipSync(out)["styles.xml"]);
+    expect(sx).toMatch(/<style:header-first>[\s\S]*TITLE2[\s\S]*<\/style:header-first>/);
+  });
 });
