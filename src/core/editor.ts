@@ -595,11 +595,38 @@ export function createRichEditor(container: HTMLElement, adapter: Adapter, optio
     const fSrc = pickHF("footer", p);
     if (fSrc) { const fc = mkClone(fSrc, footerCss); setCloneFields(fc, p + 1, total); hflayer.appendChild(fc); }
   };
+  // The display text for a cross-reference to `target`: a heading's text, a range bookmark's spanned
+  // text, or the bookmark name as a fallback for a point bookmark.
+  const xrefTargetText = (target: HTMLElement, name: string): string => {
+    if (/^H[1-6]$/.test(target.tagName)) return (target.textContent ?? "").trim() || name;
+    const id = target.getAttribute("data-rdoc-bm-id");
+    const end = id ? Array.from(doc.querySelectorAll<HTMLElement>(".docx-bookmark-end")).find((e) => e.getAttribute("data-rdoc-bm-id") === id) : null;
+    if (end && target.compareDocumentPosition(end) & Node.DOCUMENT_POSITION_FOLLOWING) {
+      const r = document.createRange();
+      r.setStartAfter(target);
+      r.setEndBefore(end);
+      const txt = r.toString().trim();
+      if (txt) return txt;
+    }
+    return name;
+  };
   const tocSig = new WeakMap<Element, string>();
   const decorateFields = (cardCount: number, pageStep: number, vertical: boolean): void => {
     for (const f of Array.from(doc.querySelectorAll<HTMLElement>('.docx-field[data-field="NUMPAGES"]'))) f.textContent = String(cardCount);
     for (const f of Array.from(doc.querySelectorAll<HTMLElement>('.docx-field[data-field="PAGE"]')))
       f.textContent = String(vertical ? 1 : Math.max(1, Math.floor(f.offsetTop / pageStep) + 1));
+    // Cross-references: recompute each xref's text from its target (a heading or bookmark carrying
+    // the matching data-rdoc-bm) - its text, or its page number for the "page" format.
+    const bmTarget = (name: string) => Array.from(doc.querySelectorAll<HTMLElement>("[data-rdoc-bm]")).find((e) => e.getAttribute("data-rdoc-bm") === name) ?? null;
+    for (const x of Array.from(doc.querySelectorAll<HTMLElement>(".docx-xref"))) {
+      const name = x.getAttribute("data-rdoc-xref");
+      const target = name ? bmTarget(name) : null;
+      if (!target) continue;
+      let text: string;
+      if (x.getAttribute("data-rdoc-xref-fmt") === "page") text = vertical ? "1" : String(Math.max(1, Math.floor(target.offsetTop / pageStep) + 1));
+      else text = xrefTargetText(target, name!);
+      if (text && x.textContent !== text) x.textContent = text;
+    }
     let needReflow = false;
     for (const toc of Array.from(doc.querySelectorAll<HTMLElement>(".docx-field-toc"))) {
       const headings = Array.from(doc.querySelectorAll<HTMLElement>("h1,h2,h3")).filter((h) => !h.closest(".docx-field-toc"));
@@ -1460,8 +1487,16 @@ export function createRichEditor(container: HTMLElement, adapter: Adapter, optio
     /* not supported; legacy tags still round-trip */
   }
 
-  // Clicking a table-of-contents row scrolls to its heading (rows match headings in order).
+  // Clicking a table-of-contents row scrolls to its heading (rows match headings in order); clicking
+  // a cross-reference jumps to its target bookmark / heading.
   doc.addEventListener("click", (e) => {
+    const xref = (e.target as HTMLElement).closest?.(".docx-xref") as HTMLElement | null;
+    if (xref) {
+      const name = xref.getAttribute("data-rdoc-xref");
+      const target = name ? Array.from(doc.querySelectorAll<HTMLElement>("[data-rdoc-bm]")).find((el) => el.getAttribute("data-rdoc-bm") === name) : null;
+      target?.scrollIntoView({ block: "center", behavior: "smooth" });
+      return;
+    }
     const row = (e.target as HTMLElement).closest?.(".docx-field-toc-row") as HTMLElement | null;
     if (!row || !row.parentElement) return;
     const i = Array.from(row.parentElement.querySelectorAll(".docx-field-toc-row")).indexOf(row);

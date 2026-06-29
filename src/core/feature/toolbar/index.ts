@@ -11,7 +11,7 @@ import { setupFloatBar } from "./float-bar";
 import { setupShortcuts } from "./shortcuts";
 import {
   alignIcon, indentIcon, bulletIcon, numberIcon, linkIcon, pbIcon, imgIcon, cmtIcon,
-  supIcon, subIcon, lineSpacingIcon, tableIcon, fieldIcon, furiganaIcon, footnoteIcon, caret, styleGroupSvg, insertGroupSvg,
+  supIcon, subIcon, lineSpacingIcon, tableIcon, fieldIcon, furiganaIcon, footnoteIcon, bookmarkIcon, xrefIcon, caret, styleGroupSvg, insertGroupSvg,
 } from "./icons";
 import type { Adapter, Capabilities, CommentThread, EditorOptions, NewStyle, RichDoc } from "../../types";
 
@@ -834,10 +834,147 @@ export function setupToolbar(deps: ToolbarDeps) {
     insertNote(kind, text);
   });
 
+  // --- Bookmarks + cross-references ---------------------------------------------------------------
+  const nextBmId = (): number => {
+    let max = 0;
+    for (const e of Array.from(doc.querySelectorAll("[data-rdoc-bm-id]"))) max = Math.max(max, parseInt(e.getAttribute("data-rdoc-bm-id") || "0", 10) || 0);
+    return max + 1;
+  };
+  const mkBmEl = (cls: string, name: string | null, id: string): HTMLElement => {
+    const a = document.createElement("a");
+    a.className = cls;
+    if (name) a.setAttribute("data-rdoc-bm", name);
+    a.setAttribute("data-rdoc-bm-id", id);
+    a.contentEditable = "false";
+    return a;
+  };
+  // Insert a bookmark: a point at the caret, or a range wrapping the selection (a start marker at the
+  // selection start + an end marker at its end, so the spanned text stays referenceable).
+  const insertBookmark = (): void => {
+    captureSel();
+    const name = (window.prompt(t("bookmarkPrompt")) || "").trim();
+    if (!name) return;
+    restoreSel();
+    const sel = window.getSelection();
+    if (!sel || !sel.rangeCount) return;
+    const range = sel.getRangeAt(0);
+    const cont = range.startContainer.nodeType === 3 ? range.startContainer.parentElement : (range.startContainer as Element);
+    if (!cont || !doc.contains(cont)) return;
+    const id = String(nextBmId());
+    const start = mkBmEl("docx-bookmark", name, id);
+    const end = mkBmEl("docx-bookmark-end", null, id);
+    end.setAttribute("data-rdoc-bm-end", name); // odt pairs by name; docx by id
+    if (range.collapsed) { range.insertNode(end); range.insertNode(start); }
+    else { const r2 = range.cloneRange(); r2.collapse(false); r2.insertNode(end); range.collapse(true); range.insertNode(start); }
+    mark();
+  };
+  // A heading's referenceable bookmark name: reuse one already wrapping it, else wrap its content in a
+  // fresh _Ref bookmark so the cross-reference target survives a save (headings aren't bookmarks in odf/ooxml).
+  const headingBmName = (h: HTMLElement): string => {
+    const existing = h.querySelector<HTMLElement>(":scope > .docx-bookmark");
+    if (existing) return existing.getAttribute("data-rdoc-bm") || "";
+    const id = String(nextBmId());
+    const name = `_Ref${id}`;
+    const start = mkBmEl("docx-bookmark", name, id);
+    const end = mkBmEl("docx-bookmark-end", null, id);
+    end.setAttribute("data-rdoc-bm-end", name);
+    h.insertBefore(start, h.firstChild);
+    h.appendChild(end);
+    return name;
+  };
+  // The cross-reference targets of a kind, in document order: headings (referenced via an auto-minted
+  // bookmark) or named bookmarks.
+  const xrefTargets = (kind: "heading" | "bookmark"): { label: string; el: HTMLElement }[] =>
+    kind === "heading"
+      ? Array.from(doc.querySelectorAll<HTMLElement>("h1,h2,h3")).filter((h) => !h.closest(".docx-field-toc")).map((h) => ({ label: (h.textContent || "").trim() || t("untitled"), el: h }))
+      : Array.from(doc.querySelectorAll<HTMLElement>(".docx-bookmark")).map((b) => ({ label: b.getAttribute("data-rdoc-bm") || "", el: b }));
+  const xrefOverlay = document.createElement("div");
+  xrefOverlay.className = "docxedit-dialog-overlay";
+  xrefOverlay.hidden = true;
+  const xrefPanel = document.createElement("div");
+  xrefPanel.className = "docxedit-dialog docxedit-xref";
+  const xrefTitle = document.createElement("div");
+  xrefTitle.className = "docxedit-dialog-title";
+  xrefTitle.textContent = t("insertCrossRef");
+  const typeRow = document.createElement("div");
+  typeRow.className = "docxedit-dialog-row docxedit-xref-kind";
+  const mkXrefRadio = (group: string, value: string, label: string, checked: boolean) => {
+    const lab = document.createElement("label");
+    lab.className = "docxedit-noteinsert-opt";
+    const input = document.createElement("input");
+    input.type = "radio"; input.name = group; input.value = value; input.checked = checked;
+    lab.append(input, document.createTextNode(` ${label}`));
+    return { lab, input };
+  };
+  const tHeading = mkXrefRadio("rdoc-xref-kind", "heading", t("refHeadings"), true);
+  const tBookmark = mkXrefRadio("rdoc-xref-kind", "bookmark", t("refBookmarks"), false);
+  typeRow.append(tHeading.lab, tBookmark.lab);
+  const targetSel = document.createElement("select");
+  targetSel.className = "docxedit-dialog-font";
+  let xrefEls: HTMLElement[] = [];
+  const fillTargets = () => {
+    const kind = tBookmark.input.checked ? "bookmark" : "heading";
+    const list = xrefTargets(kind);
+    xrefEls = list.map((x) => x.el);
+    targetSel.replaceChildren(...list.map((x, i) => { const o = document.createElement("option"); o.value = String(i); o.textContent = x.label; return o; }));
+  };
+  tHeading.input.addEventListener("change", fillTargets);
+  tBookmark.input.addEventListener("change", fillTargets);
+  const fmtRow = document.createElement("div");
+  fmtRow.className = "docxedit-dialog-row docxedit-xref-fmt";
+  const fmtText = mkXrefRadio("rdoc-xref-fmt", "text", t("refFormatText"), true);
+  const fmtPage = mkXrefRadio("rdoc-xref-fmt", "page", t("refFormatPage"), false);
+  fmtRow.append(fmtText.lab, fmtPage.lab);
+  const xrefActions = document.createElement("div");
+  xrefActions.className = "docxedit-dialog-row docxedit-dialog-actions";
+  const xrefCancel = document.createElement("button");
+  xrefCancel.type = "button"; xrefCancel.className = "docxedit-menu-item"; xrefCancel.textContent = t("cancel");
+  const xrefInsertBtn = document.createElement("button");
+  xrefInsertBtn.type = "button"; xrefInsertBtn.className = "docxedit-menu-item docxedit-dialog-primary"; xrefInsertBtn.textContent = t("insert");
+  xrefActions.append(xrefCancel, xrefInsertBtn);
+  xrefPanel.append(xrefTitle, typeRow, targetSel, fmtRow, xrefActions);
+  xrefOverlay.appendChild(xrefPanel);
+  wrap.appendChild(xrefOverlay);
+  const closeXref = () => { xrefOverlay.hidden = true; };
+  const openXrefDialog = () => {
+    captureSel();
+    tHeading.input.checked = true;
+    fmtText.input.checked = true;
+    fillTargets();
+    xrefOverlay.hidden = false;
+  };
+  xrefOverlay.addEventListener("mousedown", (e) => { if (e.target === xrefOverlay) closeXref(); });
+  xrefCancel.addEventListener("click", closeXref);
+  xrefInsertBtn.addEventListener("click", () => {
+    const target = xrefEls[Number(targetSel.value)];
+    if (!target) { closeXref(); return; }
+    // A heading is referenced through a bookmark wrapping its content; a bookmark target by its own name.
+    const name = /^H[1-6]$/.test(target.tagName) ? headingBmName(target) : target.getAttribute("data-rdoc-bm") || "";
+    if (!name) { closeXref(); return; }
+    const fmt = fmtPage.input.checked ? "page" : "text";
+    closeXref();
+    restoreSel();
+    const sel = window.getSelection();
+    if (!sel || !sel.rangeCount) return;
+    const range = sel.getRangeAt(0);
+    const cont = range.startContainer.nodeType === 3 ? range.startContainer.parentElement : (range.startContainer as Element);
+    if (!cont || !doc.contains(cont)) return;
+    const xr = document.createElement("a");
+    xr.className = "docx-xref";
+    xr.setAttribute("data-rdoc-xref", name);
+    xr.setAttribute("data-rdoc-xref-fmt", fmt);
+    xr.contentEditable = "false";
+    xr.textContent = fmt === "page" ? "1" : (target.textContent || name).trim().slice(0, 80) || name;
+    range.collapse(false);
+    range.insertNode(xr);
+    range.setStartAfter(xr);
+    mark();
+  });
+
   // Two clusters collapse into a single dropdown button when the toolbar runs out of room:
   // the character-formatting controls ("style"), and the insert controls.
   const styleSrc: (HTMLElement | null)[] = [boldBtn, italicBtn, underlineBtn, strikeBtn, supBtn, subBtn, caps.textColor ? colorInput : null, caps.textColor ? bgWrap : null, caps.fontControls ? fontSel : null, caps.fontControls ? sizeSel : null];
-  const insertSrc: (HTMLElement | null)[] = [caps.images ? iconBtn(imgIcon, t("insertImage"), insertImage) : null, caps.tables ? tableBtn : null, caps.fields ? fieldsBtn : null, caps.comments ? iconBtn(cmtIcon, t("addComment"), addComment) : null, caps.pageBreak ? iconBtn(pbIcon, t("insertPageBreak"), insertPageBreak) : null, linkBtn, iconBtn(footnoteIcon, t("insertNote"), openNoteDialog), caps.verticalText ? furiganaBtn : null];
+  const insertSrc: (HTMLElement | null)[] = [caps.images ? iconBtn(imgIcon, t("insertImage"), insertImage) : null, caps.tables ? tableBtn : null, caps.fields ? fieldsBtn : null, caps.comments ? iconBtn(cmtIcon, t("addComment"), addComment) : null, caps.pageBreak ? iconBtn(pbIcon, t("insertPageBreak"), insertPageBreak) : null, linkBtn, iconBtn(footnoteIcon, t("insertNote"), openNoteDialog), iconBtn(bookmarkIcon, t("insertBookmark"), insertBookmark), iconBtn(xrefIcon, t("insertCrossRef"), openXrefDialog), caps.verticalText ? furiganaBtn : null];
   const styleControls = styleSrc.filter((n): n is HTMLElement => n != null);
   const insertControls = insertSrc.filter((n): n is HTMLElement => n != null);
   // A collapsible cluster: a slot that holds the controls inline or a group button + a popover.

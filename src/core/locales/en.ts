@@ -173,6 +173,14 @@ const dict: Dict = {
   tabStopType: "Tab stop type (click to change)",
   differentFirstPage: "Different first page",
   differentEvenOdd: "Different odd & even pages",
+  insertBookmark: "Insert bookmark",
+  bookmarkPrompt: "Bookmark name:",
+  insertCrossRef: "Insert cross-reference",
+  refHeadings: "Headings",
+  refBookmarks: "Bookmarks",
+  refFormatText: "Text",
+  refFormatPage: "Page number",
+  untitled: "(untitled)",
 };
 
 export default dict;

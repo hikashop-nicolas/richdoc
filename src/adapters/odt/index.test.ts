@@ -938,3 +938,40 @@ describe("odt named character styles", () => {
     expect(strFromU8(unzipSync(blank)["styles.xml"])).toContain("style:header-first");
   });
 });
+
+describe("odt bookmarks and cross-references", () => {
+  const NS = `xmlns:office="urn:oasis:names:tc:opendocument:xmlns:office:1.0" xmlns:text="urn:oasis:names:tc:opendocument:xmlns:text:1.0"`;
+
+  it("reads point + range bookmarks and a bookmark-ref cross-reference", () => {
+    const content = `<?xml version="1.0"?>
+<office:document-content ${NS}><office:body><office:text>
+ <text:p><text:bookmark text:name="here"/>A <text:bookmark-start text:name="intro"/>Intro<text:bookmark-end text:name="intro"/></text:p>
+ <text:p>See <text:bookmark-ref text:reference-format="text" text:ref-name="intro">Intro</text:bookmark-ref> on page <text:bookmark-ref text:reference-format="page" text:ref-name="intro">1</text:bookmark-ref></text:p>
+</office:text></office:body></office:document-content>`;
+    const html = odtToHtml(makeOdt(content));
+    expect(html).toContain('data-rdoc-bm="here"'); // point bookmark -> start/end pair
+    expect(html).toContain('data-rdoc-bm="intro"');
+    expect(html).toContain("docx-bookmark-end");
+    expect(html).toContain('data-rdoc-xref="intro"');
+    expect(html).toContain('data-rdoc-xref-fmt="text"');
+    expect(html).toContain('data-rdoc-xref-fmt="page"');
+  });
+
+  it("writes bookmark markers and cross-references back to ODF", () => {
+    const body =
+      '<p><a class="docx-bookmark" data-rdoc-bm="intro" data-rdoc-bm-id="intro" contenteditable="false"></a>Intro' +
+      '<a class="docx-bookmark-end" data-rdoc-bm-id="intro" data-rdoc-bm-end="intro" contenteditable="false"></a></p>' +
+      '<p><a class="docx-xref" data-rdoc-xref="intro" data-rdoc-xref-fmt="text" contenteditable="false">Intro</a> ' +
+      '<a class="docx-xref" data-rdoc-xref="intro" data-rdoc-xref-fmt="page" contenteditable="false">1</a></p>';
+    const out = htmlToOdt(body, makeOdt());
+    const xml = strFromU8(unzipSync(out)["content.xml"]);
+    expect(xml).toMatch(/<text:bookmark-start[^>]*text:name="intro"/);
+    expect(xml).toMatch(/<text:bookmark-end[^>]*text:name="intro"/);
+    expect(xml).toMatch(/<text:bookmark-ref[^>]*text:reference-format="text"[^>]*text:ref-name="intro"/);
+    expect(xml).toMatch(/text:reference-format="page"/);
+    // and survives a re-read
+    const html = odtToHtml(out);
+    expect(html).toContain('data-rdoc-bm="intro"');
+    expect(html).toContain('data-rdoc-xref="intro"');
+  });
+});

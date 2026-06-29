@@ -361,6 +361,33 @@ function appendInline(ctx: DocxCtx, node: Node, parent: Element, f: Fmt, del = f
       parent.appendChild(ruby);
       continue;
     }
+    if (tag === "a" && el.classList.contains("docx-bookmark")) {
+      const start = ctx.doc.createElementNS(W, "w:bookmarkStart");
+      start.setAttributeNS(W, "w:id", el.getAttribute("data-rdoc-bm-id") || String(ctx.nextRevId++));
+      start.setAttributeNS(W, "w:name", el.getAttribute("data-rdoc-bm") || "");
+      parent.appendChild(start);
+      continue;
+    }
+    if (tag === "a" && el.classList.contains("docx-bookmark-end")) {
+      const end = ctx.doc.createElementNS(W, "w:bookmarkEnd");
+      end.setAttributeNS(W, "w:id", el.getAttribute("data-rdoc-bm-id") || "0");
+      parent.appendChild(end);
+      continue;
+    }
+    if (tag === "a" && el.classList.contains("docx-xref")) {
+      // Cross-reference -> a REF / PAGEREF simple field holding the computed text.
+      const kind = el.getAttribute("data-rdoc-xref-fmt") === "page" ? "PAGEREF" : "REF";
+      const fld = ctx.doc.createElementNS(W, "w:fldSimple");
+      fld.setAttributeNS(W, "w:instr", ` ${kind} ${el.getAttribute("data-rdoc-xref") || ""} \\h `);
+      const run = ctx.doc.createElementNS(W, "w:r");
+      const t = ctx.doc.createElementNS(W, "w:t");
+      t.setAttribute("xml:space", "preserve");
+      t.textContent = el.textContent ?? "";
+      run.appendChild(t);
+      fld.appendChild(run);
+      parent.appendChild(fld);
+      continue;
+    }
     if (tag === "a") {
       const id = addHyperlinkRel(ctx, el.getAttribute("href") ?? "");
       if (id) {

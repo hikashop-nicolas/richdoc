@@ -173,6 +173,14 @@ const dict: Dict = {
   tabStopType: "Type de taquet (cliquer pour changer)",
   differentFirstPage: "Première page différente",
   differentEvenOdd: "Pages paires et impaires différentes",
+  insertBookmark: "Insérer un signet",
+  bookmarkPrompt: "Nom du signet :",
+  insertCrossRef: "Insérer un renvoi",
+  refHeadings: "Titres",
+  refBookmarks: "Signets",
+  refFormatText: "Texte",
+  refFormatPage: "Numéro de page",
+  untitled: "(sans titre)",
 };
 
 export default dict;

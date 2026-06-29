@@ -1148,4 +1148,39 @@ describe("list fidelity: nesting and ordered/bullet", () => {
     expect(partTexts).toContain("FIRSTH");
     expect(partTexts).toContain("EVENF");
   });
+
+  it("reads a bookmark + a REF/PAGEREF cross-reference, dropping Word's _GoBack", () => {
+    const doc = `<?xml version="1.0"?>
+<w:document xmlns:w="http://schemas.openxmlformats.org/wordprocessingml/2006/main">
+ <w:body>
+  <w:p><w:bookmarkStart w:id="0" w:name="_GoBack"/><w:bookmarkEnd w:id="0"/><w:bookmarkStart w:id="1" w:name="intro"/><w:r><w:t>Intro</w:t></w:r><w:bookmarkEnd w:id="1"/></w:p>
+  <w:p><w:fldSimple w:instr=" REF intro \\h "><w:r><w:t>Intro</w:t></w:r></w:fldSimple> and <w:fldSimple w:instr=" PAGEREF intro "><w:r><w:t>1</w:t></w:r></w:fldSimple></w:p>
+ </w:body>
+</w:document>`;
+    const html = docxToHtml(makeDocx(doc));
+    expect(html).toContain('data-rdoc-bm="intro"');
+    expect(html).toContain("docx-bookmark-end");
+    expect(html).not.toContain("_GoBack"); // transient bookmark dropped
+    expect(html).toContain('data-rdoc-xref="intro"');
+    expect(html).toContain('data-rdoc-xref-fmt="text"');
+    expect(html).toContain('data-rdoc-xref-fmt="page"');
+  });
+
+  it("writes a bookmark range and REF/PAGEREF cross-references back", () => {
+    const body =
+      '<p><a class="docx-bookmark" data-rdoc-bm="intro" data-rdoc-bm-id="1" contenteditable="false"></a>Intro' +
+      '<a class="docx-bookmark-end" data-rdoc-bm-id="1" data-rdoc-bm-end="intro" contenteditable="false"></a></p>' +
+      '<p><a class="docx-xref" data-rdoc-xref="intro" data-rdoc-xref-fmt="text" contenteditable="false">Intro</a> ' +
+      '<a class="docx-xref" data-rdoc-xref="intro" data-rdoc-xref-fmt="page" contenteditable="false">1</a></p>';
+    const out = htmlToDocx(body, makeDocx());
+    const xml = strFromU8(unzipSync(out)["word/document.xml"]!);
+    expect(xml).toMatch(/<w:bookmarkStart[^>]*w:name="intro"/);
+    expect(xml).toContain("w:bookmarkEnd");
+    expect(xml).toMatch(/w:instr=" REF intro/);
+    expect(xml).toMatch(/w:instr=" PAGEREF intro/);
+    // and it survives a re-read
+    const html = docxToHtml(out);
+    expect(html).toContain('data-rdoc-bm="intro"');
+    expect(html).toContain('data-rdoc-xref="intro"');
+  });
 });

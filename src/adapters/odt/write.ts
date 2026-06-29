@@ -380,6 +380,26 @@ function htmlInlineToOdf(node: Node, parent: Element, f: Fmt, ctx: OdfCtx): void
       continue;
     }
     if (el.classList.contains("docx-cmark")) continue; // empty new-comment marker: nothing to emit
+    if (el.classList.contains("docx-bookmark")) {
+      const name = el.getAttribute("data-rdoc-bm") ?? "";
+      if (name) { const b = ctx.doc.createElementNS(NS.text, "text:bookmark-start"); b.setAttributeNS(NS.text, "text:name", name); parent.appendChild(b); }
+      continue;
+    }
+    if (el.classList.contains("docx-bookmark-end")) {
+      const name = el.getAttribute("data-rdoc-bm-end") ?? "";
+      if (name) { const b = ctx.doc.createElementNS(NS.text, "text:bookmark-end"); b.setAttributeNS(NS.text, "text:name", name); parent.appendChild(b); }
+      continue;
+    }
+    if (el.classList.contains("docx-xref")) {
+      // A cross-reference to a bookmark: text:bookmark-ref with the recomputed text as fallback content.
+      const name = el.getAttribute("data-rdoc-xref") ?? "";
+      const ref = ctx.doc.createElementNS(NS.text, "text:bookmark-ref");
+      ref.setAttributeNS(NS.text, "text:reference-format", el.getAttribute("data-rdoc-xref-fmt") === "page" ? "page" : "text");
+      ref.setAttributeNS(NS.text, "text:ref-name", name);
+      ref.appendChild(ctx.doc.createTextNode(el.textContent || ""));
+      parent.appendChild(ref);
+      continue;
+    }
     if (tag === "a") {
       const a = ctx.doc.createElementNS(NS.text, "text:a");
       a.setAttributeNS(NS.xlink, "xlink:href", el.getAttribute("href") ?? "");

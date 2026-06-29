@@ -54,6 +54,7 @@ interface RenderCtx {
   comments: Map<string, Comment>;
   openComments: Set<string>; // comment ids whose range spans across paragraphs (render state)
   commentOrder: string[]; // ids in document order, for the side panel
+  bmNames?: Map<string, string>; // bookmark id -> name, so a w:bookmarkEnd (id only) can carry the name
 }
 
 /** Read word/comments.xml into id -> comment (reactions parsed out, paraIds captured). */
@@ -560,6 +561,18 @@ function inlineToHtml(p: Element, ctx: RenderCtx): string {
       else html += runToHtml(el);
     } else if (el.tagName === "w:ruby") {
       html += rubyHtml(el);
+    } else if (el.tagName === "w:bookmarkStart") {
+      const name = el.getAttribute("w:name") ?? "";
+      const id = el.getAttribute("w:id");
+      if (name && name !== "_GoBack") { if (id) ctx.bmNames?.set(id, name); html += bookmarkStartHtml(name, id); } // skip Word's transient bookmark
+    } else if (el.tagName === "w:bookmarkEnd") {
+      const id = el.getAttribute("w:id");
+      const name = id ? ctx.bmNames?.get(id) : undefined;
+      if (name) html += bookmarkEndHtml(id, name); // skip ends of dropped bookmarks (e.g. _GoBack)
+    } else if (el.tagName === "w:fldSimple") {
+      const ref = parseRefInstr(el.getAttribute("w:instr") ?? "");
+      if (ref) html += xrefHtml(ref.name, ref.fmt, el.textContent ?? "");
+      else html += inlinePassthrough(el); // PAGE / other simple fields stay as-is
     } else if (el.tagName === "w:hyperlink") {
       const id = el.getAttributeNS(R, "id") ?? el.getAttribute("r:id") ?? "";
       const href = ctx.rels.get(id) ?? "";
@@ -797,6 +810,27 @@ function noteRefHtml(id: string, kind: "footnote" | "endnote"): string {
   return `<sup class="docx-fnref" data-fn-id="${escapeAttr(id)}" data-fn-kind="${kind}" contenteditable="false"></sup>`;
 }
 
+// Bookmark anchors: a zero-width start marker (carries the name) and an end marker (carries the
+// matching id), so both point and range bookmarks round-trip and become jump / reference targets.
+function bookmarkStartHtml(name: string, id: string | null): string {
+  return `<a class="docx-bookmark" data-rdoc-bm="${escapeAttr(name)}"${id ? ` data-rdoc-bm-id="${escapeAttr(id)}"` : ""} contenteditable="false"></a>`;
+}
+function bookmarkEndHtml(id: string | null, name: string): string {
+  return `<a class="docx-bookmark-end"${id ? ` data-rdoc-bm-id="${escapeAttr(id)}"` : ""} data-rdoc-bm-end="${escapeAttr(name)}" contenteditable="false"></a>`;
+}
+// A REF / PAGEREF field instruction (" REF name \h ", " PAGEREF name ") -> the cross-ref target +
+// format, or null for any other field.
+function parseRefInstr(instr: string): { name: string; fmt: "text" | "page" } | null {
+  const m = /^\s*(REF|PAGEREF)\s+("[^"]+"|\S+)/i.exec(instr);
+  if (!m) return null;
+  return { name: m[2]!.replace(/^"|"$/g, ""), fmt: m[1]!.toUpperCase() === "PAGEREF" ? "page" : "text" };
+}
+// A cross-reference: a clickable span whose text the engine recomputes; the cached text is the
+// fallback shown before the first reflow.
+function xrefHtml(name: string, fmt: "text" | "page", cached: string): string {
+  return `<a class="docx-xref" data-rdoc-xref="${escapeAttr(name)}" data-rdoc-xref-fmt="${fmt}" contenteditable="false">${escapeHtml(cached)}</a>`;
+}
+
 // Footnote / endnote bodies from word/footnotes.xml or endnotes.xml, keyed by id (skipping the
 // separator / continuation-separator notes, which have id <= 0 or a w:type).
 function readNotes(files: Record<string, Uint8Array>, part: "footnotes" | "endnotes", kind: "footnote" | "endnote"): { id: string; kind: "footnote" | "endnote"; html: string }[] {
@@ -1026,6 +1060,7 @@ export function docxToParts(bytes: Uint8Array): DocxParts {
     comments,
     openComments: new Set(),
     commentOrder: [],
+    bmNames: new Map(),
   };
 
   const html = renderBlocks(body, ctx);

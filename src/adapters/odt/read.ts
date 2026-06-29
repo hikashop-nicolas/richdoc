@@ -203,6 +203,14 @@ function commentRef(name: string, m: { author: string; date: string; text: strin
   );
 }
 
+// Bookmark markers. ODF pairs start/end by name, so the name doubles as the engine's pairing id.
+function bmStartHtml(name: string): string {
+  return `<a class="docx-bookmark" data-rdoc-bm="${escapeAttr(name)}" data-rdoc-bm-id="${escapeAttr(name)}" contenteditable="false"></a>`;
+}
+function bmEndHtml(name: string): string {
+  return `<a class="docx-bookmark-end" data-rdoc-bm-id="${escapeAttr(name)}" data-rdoc-bm-end="${escapeAttr(name)}" contenteditable="false"></a>`;
+}
+
 /** A draw:frame holding a draw:image -> an <img> with a data URL; otherwise passthrough. The
  *  frame is stashed (data-odt-xml) so its layout + the draw:image href survive a save, and its
  *  wrap/anchor surfaces as data-rdoc-* so the image toolbar can edit it. */
@@ -599,6 +607,30 @@ function inlineToHtml(el: Element, ctx: RCtx): string {
         const baseHtml = baseEl ? inlineToHtml(baseEl, ctx) : "";
         const rtHtml = textEl ? escapeHtml(textEl.textContent ?? "") : "";
         html += `<ruby>${baseHtml || "&#8203;"}<rt>${rtHtml}</rt></ruby>`;
+        break;
+      }
+      case "text:bookmark": {
+        // A point bookmark -> an empty start/end pair, so the model stays uniform with ranges.
+        const name = child.getAttribute("text:name") ?? "";
+        if (name) html += bmStartHtml(name) + bmEndHtml(name);
+        break;
+      }
+      case "text:bookmark-start": {
+        // ODF pairs start/end by name; reuse the name as the engine's pairing id.
+        const name = child.getAttribute("text:name") ?? "";
+        if (name) html += bmStartHtml(name);
+        break;
+      }
+      case "text:bookmark-end": {
+        const name = child.getAttribute("text:name") ?? "";
+        if (name) html += bmEndHtml(name);
+        break;
+      }
+      case "text:bookmark-ref": {
+        // A cross-reference to a bookmark; the engine recomputes the text, this cached value shows first.
+        const name = child.getAttribute("text:ref-name") ?? "";
+        const fmt = child.getAttribute("text:reference-format") === "page" ? "page" : "text";
+        html += `<a class="docx-xref" data-rdoc-xref="${escapeAttr(name)}" data-rdoc-xref-fmt="${fmt}" contenteditable="false">${escapeHtml(child.textContent ?? "")}</a>`;
         break;
       }
       default:

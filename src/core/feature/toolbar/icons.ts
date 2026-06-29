@@ -35,6 +35,12 @@ export const pbIcon =
   '<line x1="1" y1="8" x2="15" y2="8" stroke-dasharray="2 1.6"/></svg>';
 
 // Footnote: lines of text with a small superscript mark.
+// A bookmark: a ribbon/pennant shape.
+export const bookmarkIcon =
+  '<svg width="14" height="14" viewBox="0 0 16 16" fill="none" stroke="currentColor" stroke-width="1.3" stroke-linejoin="round"><path d="M4 2.5h8v11l-4-3-4 3z"/></svg>';
+// A cross-reference: a link arrow pointing to a target line.
+export const xrefIcon =
+  '<svg width="14" height="14" viewBox="0 0 16 16" fill="none" stroke="currentColor" stroke-width="1.3" stroke-linecap="round" stroke-linejoin="round"><path d="M2 4h6M2 8h4"/><path d="M9 11h4M11 9l2 2-2 2"/></svg>';
 // A note (footnote or endnote): text lines with a small superscript mark.
 export const footnoteIcon =
   '<svg width="14" height="14" viewBox="0 0 16 16" fill="none" stroke="currentColor" stroke-width="1.3" stroke-linecap="round" aria-hidden="true">' +

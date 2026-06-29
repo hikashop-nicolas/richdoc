@@ -359,6 +359,12 @@
 .docxedit-imgbar-sep[hidden] { display: none; }
 /* Inserted fields (page number / count) and the table of contents. */
 .docx-field { background: rgba(110,123,255,.12); border-radius: 2px; padding: 0 1px; cursor: default; }
+/* Bookmarks: a thin discoverable tick at the marker; cross-references: a subtle clickable field. */
+.docx-bookmark, .docx-bookmark-end { display: inline-block; width: 0; overflow: visible; vertical-align: text-bottom; height: 1.1em; }
+.docx-bookmark { border-left: 2px solid rgba(150, 120, 220, .65); }
+.docx-bookmark-end { border-left: 2px dotted rgba(150, 120, 220, .45); }
+.docx-xref { color: #5b6bd6; background: rgba(110,123,255,.08); border-radius: 2px; padding: 0 1px; cursor: pointer; }
+.docx-xref:hover { text-decoration: underline; }
 .docx-field-toc { border: 1px dashed #cdd3da; border-radius: 4px; padding: 8px 12px; margin: 0 0 .6em; }
 .docx-field-toc-title { font-weight: 600; margin-bottom: 4px; }
 .docx-field-toc-empty { color: #888; font-style: italic; }
