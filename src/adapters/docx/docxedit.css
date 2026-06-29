@@ -190,6 +190,23 @@
 .docxedit-bottombar-btn { display: inline-flex; align-items: center; justify-content: center; padding: 3px 7px; background: #2b2f36; color: #cfd3da; border: 1px solid #4a4f57; border-radius: 6px; cursor: pointer; }
 .docxedit-bottombar-btn:hover { border-color: #6e7bff; }
 .docxedit-bottombar-btn.is-on { background: #6e7bff; color: #fff; border-color: #6e7bff; }
+
+/* Find & replace panel (top-right overlay) + match highlights. */
+.docxedit-find { position: absolute; top: 8px; right: 16px; z-index: 30; background: #2b2f36; color: #e6e8ec; border: 1px solid #4a4f57; border-radius: 8px; box-shadow: 0 8px 28px rgba(0,0,0,.5); padding: 8px; display: flex; flex-direction: column; gap: 6px; font: 13px/1.3 system-ui, sans-serif; }
+.docxedit-find[hidden] { display: none; }
+.docxedit-find-row { display: flex; align-items: center; gap: 4px; }
+.docxedit-find-ico { display: inline-flex; color: #8b919b; padding: 0 2px; }
+.docxedit-find-input { width: 190px; padding: 5px 7px; border: 1px solid #4a4f57; border-radius: 6px; background: #1f2329; color: #e6e8ec; font: inherit; }
+.docxedit-find-input:focus-visible { outline: 2px solid #6e7bff; outline-offset: -1px; }
+.docxedit-find-count { min-width: 56px; text-align: center; color: #aeb4bd; font-size: 12px; }
+.docxedit-find-count.is-none { color: #e06c6c; }
+.docxedit-find-opts { display: inline-flex; gap: 2px; }
+.docxedit-find-btn { display: inline-flex; align-items: center; justify-content: center; min-width: 26px; padding: 4px 7px; background: #353a42; color: #cfd3da; border: 1px solid #4a4f57; border-radius: 6px; cursor: pointer; font: inherit; }
+.docxedit-find-btn:hover { border-color: #6e7bff; }
+.docxedit-find-toggle { font-size: 11px; font-weight: 600; }
+.docxedit-find-toggle.is-on { background: #6e7bff; color: #fff; border-color: #6e7bff; }
+::highlight(rdoc-find) { background: #ffe066; color: #000; }
+::highlight(rdoc-find-current) { background: #ff9b3d; color: #000; }
 /* Symmetric margins keep the page centred; the right one holds the comments column. */
 .docxedit-canvas { display: flex; align-items: flex-start; gap: 18px; flex: 0 0 auto; }
 .docxedit-margin { flex: 0 1 250px; min-width: 0; }

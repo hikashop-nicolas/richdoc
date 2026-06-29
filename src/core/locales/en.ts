@@ -202,6 +202,18 @@ const dict: Dict = {
   linkInDoc: "Place in this document",
   linkFollow: "Ctrl/Cmd-click to follow",
   outline: "Document outline",
+  findReplace: "Find and replace",
+  findLabel: "Find",
+  findReplaceWith: "Replace with",
+  findReplaceOne: "Replace",
+  findReplaceAll: "Replace all",
+  findMatchCase: "Match case",
+  findWholeWord: "Whole word",
+  findRegex: "Regular expression",
+  findNext: "Next match",
+  findPrev: "Previous match",
+  findClose: "Close",
+  findNone: "No results",
 };
 
 export default dict;

@@ -13,6 +13,7 @@ import { setupPageView } from "./feature/page-view";
 import { setupToolbar } from "./feature/toolbar";
 import { setupTableEdit } from "./feature/table-edit";
 import { setupOutline } from "./feature/outline";
+import { setupFindReplace } from "./feature/find-replace";
 import { setupFields } from "./feature/fields";
 import "../adapters/docx/docxedit.css";
 
@@ -374,10 +375,11 @@ export function createRichEditor(container: HTMLElement, adapter: Adapter, optio
   bottomBar.append(bottomLeft, bottomRight);
   // The outline pane sits left of the scroll area in a flex row; its toggle lives in the status bar.
   const outline = setupOutline({ doc });
+  const findReplace = setupFindReplace({ doc, wrap });
   const main = document.createElement("div");
   main.className = "docxedit-main";
   main.append(outline.pane, scroll);
-  bottomLeft.append(outline.toggleBtn);
+  bottomLeft.append(outline.toggleBtn, findReplace.toggleBtn);
   wrap.append(toolbar, main, bottomBar);
   container.appendChild(wrap);
 
@@ -1536,6 +1538,7 @@ export function createRichEditor(container: HTMLElement, adapter: Adapter, optio
       tableEdit?.teardown();
       imageLayout?.teardown();
       outline.teardown();
+      findReplace.teardown();
       teardownPageView();
       wrap.remove();
     },
