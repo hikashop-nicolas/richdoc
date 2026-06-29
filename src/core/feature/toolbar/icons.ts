@@ -45,6 +45,10 @@ export const xrefIcon =
 export const captionIcon =
   '<svg width="14" height="14" viewBox="0 0 16 16" fill="none" stroke="currentColor" stroke-width="1.2" aria-hidden="true">' +
   '<rect x="2.5" y="2" width="11" height="7" rx="1"/><path d="M5 12h6M4 14.5h8" stroke-linecap="round"/></svg>';
+// An equation: a radical sign over a baseline (√‾).
+export const equationIcon =
+  '<svg width="14" height="14" viewBox="0 0 16 16" fill="none" stroke="currentColor" stroke-width="1.3" stroke-linecap="round" stroke-linejoin="round" aria-hidden="true">' +
+  '<path d="M1.5 9l1.8 0 1.7 4 2.8-10H14"/></svg>';
 // A note (footnote or endnote): text lines with a small superscript mark.
 export const footnoteIcon =
   '<svg width="14" height="14" viewBox="0 0 16 16" fill="none" stroke="currentColor" stroke-width="1.3" stroke-linecap="round" aria-hidden="true">' +

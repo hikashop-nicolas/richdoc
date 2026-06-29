@@ -10,9 +10,10 @@ import { setupStyles } from "./styles";
 import { setupFloatBar } from "./float-bar";
 import { setupShortcuts } from "./shortcuts";
 import { setupReferences } from "./references";
+import { setupEquation } from "../equation";
 import {
   alignIcon, indentIcon, bulletIcon, numberIcon, linkIcon, pbIcon, imgIcon, cmtIcon,
-  supIcon, subIcon, lineSpacingIcon, tableIcon, fieldIcon, furiganaIcon, footnoteIcon, bookmarkIcon, xrefIcon, captionIcon, caret, styleGroupSvg, insertGroupSvg,
+  supIcon, subIcon, lineSpacingIcon, tableIcon, fieldIcon, furiganaIcon, footnoteIcon, bookmarkIcon, xrefIcon, captionIcon, equationIcon, caret, styleGroupSvg, insertGroupSvg,
 } from "./icons";
 import type { Adapter, Capabilities, CommentThread, EditorOptions, NewStyle, RichDoc } from "../../types";
 
@@ -837,11 +838,12 @@ export function setupToolbar(deps: ToolbarDeps) {
     doc, wrap, mark, exec, captureSel, restoreSel, getActiveEl,
   });
   openLinkDialog = openLink;
+  const equation = caps.equations ? setupEquation({ doc, wrap, mark, captureSel, restoreSel }) : null;
 
   // Two clusters collapse into a single dropdown button when the toolbar runs out of room:
   // the character-formatting controls ("style"), and the insert controls.
   const styleSrc: (HTMLElement | null)[] = [boldBtn, italicBtn, underlineBtn, strikeBtn, supBtn, subBtn, caps.textColor ? colorInput : null, caps.textColor ? bgWrap : null, caps.fontControls ? fontSel : null, caps.fontControls ? sizeSel : null];
-  const insertSrc: (HTMLElement | null)[] = [caps.images ? iconBtn(imgIcon, t("insertImage"), insertImage) : null, caps.tables ? tableBtn : null, caps.fields ? fieldsBtn : null, caps.comments ? iconBtn(cmtIcon, t("addComment"), addComment) : null, caps.pageBreak ? iconBtn(pbIcon, t("insertPageBreak"), insertPageBreak) : null, linkBtn, iconBtn(footnoteIcon, t("insertNote"), openNoteDialog), iconBtn(captionIcon, t("insertCaption"), openCaptionDialog), iconBtn(bookmarkIcon, t("insertBookmark"), insertBookmark), iconBtn(xrefIcon, t("insertCrossRef"), openXrefDialog), caps.verticalText ? furiganaBtn : null];
+  const insertSrc: (HTMLElement | null)[] = [caps.images ? iconBtn(imgIcon, t("insertImage"), insertImage) : null, caps.tables ? tableBtn : null, caps.fields ? fieldsBtn : null, caps.comments ? iconBtn(cmtIcon, t("addComment"), addComment) : null, caps.pageBreak ? iconBtn(pbIcon, t("insertPageBreak"), insertPageBreak) : null, linkBtn, iconBtn(footnoteIcon, t("insertNote"), openNoteDialog), iconBtn(captionIcon, t("insertCaption"), openCaptionDialog), iconBtn(bookmarkIcon, t("insertBookmark"), insertBookmark), iconBtn(xrefIcon, t("insertCrossRef"), openXrefDialog), equation ? iconBtn(equationIcon, t("insertEquation"), equation.openDialog) : null, caps.verticalText ? furiganaBtn : null];
   const styleControls = styleSrc.filter((n): n is HTMLElement => n != null);
   const insertControls = insertSrc.filter((n): n is HTMLElement => n != null);
   // A collapsible cluster: a slot that holds the controls inline or a group button + a popover.
@@ -970,6 +972,7 @@ export function setupToolbar(deps: ToolbarDeps) {
     document.removeEventListener("selectionchange", scheduleSync);
     floatBar.teardown();
     shortcuts.teardown();
+    equation?.teardown();
     window.clearTimeout(syncTimer);
   };
   return { updateChangeButtons, teardown };

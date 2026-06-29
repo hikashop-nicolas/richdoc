@@ -1184,6 +1184,35 @@ describe("list fidelity: nesting and ordered/bullet", () => {
     expect(html).toContain('data-rdoc-xref="intro"');
   });
 
+  it("reads an OMML equation as a MathML span, keeping the original for a verbatim rewrite", () => {
+    const m = 'xmlns:m="http://schemas.openxmlformats.org/officeDocument/2006/math"';
+    const doc = `<?xml version="1.0"?>
+<w:document xmlns:w="http://schemas.openxmlformats.org/wordprocessingml/2006/main">
+ <w:body><w:p><m:oMath ${m}><m:f><m:num><m:r><m:t>x</m:t></m:r></m:num><m:den><m:r><m:t>2</m:t></m:r></m:den></m:f></m:oMath></w:p></w:body>
+</w:document>`;
+    const html = docxToHtml(makeDocx(doc));
+    expect(html).toContain('class="docx-eq"');
+    expect(html).toContain("<mfrac");
+    expect(html).toContain("data-docx-xml"); // original OMML kept
+    // an un-edited equation rewrites its original OMML verbatim
+    const out = htmlToDocx(html, makeDocx());
+    const xml = strFromU8(unzipSync(out)["word/document.xml"]!);
+    expect(xml).toContain("m:oMath");
+    expect(xml).toMatch(/<m:f>/);
+  });
+
+  it("writes an authored MathML equation as OMML", () => {
+    const body = '<p><span class="docx-eq" data-rdoc-eq data-latex="x^2" contenteditable="false">' +
+      '<math xmlns="http://www.w3.org/1998/Math/MathML"><msup><mi>x</mi><mn>2</mn></msup></math></span></p>';
+    const out = htmlToDocx(body, makeDocx());
+    const xml = strFromU8(unzipSync(out)["word/document.xml"]!);
+    expect(xml).toContain("m:oMath");
+    expect(xml).toMatch(/<m:sSup>/);
+    expect(xml).toMatch(/<m:sup>/);
+    // and it re-reads as an equation
+    expect(docxToHtml(out)).toContain('class="docx-eq"');
+  });
+
   it("round-trips an internal hyperlink as a w:hyperlink w:anchor", () => {
     const out = htmlToDocx('<p>See <a href="#intro">the intro</a></p>', makeDocx());
     const xml = strFromU8(unzipSync(out)["word/document.xml"]!);

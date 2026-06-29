@@ -8,6 +8,8 @@ export default defineConfig({
   root: "demo",
   base: "./",
   server: { fs: { allow: [".."] } },
+  // esbuild's dep pre-bundling mangles temml (it then errors on every command); serve its raw ESM.
+  optimizeDeps: { exclude: ["temml"] },
   build: {
     outDir: "../demo-dist",
     emptyOutDir: true,

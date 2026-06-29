@@ -152,6 +152,8 @@ export interface Capabilities {
   verticalText: boolean;
   /** Insertable fields: page number, page count, table of contents. */
   fields: boolean;
+  /** Inserting / editing equations (needs math round-trip; docx OMML for now, odt deferred). */
+  equations: boolean;
   /** Section-break authoring, and which paragraph carries a section's geometry:
       "trailing" = the last paragraph of the section (docx w:sectPr / data-rdoc-secbreak),
       "leading"  = the first paragraph of the section (odt master-page / data-rdoc-secstart),

@@ -207,6 +207,15 @@
 .docxedit-find-toggle.is-on { background: #6e7bff; color: #fff; border-color: #6e7bff; }
 ::highlight(rdoc-find) { background: #ffe066; color: #000; }
 ::highlight(rdoc-find-current) { background: #ff9b3d; color: #000; }
+
+/* Equations: a clickable inline MathML box, and the LaTeX authoring dialog with a live preview. */
+.docx-eq { display: inline-block; cursor: pointer; padding: 0 2px; border-radius: 3px; }
+.docx-eq:hover { background: rgba(110,123,255,.14); }
+.docxedit-dialog.docxedit-eq { max-width: 440px; }
+.docxedit-eq-input { width: 100%; box-sizing: border-box; padding: 7px 9px; border: 1px solid #4a4f57; border-radius: 6px; background: #1f2329; color: #e6e8ec; font: 13px/1.45 ui-monospace, SFMono-Regular, Menlo, monospace; resize: vertical; }
+.docxedit-eq-input:focus-visible { outline: 2px solid #6e7bff; outline-offset: -1px; }
+.docxedit-eq-preview { min-height: 44px; padding: 8px 10px; background: #fff; color: #000; border-radius: 6px; display: flex; align-items: center; justify-content: center; overflow-x: auto; }
+.docxedit-eq-preview math { font-size: 1.25em; }
 /* Symmetric margins keep the page centred; the right one holds the comments column. */
 .docxedit-canvas { display: flex; align-items: flex-start; gap: 18px; flex: 0 0 auto; }
 .docxedit-margin { flex: 0 1 250px; min-width: 0; }

@@ -7,6 +7,7 @@ import type { ImageLayout, NewStyle, Note, PageGeometry } from "../../core/types
 import { W, R, PKG, REL_HYPERLINK, NS_DECLS, FMT0, HL_BY_HEX, JC_BY_ALIGN } from "./shared";
 import type { Fmt } from "./shared";
 import { EMU_PER_PX, makeContainer } from "./image-layout";
+import { mathmlToOmml } from "./omml";
 
 // ---------------------------------------------------------------------------
 // HTML -> .docx
@@ -306,6 +307,14 @@ function appendInline(ctx: DocxCtx, node: Node, parent: Element, f: Fmt, del = f
     if (tag === "img") {
       const run = buildImageRun(ctx, el);
       if (run) parent.appendChild(run);
+      continue;
+    }
+    if (tag === "span" && el.classList.contains("docx-eq")) {
+      // An equation: original OMML verbatim if unedited (data-docx-xml), else converted from its MathML.
+      const stash0 = el.getAttribute("data-docx-xml");
+      const math = el.querySelector("math");
+      const xml = stash0 ?? (math ? mathmlToOmml(math) : null);
+      if (xml) { const node = importPassthrough(ctx, xml); if (node) parent.appendChild(node); }
       continue;
     }
     const stash = el.getAttribute("data-docx-xml");

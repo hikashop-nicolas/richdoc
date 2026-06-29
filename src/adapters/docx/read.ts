@@ -5,6 +5,7 @@ import { t } from "../../core/i18n";
 import { bytesToBase64, imageLayoutAttrs } from "../../core/util";
 import type { CommentEntry, CommentThread, PageGeometry } from "../../core/types";
 import { W, R, XMLNS, NS_DECLS, IMG_MIME, escapeHtml, escapeAttr, HL_CSS, JC_TO_ALIGN } from "./shared";
+import { ommlToMathml } from "./omml";
 import type { Fmt } from "./shared";
 import { readLayout } from "./image-layout";
 
@@ -534,6 +535,14 @@ const runIsModeled = (run: Element): boolean => Array.from(run.children).every((
 // Preserve an unmodelled element (bookmark, field, content control, math, ...) verbatim:
 // show its text read-only and carry the original XML so it round-trips on save.
 const inlinePassthrough = (el: Element): string => `<span class="docx-pass" contenteditable="false"${passthroughAttr(el)}>${escapeHtml(el.textContent ?? "")}</span>`;
+// An equation (m:oMath): rendered as MathML, with the original OMML kept in data-docx-xml so an
+// un-edited equation rewrites verbatim. If conversion fails, fall back to opaque passthrough.
+function eqHtml(oMath: Element): string {
+  let mathml = "";
+  try { mathml = ommlToMathml(oMath); } catch { /* fall through to passthrough */ }
+  if (!mathml) return inlinePassthrough(oMath);
+  return `<span class="docx-eq" data-rdoc-eq contenteditable="false"${passthroughAttr(oMath)}>${mathml}</span>`;
+}
 
 function inlineToHtml(p: Element, ctx: RenderCtx): string {
   let html = "";
@@ -601,8 +610,12 @@ function inlineToHtml(p: Element, ctx: RenderCtx): string {
       let inner = "";
       for (const r of Array.from(el.getElementsByTagName("w:r"))) inner += hasDrawing(r) ? imageHtml(r, ctx) : runToHtml(r);
       html += `<a href="${escapeHtml(href)}">${inner}</a>`;
+    } else if (el.localName === "oMath") {
+      html += eqHtml(el);
+    } else if (el.localName === "oMathPara") {
+      for (const om of Array.from(el.children)) if (om.localName === "oMath") html += eqHtml(om);
     } else if (el.tagName !== "w:pPr") {
-      // Anything else (bookmarks, fields, content controls, math, moves, ...) -> preserve.
+      // Anything else (content controls, moves, unknown fields, ...) -> preserve.
       html += inlinePassthrough(el);
     }
   }

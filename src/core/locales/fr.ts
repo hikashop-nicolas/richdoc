@@ -214,6 +214,7 @@ const dict: Dict = {
   findPrev: "Occurrence précédente",
   findClose: "Fermer",
   findNone: "Aucun résultat",
+  insertEquation: "Insérer une équation",
 };
 
 export default dict;
