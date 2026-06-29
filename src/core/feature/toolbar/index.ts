@@ -883,6 +883,35 @@ export function setupToolbar(deps: ToolbarDeps) {
     block.appendChild(end);
     return name;
   };
+  // A bookmark over only part of a caption, so "label and number" / "caption text" references round-trip
+  // as ordinary bookmarks (a narrower range) rather than needing a non-standard field switch.
+  const captionRefName = (cap: HTMLElement, gran: "label" | "captext"): string => {
+    const reuse = Array.from(cap.querySelectorAll<HTMLElement>(":scope > .docx-bookmark")).find((b) => b.getAttribute("data-rdoc-bm-gran") === gran);
+    if (reuse) return reuse.getAttribute("data-rdoc-bm") || "";
+    const seq = cap.querySelector(":scope > [data-field='seq']");
+    if (!seq) return blockBmName(cap); // no number to split on: fall back to the whole caption
+    const id = String(nextBmId());
+    const name = `_Ref${id}`;
+    const start = mkBmEl("docx-bookmark", name, id);
+    start.setAttribute("data-rdoc-bm-gran", gran);
+    const end = mkBmEl("docx-bookmark-end", null, id);
+    end.setAttribute("data-rdoc-bm-end", name);
+    if (gran === "label") {
+      cap.insertBefore(start, cap.firstChild); // ... start of caption
+      (seq as ChildNode).after(end); //          ... through the number = "Figure 1"
+    } else {
+      const after = seq.nextSibling; // the ": text" node following the number
+      if (after && after.nodeType === 3) {
+        const m = /^\s*:\s*/.exec((after as Text).textContent || "");
+        const textNode = m ? (after as Text).splitText(m[0].length) : after; // drop the leading ": "
+        (textNode as ChildNode).before(start);
+      } else {
+        (seq as ChildNode).after(start);
+      }
+      cap.appendChild(end); // ... to the caption end = the description only
+    }
+    return name;
+  };
   type XrefKind = "heading" | "bookmark" | "figure" | "table";
   // The cross-reference targets of a kind, in document order: headings / captioned figures / captioned
   // tables (each referenced via a wrapping bookmark), or named bookmarks.
@@ -923,6 +952,11 @@ export function setupToolbar(deps: ToolbarDeps) {
   let xrefEls: HTMLElement[] = [];
   const fillTargets = () => {
     const kind = xrefKinds.find((k) => k.input.checked)?.kind ?? "heading";
+    // "Label and number" / "Caption text" only make sense for captioned figures/tables.
+    const caption = kind === "figure" || kind === "table";
+    fmtLabel.lab.hidden = !caption;
+    fmtCaptionText.lab.hidden = !caption;
+    if (!caption && (fmtLabel.input.checked || fmtCaptionText.input.checked)) fmtText.input.checked = true;
     const list = xrefTargets(kind);
     xrefEls = list.map((x) => x.el);
     targetSel.replaceChildren(...list.map((x, i) => { const o = document.createElement("option"); o.value = String(i); o.textContent = x.label; return o; }));
@@ -931,8 +965,11 @@ export function setupToolbar(deps: ToolbarDeps) {
   const fmtRow = document.createElement("div");
   fmtRow.className = "docxedit-dialog-row docxedit-xref-fmt";
   const fmtText = mkXrefRadio("rdoc-xref-fmt", "text", t("refFormatText"), true);
+  const fmtLabel = mkXrefRadio("rdoc-xref-fmt", "label", t("refFormatLabel"), false);
+  const fmtCaptionText = mkXrefRadio("rdoc-xref-fmt", "captext", t("refFormatCaptionText"), false);
   const fmtPage = mkXrefRadio("rdoc-xref-fmt", "page", t("refFormatPage"), false);
-  fmtRow.append(fmtText.lab, fmtPage.lab);
+  const fmtDirection = mkXrefRadio("rdoc-xref-fmt", "direction", t("refFormatDirection"), false);
+  fmtRow.append(fmtText.lab, fmtLabel.lab, fmtCaptionText.lab, fmtPage.lab, fmtDirection.lab);
   const xrefActions = document.createElement("div");
   xrefActions.className = "docxedit-dialog-row docxedit-dialog-actions";
   const xrefCancel = document.createElement("button");
@@ -956,10 +993,14 @@ export function setupToolbar(deps: ToolbarDeps) {
   xrefInsertBtn.addEventListener("click", () => {
     const target = xrefEls[Number(targetSel.value)];
     if (!target) { closeXref(); return; }
-    // A heading or caption is referenced through a bookmark wrapping its content; a bookmark by its name.
-    const name = target.hasAttribute("data-rdoc-bm") ? target.getAttribute("data-rdoc-bm") || "" : blockBmName(target);
+    // "Label and number" / "Caption text" target a narrower bookmark inside the caption (fmt stays text);
+    // the others reference a bookmark over the whole heading / caption / bookmark.
+    const gran = fmtLabel.input.checked ? "label" : fmtCaptionText.input.checked ? "captext" : null;
+    const fmt = gran ? "text" : fmtPage.input.checked ? "page" : fmtDirection.input.checked ? "direction" : "text";
+    const name = gran ? captionRefName(target, gran)
+      : target.hasAttribute("data-rdoc-bm") ? target.getAttribute("data-rdoc-bm") || ""
+      : blockBmName(target);
     if (!name) { closeXref(); return; }
-    const fmt = fmtPage.input.checked ? "page" : "text";
     closeXref();
     restoreSel();
     const sel = window.getSelection();
@@ -972,7 +1013,8 @@ export function setupToolbar(deps: ToolbarDeps) {
     xr.setAttribute("data-rdoc-xref", name);
     xr.setAttribute("data-rdoc-xref-fmt", fmt);
     xr.contentEditable = "false";
-    xr.textContent = fmt === "page" ? "1" : (target.textContent || name).trim().slice(0, 80) || name;
+    // A placeholder until the next reflow recomputes it (page number / above-below / target text).
+    xr.textContent = fmt === "page" ? "1" : fmt === "direction" ? t("refBelow") : (target.textContent || name).trim().slice(0, 80) || name;
     range.collapse(false);
     range.insertNode(xr);
     range.setStartAfter(xr);

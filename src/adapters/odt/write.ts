@@ -402,8 +402,9 @@ function htmlInlineToOdf(node: Node, parent: Element, f: Fmt, ctx: OdfCtx): void
     if (el.classList.contains("docx-xref")) {
       // A cross-reference to a bookmark: text:bookmark-ref with the recomputed text as fallback content.
       const name = el.getAttribute("data-rdoc-xref") ?? "";
+      const xfmt = el.getAttribute("data-rdoc-xref-fmt");
       const ref = ctx.doc.createElementNS(NS.text, "text:bookmark-ref");
-      ref.setAttributeNS(NS.text, "text:reference-format", el.getAttribute("data-rdoc-xref-fmt") === "page" ? "page" : "text");
+      ref.setAttributeNS(NS.text, "text:reference-format", xfmt === "page" ? "page" : xfmt === "direction" ? "direction" : "text");
       ref.setAttributeNS(NS.text, "text:ref-name", name);
       ref.appendChild(ctx.doc.createTextNode(el.textContent || ""));
       parent.appendChild(ref);

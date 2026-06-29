@@ -189,6 +189,11 @@ const dict: Dict = {
   imageOptions: "Image options",
   captionPrompt: "Caption text:",
   addCaption: "Add / edit caption",
+  refFormatDirection: "Above / below",
+  refAbove: "above",
+  refBelow: "below",
+  refFormatLabel: "Label and number",
+  refFormatCaptionText: "Caption text",
 };
 
 export default dict;

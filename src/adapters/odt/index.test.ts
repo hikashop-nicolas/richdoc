@@ -975,6 +975,14 @@ describe("odt bookmarks and cross-references", () => {
     expect(html).toContain('data-rdoc-xref="intro"');
   });
 
+  it("round-trips an above/below cross-reference via reference-format=direction", () => {
+    const body = '<p><a class="docx-xref" data-rdoc-xref="intro" data-rdoc-xref-fmt="direction" contenteditable="false">below</a></p>';
+    const out = htmlToOdt(body, makeOdt());
+    const xml = strFromU8(unzipSync(out)["content.xml"]);
+    expect(xml).toMatch(/text:reference-format="direction"/);
+    expect(odtToHtml(out)).toContain('data-rdoc-xref-fmt="direction"');
+  });
+
   it("reads a text:sequence caption and writes it back", () => {
     const content = `<?xml version="1.0"?>
 <office:document-content ${NS} xmlns:style="urn:oasis:names:tc:opendocument:xmlns:style:1.0"><office:body><office:text>

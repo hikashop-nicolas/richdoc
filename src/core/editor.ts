@@ -629,8 +629,10 @@ export function createRichEditor(container: HTMLElement, adapter: Adapter, optio
       const name = x.getAttribute("data-rdoc-xref");
       const target = name ? bmTarget(name) : null;
       if (!target) continue;
+      const fmt = x.getAttribute("data-rdoc-xref-fmt");
       let text: string;
-      if (x.getAttribute("data-rdoc-xref-fmt") === "page") text = vertical ? "1" : String(Math.max(1, Math.floor(target.offsetTop / pageStep) + 1));
+      if (fmt === "page") text = vertical ? "1" : String(Math.max(1, Math.floor(target.offsetTop / pageStep) + 1));
+      else if (fmt === "direction") text = x.compareDocumentPosition(target) & Node.DOCUMENT_POSITION_FOLLOWING ? t("refBelow") : t("refAbove");
       else text = xrefTargetText(target, name!);
       if (text && x.textContent !== text) x.textContent = text;
     }

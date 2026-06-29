@@ -189,6 +189,11 @@ const dict: Dict = {
   imageOptions: "Options de l'image",
   captionPrompt: "Texte de la légende :",
   addCaption: "Ajouter / modifier la légende",
+  refFormatDirection: "Au-dessus / en dessous",
+  refAbove: "ci-dessus",
+  refBelow: "ci-dessous",
+  refFormatLabel: "Libellé et numéro",
+  refFormatCaptionText: "Texte de la légende",
 };
 
 export default dict;

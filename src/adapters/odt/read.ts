@@ -634,7 +634,8 @@ function inlineToHtml(el: Element, ctx: RCtx): string {
       case "text:bookmark-ref": {
         // A cross-reference to a bookmark; the engine recomputes the text, this cached value shows first.
         const name = child.getAttribute("text:ref-name") ?? "";
-        const fmt = child.getAttribute("text:reference-format") === "page" ? "page" : "text";
+        const rf = child.getAttribute("text:reference-format");
+        const fmt = rf === "page" ? "page" : rf === "direction" ? "direction" : "text";
         html += `<a class="docx-xref" data-rdoc-xref="${escapeAttr(name)}" data-rdoc-xref-fmt="${fmt}" contenteditable="false">${escapeHtml(child.textContent ?? "")}</a>`;
         break;
       }

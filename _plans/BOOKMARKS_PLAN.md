@@ -26,8 +26,13 @@
   REF/PAGEREF -> xref and SEQ -> caption seq (cached result becomes the shown text); PAGE/TOC/DATE/etc.
   stay verbatim passthrough. They write back as fldSimple (complex -> simple, Word-equivalent). odt has
   no complex-field concept, so this is docx-only.
-- Deferred (still TODO): reference formats beyond text/page (label+number vs caption-text-only,
-  above/below, paragraph number); range bookmark fidelity across block boundaries; cross-refs to equations.
+- **Deferred item 2 DONE**: extra cross-reference formats. "Above/below" (a new format) is computed by
+  the engine from DOM order and round-trips via the OOXML `\p` switch / odf reference-format="direction".
+  "Label and number" and "caption text" (caption targets only) are NOT field switches: they reference a
+  narrower bookmark inside the caption (start..number, or after the ": "..end), so they round-trip as
+  ordinary bookmarks with plain text format and the engine reads the right sub-range. "Paragraph number"
+  was intentionally skipped (our headings are not outline-numbered, so it would render empty).
+- Deferred (still TODO): range bookmark fidelity across block boundaries; cross-refs to equations.
 
 ## Where we are today
 

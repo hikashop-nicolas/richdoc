@@ -844,14 +844,15 @@ function bookmarkEndHtml(id: string | null, name: string): string {
 }
 // A REF / PAGEREF field instruction (" REF name \h ", " PAGEREF name ") -> the cross-ref target +
 // format, or null for any other field.
-function parseRefInstr(instr: string): { name: string; fmt: "text" | "page" } | null {
+function parseRefInstr(instr: string): { name: string; fmt: "text" | "page" | "direction" } | null {
   const m = /^\s*(REF|PAGEREF)\s+("[^"]+"|\S+)/i.exec(instr);
   if (!m) return null;
-  return { name: m[2]!.replace(/^"|"$/g, ""), fmt: m[1]!.toUpperCase() === "PAGEREF" ? "page" : "text" };
+  const fmt = /\\p\b/i.test(instr) ? "direction" : m[1]!.toUpperCase() === "PAGEREF" ? "page" : "text";
+  return { name: m[2]!.replace(/^"|"$/g, ""), fmt };
 }
 // A cross-reference: a clickable span whose text the engine recomputes; the cached text is the
 // fallback shown before the first reflow.
-function xrefHtml(name: string, fmt: "text" | "page", cached: string): string {
+function xrefHtml(name: string, fmt: "text" | "page" | "direction", cached: string): string {
   return `<a class="docx-xref" data-rdoc-xref="${escapeAttr(name)}" data-rdoc-xref-fmt="${fmt}" contenteditable="false">${escapeHtml(cached)}</a>`;
 }
 // A " SEQ Figure \* ARABIC " field instruction -> the sequence id, or null for any other field.

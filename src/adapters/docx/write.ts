@@ -377,10 +377,12 @@ function appendInline(ctx: DocxCtx, node: Node, parent: Element, f: Fmt, del = f
       continue;
     }
     if (tag === "a" && el.classList.contains("docx-xref")) {
-      // Cross-reference -> a REF / PAGEREF simple field holding the computed text.
-      const kind = el.getAttribute("data-rdoc-xref-fmt") === "page" ? "PAGEREF" : "REF";
+      // Cross-reference -> a REF / PAGEREF simple field; \p adds the above/below relative position.
+      const xfmt = el.getAttribute("data-rdoc-xref-fmt");
+      const kind = xfmt === "page" ? "PAGEREF" : "REF";
+      const sw = xfmt === "direction" ? "\\p " : "";
       const fld = ctx.doc.createElementNS(W, "w:fldSimple");
-      fld.setAttributeNS(W, "w:instr", ` ${kind} ${el.getAttribute("data-rdoc-xref") || ""} \\h `);
+      fld.setAttributeNS(W, "w:instr", ` ${kind} ${el.getAttribute("data-rdoc-xref") || ""} ${sw}\\h `);
       const run = ctx.doc.createElementNS(W, "w:r");
       const t = ctx.doc.createElementNS(W, "w:t");
       t.setAttribute("xml:space", "preserve");

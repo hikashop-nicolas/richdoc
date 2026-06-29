@@ -1184,6 +1184,14 @@ describe("list fidelity: nesting and ordered/bullet", () => {
     expect(html).toContain('data-rdoc-xref="intro"');
   });
 
+  it("round-trips an above/below cross-reference via the \\p switch", () => {
+    const body = '<p><a class="docx-xref" data-rdoc-xref="intro" data-rdoc-xref-fmt="direction" contenteditable="false">below</a></p>';
+    const out = htmlToDocx(body, makeDocx());
+    const xml = strFromU8(unzipSync(out)["word/document.xml"]!);
+    expect(xml).toMatch(/w:instr=" REF intro \\p \\h "/);
+    expect(docxToHtml(out)).toContain('data-rdoc-xref-fmt="direction"');
+  });
+
   it("reads a SEQ caption paragraph as a caption with a seq field", () => {
     const doc = `<?xml version="1.0"?>
 <w:document xmlns:w="http://schemas.openxmlformats.org/wordprocessingml/2006/main">
