@@ -1337,15 +1337,27 @@ describe("list fidelity: nesting and ordered/bullet", () => {
     expect(strFromU8(unzipSync(out)["word/document.xml"]!)).toMatch(/<w:sym[^>]*w:font="Wingdings"/);
   });
 
-  it("renders other symbol fonts (Webdings) with the named font as a best effort", () => {
+  it("maps Webdings and Wingdings 2/3 to Unicode and rewrites them verbatim", () => {
     const doc = `<?xml version="1.0"?>
 <w:document xmlns:w="http://schemas.openxmlformats.org/wordprocessingml/2006/main">
- <w:body><w:p><w:r><w:sym w:font="Webdings" w:char="F061"/></w:r></w:p></w:body>
+ <w:body><w:p>
+  <w:r><w:sym w:font="Webdings" w:char="F061"/></w:r>
+  <w:r><w:sym w:font="Wingdings 2" w:char="F041"/></w:r>
+  <w:r><w:sym w:font="Wingdings 3" w:char="F041"/></w:r>
+ </w:p></w:body>
 </w:document>`;
     const html = docxToHtml(makeDocx(doc));
-    expect(html).toContain('class="docx-sym"');
-    expect(html).toContain("font-family:'Webdings'");
-    expect(html).not.toContain("docx-dings");
+    expect(html).toContain("✔"); // Webdings F061 -> U+2714
+    expect(html).toContain("🖛"); // Wingdings 2 F041 -> U+1F59B
+    expect(html).toContain("⮑"); // Wingdings 3 F041 -> U+2B91
+    expect(html).not.toContain("docx-dings"); // these use Unicode, not MaterialDings
+    expect(html).not.toContain("font-family:'Webdings'"); // mapped, not the named font
+    // all three round-trip verbatim
+    const out = htmlToDocx(html, makeDocx());
+    const xml = strFromU8(unzipSync(out)["word/document.xml"]!);
+    expect(xml).toMatch(/w:font="Webdings"/);
+    expect(xml).toMatch(/w:font="Wingdings 2"/);
+    expect(xml).toMatch(/w:font="Wingdings 3"/);
   });
 
   it("round-trips an internal hyperlink as a w:hyperlink w:anchor", () => {

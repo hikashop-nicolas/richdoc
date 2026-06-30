@@ -7,6 +7,7 @@ import type { CommentEntry, CommentThread, PageGeometry } from "../../core/types
 import { W, R, XMLNS, NS_DECLS, IMG_MIME, escapeHtml, escapeAttr, HL_CSS, JC_TO_ALIGN } from "./shared";
 import { ommlToMathml } from "./omml";
 import { ensureDingsFont } from "./materialdings";
+import { SYMBOL, WEBDINGS, WINGDINGS2, WINGDINGS3 } from "./dingbats";
 import type { Fmt } from "./shared";
 import { readLayout } from "./image-layout";
 
@@ -545,29 +546,25 @@ function eqHtml(oMath: Element): string {
   return `<span class="docx-eq" data-rdoc-eq contenteditable="false"${passthroughAttr(oMath)}>${mathml}</span>`;
 }
 
-// Adobe Symbol-font encoding -> Unicode (keyed by the low byte, since Word stores these in the PUA
-// F0xx range). The confident subset: Greek plus the common math operators and arrows; anything else
-// falls back to rendering the raw glyph with the symbol font applied.
-const SYMBOL_TO_UNICODE: Record<number, string> = {
-  0x61: "α", 0x62: "β", 0x63: "χ", 0x64: "δ", 0x65: "ε", 0x66: "φ", 0x67: "γ", 0x68: "η", 0x69: "ι",
-  0x6b: "κ", 0x6c: "λ", 0x6d: "μ", 0x6e: "ν", 0x6f: "ο", 0x70: "π", 0x71: "θ", 0x72: "ρ", 0x73: "σ",
-  0x74: "τ", 0x75: "υ", 0x77: "ω", 0x78: "ξ", 0x79: "ψ", 0x7a: "ζ",
-  0x41: "Α", 0x42: "Β", 0x43: "Χ", 0x44: "Δ", 0x45: "Ε", 0x46: "Φ", 0x47: "Γ", 0x48: "Η", 0x49: "Ι",
-  0x4b: "Κ", 0x4c: "Λ", 0x4d: "Μ", 0x4e: "Ν", 0x4f: "Ο", 0x50: "Π", 0x51: "Θ", 0x52: "Ρ", 0x53: "Σ",
-  0x54: "Τ", 0x55: "Υ", 0x57: "Ω", 0x58: "Ξ", 0x59: "Ψ", 0x5a: "Ζ",
-  0xa3: "≤", 0xb3: "≥", 0xb9: "≠", 0xb1: "±", 0xa5: "∞", 0xb0: "°", 0xb4: "×", 0xb8: "÷",
-  0xac: "←", 0xad: "↑", 0xae: "→", 0xaf: "↓", 0xab: "↔",
-};
+// Pick the symbol-font -> Unicode table for a font (Symbol, Webdings, Wingdings 2/3). Wingdings
+// itself is not here: it renders via the bundled MaterialDings font instead.
+function unicodeMap(font: string): Record<number, string> | undefined {
+  if (/^symbol$/i.test(font)) return SYMBOL;
+  if (/^webdings$/i.test(font)) return WEBDINGS;
+  if (/^wingdings 2$/i.test(font)) return WINGDINGS2;
+  if (/^wingdings 3$/i.test(font)) return WINGDINGS3;
+  return undefined;
+}
 // A run carrying a w:sym (a symbol-font glyph): show the glyph while stashing the whole run so it
-// rewrites verbatim. The Symbol font maps to portable Unicode; Wingdings renders via the bundled
-// MaterialDings open replacement (no proprietary font needed); other fonts are a best effort in the
-// named font. Without this the run is an empty passthrough span, i.e. invisible.
+// rewrites verbatim. Symbol / Webdings / Wingdings 2-3 map to portable Unicode; Wingdings renders via
+// the bundled MaterialDings open replacement; any other font is a best effort in the named font.
+// Without this the run is an empty passthrough span, i.e. invisible.
 function symHtml(run: Element, sym: Element): string {
   const font = sym.getAttributeNS(W, "font") ?? sym.getAttribute("w:font") ?? "";
   const raw = parseInt(sym.getAttributeNS(W, "char") ?? sym.getAttribute("w:char") ?? "", 16);
   if (!Number.isFinite(raw)) return inlinePassthrough(run);
   const stash = passthroughAttr(run);
-  const mapped = /^symbol$/i.test(font) ? SYMBOL_TO_UNICODE[raw & 0xff] : undefined;
+  const mapped = unicodeMap(font)?.[raw & 0xff];
   if (mapped) return `<span class="docx-sym" contenteditable="false"${stash}>${escapeHtml(mapped)}</span>`;
   if (/^wingdings$/i.test(font)) {
     // MaterialDings maps at the classic low codepoints (0x21-0xFF), so use the low byte of the PUA char.

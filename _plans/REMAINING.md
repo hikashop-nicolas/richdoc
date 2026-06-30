@@ -38,10 +38,10 @@ These round-trip untouched today. Adding an insert/edit UI would make them autho
 they are realistic to do, just not yet built.
 
 - Legacy symbol-font glyphs (`w:sym`): rendered and round-tripped verbatim, but not authored as
-  `w:sym` from the UI (the special-character picker inserts plain Unicode, the modern equivalent). The
-  Symbol font maps to Unicode and Wingdings renders via the bundled open MaterialDings font, so
-  neither needs the proprietary font installed; other symbol fonts (Webdings, Wingdings 2/3, ...) only
-  display where that font is installed.
+  `w:sym` from the UI (the special-character picker inserts plain Unicode, the modern equivalent).
+  Symbol, Webdings and Wingdings 2/3 map to Unicode and Wingdings renders via the bundled open
+  MaterialDings font, so none needs the proprietary font installed; any other (rare, custom) symbol
+  font still falls back to the named font and displays only where it is installed.
 - Complex fields - PAGE / NUMPAGES / TOC and the cross-reference / caption fields
   (REF / PAGEREF / SEQ) are authored; date, file name, author, etc. are preserved but not
   insertable.
