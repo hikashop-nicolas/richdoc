@@ -25,8 +25,8 @@ An inline, non-editable span holding MathML (the browser renders MathML natively
 </span>
 ```
 
-- `data-latex` is the authored source, so editing reopens the LaTeX. Imported equations have no
-  LaTeX (editing one means retyping it).
+- `data-latex` is the authored source, so editing reopens the LaTeX. An imported equation has no
+  `data-latex`, so opening it recovers a best-effort LaTeX from its MathML (`mathml-latex.ts`).
 - MathML is the in-editor pivot every format converts to/from.
 
 ## Authoring
@@ -60,5 +60,6 @@ conversion lives in the docx adapter, not the engine.
 
 - Editing an imported odt equation orphans its original Object sub-document (unreferenced, harmless).
 - OMML constructs beyond the common set (matrices, accents, bars, boxes) stay verbatim passthrough.
-- Recovering LaTeX from imported MathML (imported equations are edited by retyping).
-- Regex-like structural editing; matrices in the authoring UI rely on LaTeX.
+- MathML -> LaTeX recovery (`mathml-latex.ts`) covers the common subset; constructs outside it fall
+  back to text content, so editing a very exotic imported equation may lose detail.
+- Matrices in the authoring UI rely on LaTeX.

@@ -4,6 +4,7 @@
 // non-editable inline span: <span class="docx-eq" data-rdoc-eq data-latex="...">{<math>…</math>}</span>.
 // Insert / edit / delete go through execCommand so they join the native undo stack and dirty tracking.
 import { t } from "../i18n";
+import { mathmlToLatex } from "./mathml-latex";
 
 export interface EquationDeps {
   doc: HTMLElement; // the editable body
@@ -73,7 +74,9 @@ export function setupEquation(deps: EquationDeps) {
   const open = (target?: HTMLElement): void => {
     captureSel();
     editing = target ?? null;
-    input.value = target?.getAttribute("data-latex") ?? "";
+    // An authored equation keeps its LaTeX; an imported one (no data-latex) recovers it from the MathML.
+    const math = target?.querySelector("math");
+    input.value = target?.getAttribute("data-latex") || (math ? mathmlToLatex(math) : "");
     void renderPreview();
     overlay.hidden = false;
     input.focus();
