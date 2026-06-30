@@ -7,10 +7,11 @@ import { t } from "../i18n";
 export interface FieldsDeps {
   doc: HTMLElement; // the editable body
   scheduleReflow: () => void; // a TOC rebuild can change page heights; settle pagination once more
+  formatPage: (n: number) => string; // render a 1-based page number per the page-number restart/format
 }
 
 export function setupFields(deps: FieldsDeps) {
-  const { doc, scheduleReflow } = deps;
+  const { doc, scheduleReflow, formatPage } = deps;
 
   // Flatten a fragment to one line, inserting a space at each block boundary so a range bookmark that
   // spans paragraphs does not run its text together ("a gammadelta b"); whitespace is then collapsed.
@@ -47,7 +48,7 @@ export function setupFields(deps: FieldsDeps) {
   const decorateFields = (cardCount: number, pageStep: number, vertical: boolean): void => {
     for (const f of Array.from(doc.querySelectorAll<HTMLElement>('.docx-field[data-field="NUMPAGES"]'))) f.textContent = String(cardCount);
     for (const f of Array.from(doc.querySelectorAll<HTMLElement>('.docx-field[data-field="PAGE"]')))
-      f.textContent = String(vertical ? 1 : Math.max(1, Math.floor(f.offsetTop / pageStep) + 1));
+      f.textContent = formatPage(vertical ? 1 : Math.max(1, Math.floor(f.offsetTop / pageStep) + 1));
     // Caption numbers: number each sequence (data-seq) on its own, in document order.
     const seqCounts = new Map<string, number>();
     for (const s of Array.from(doc.querySelectorAll<HTMLElement>('.docx-field[data-field="seq"]'))) {

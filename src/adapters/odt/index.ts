@@ -89,6 +89,7 @@ export function createOdtAdapter(bytes: Uint8Array): Adapter {
       fields: true,
       equations: true, // embedded formula objects (draw:object -> MathML sub-document)
       sections: "leading",
+      pageNumbering: "format", // style:num-format on the page layout; no page-layout start
     },
   };
 }

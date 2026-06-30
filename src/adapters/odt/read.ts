@@ -39,6 +39,12 @@ function parseOdtPageBorder(props: Element, toPx: (v: string | null) => number |
   return { style, widthPx: Math.max(1, Math.round((wm && toPx(wm[1]!)) || 1)), color };
 }
 
+/** Page-number format from style:num-format on a page-layout-properties, mapped to our token. */
+const ODT_NUMFMT_READ: Record<string, string> = { "1": "decimal", i: "lowerRoman", I: "upperRoman", a: "lowerLetter", A: "upperLetter" };
+function odtNumFormat(props: Element): string | undefined {
+  return ODT_NUMFMT_READ[props.getAttribute("style:num-format") ?? ""];
+}
+
 /** Read context: the archive (for image data), the resolved style maps, and comment state. */
 interface ChangeInfo {
   type: "insertion" | "deletion";
@@ -91,7 +97,7 @@ function geomFromLayoutProps(props: Element, lenToPx: (v: string | null) => numb
   const cols = Number.isFinite(numCols) && numCols > 1 ? numCols : undefined;
   const gap = colsEl?.getElementsByTagName("style:column-sep")[0]?.getAttribute("style:width");
   const wm = props.getAttribute("style:writing-mode") ?? "";
-  return JSON.stringify({ w: Math.round(w), h: Math.round(h), mt: m("top"), mr: m("right"), mb: m("bottom"), ml: m("left"), cols, colGap: cols ? Math.round(lenToPx(gap) ?? 36) : undefined, vertical: wm.startsWith("tb") || undefined, rtl: wm.startsWith("rl") || undefined, pageBorder: parseOdtPageBorder(props, lenToPx) });
+  return JSON.stringify({ w: Math.round(w), h: Math.round(h), mt: m("top"), mr: m("right"), mb: m("bottom"), ml: m("left"), cols, colGap: cols ? Math.round(lenToPx(gap) ?? 36) : undefined, vertical: wm.startsWith("tb") || undefined, rtl: wm.startsWith("rl") || undefined, pageBorder: parseOdtPageBorder(props, lenToPx), pageNumFormat: odtNumFormat(props) });
 }
 
 /** Map master-page name -> its page-layout geometry (JSON), so a section that switches master
@@ -895,7 +901,7 @@ function parsePageGeometry(files: Record<string, Uint8Array>): PageGeometry | un
   const columns = Number.isFinite(numCols) && numCols > 1 ? numCols : undefined;
   const gapAttr = colsEl?.getElementsByTagName("style:column-sep")[0]?.getAttribute("style:width");
   const pageBorder = parseOdtPageBorder(props, lenToPx);
-  return { widthPx: Math.round(w), heightPx: Math.round(h), margin: { top: m("top"), right: m("right"), bottom: m("bottom"), left: m("left") }, vertical, rtl, columns, columnGapPx: columns ? Math.round(lenToPx(gapAttr) ?? 36) : undefined, pageBorder };
+  return { widthPx: Math.round(w), heightPx: Math.round(h), margin: { top: m("top"), right: m("right"), bottom: m("bottom"), left: m("left") }, vertical, rtl, columns, columnGapPx: columns ? Math.round(lenToPx(gapAttr) ?? 36) : undefined, pageBorder, pageNumFormat: odtNumFormat(props) };
 }
 
 export function odtToParts(bytes: Uint8Array): { body: string; comments: CommentThread[]; header: string; footer: string; headerEven?: { html: string; path?: string }; footerEven?: { html: string; path?: string }; headerFirst?: { html: string; path?: string }; footerFirst?: { html: string; path?: string }; sectionBands?: Record<string, { html: string; path: string }>; notes?: { id: string; kind: "footnote" | "endnote"; html: string }[]; page?: PageGeometry; paragraphStyles?: { id: string; name: string }[]; characterStyles?: { id: string; name: string }[]; styleDefs?: { id: string; kind: "paragraph" | "character"; css: Record<string, string> }[]; styleCss?: string; noteCss?: string } {

@@ -59,6 +59,10 @@ export interface PageGeometry {
   margin: { top: number; right: number; bottom: number; left: number };
   /** A border drawn around the whole page (docx w:pgBorders, odt page-layout fo:border). */
   pageBorder?: PageBorder;
+  /** Restart page numbering at this value (docx w:pgNumType@w:start; docx only). */
+  pageNumStart?: number;
+  /** Page-number format: decimal | lowerRoman | upperRoman | lowerLetter | upperLetter. */
+  pageNumFormat?: string;
   /** Top-to-bottom, right-to-left text (Japanese tategaki) when true. */
   vertical?: boolean;
   /** Horizontal right-to-left text (Arabic/Hebrew) when true. Ignored if `vertical`. */
@@ -174,6 +178,9 @@ export interface Capabilities {
       "leading"  = the first paragraph of the section (odt master-page / data-rdoc-secstart),
       false      = sections are not authorable. */
   sections: "trailing" | "leading" | false;
+  /** Page-number authoring: "full" = format + restart (docx), "format" = format only
+      (odt has no page-layout home for a start number), false = not authorable. */
+  pageNumbering: "full" | "format" | false;
 }
 
 /** A section's page geometry in px (the on-the-wire shape stashed on a section-boundary
@@ -190,6 +197,8 @@ export interface SecGeom {
   vertical?: boolean; // tategaki (vertical-rl) writing for this section
   rtl?: boolean; // horizontal right-to-left
   pageBorder?: PageBorder; // a border around the page, per-section
+  pageNumStart?: number; // restart page numbering at N (docx only)
+  pageNumFormat?: string; // page-number format token
 }
 
 /** A footnote / endnote body. The inline reference in the body HTML carries the matching id. */

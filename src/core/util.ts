@@ -56,6 +56,24 @@ export function fontSizeToHalfPt(v: string | undefined): number | undefined {
   return undefined;
 }
 
+/** Format a 1-based page number per a page-number format token (decimal / upper- &
+ *  lowerRoman / upper- & lowerLetter), matching docx w:pgNumType@w:fmt. Falls back to decimal. */
+export function formatPageNumber(n: number, fmt: string | undefined): string {
+  if (n < 1 || !fmt || fmt === "decimal") return String(n);
+  if (fmt === "lowerRoman" || fmt === "upperRoman") {
+    const map: [number, string][] = [[1000, "m"], [900, "cm"], [500, "d"], [400, "cd"], [100, "c"], [90, "xc"], [50, "l"], [40, "xl"], [10, "x"], [9, "ix"], [5, "v"], [4, "iv"], [1, "i"]];
+    let r = "", v = n;
+    for (const [val, sym] of map) while (v >= val) { r += sym; v -= val; }
+    return fmt === "upperRoman" ? r.toUpperCase() : r;
+  }
+  if (fmt === "lowerLetter" || fmt === "upperLetter") {
+    let r = "", v = n;
+    while (v > 0) { v--; r = String.fromCharCode(97 + (v % 26)) + r; v = Math.floor(v / 26); }
+    return fmt === "upperLetter" ? r.toUpperCase() : r;
+  }
+  return String(n);
+}
+
 /** First family name from a CSS font-family list, unquoted. */
 export const firstFontFamily = (v: string | undefined): string | undefined =>
   v ? (v.split(",")[0] ?? "").trim().replace(/^['"]|['"]$/g, "") || undefined : undefined;

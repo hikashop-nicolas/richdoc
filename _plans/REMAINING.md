@@ -41,8 +41,10 @@ they are realistic to do, just not yet built.
   (REF / PAGEREF / SEQ), and the date / time / author / file-name info fields are authored;
   other, less-common fields (document title / subject, ASK / input, ...) are preserved but
   not insertable.
-- Page-number restart / format, line numbering and page vertical alignment - preserved on
-  the section, not yet authorable. (Page borders are now authorable through Page setup.)
+- Line numbering and page vertical alignment - preserved on the section, not yet authorable.
+  (Page borders and page-number restart / format are authorable through Page setup; on odt the
+  page-number *format* is authorable but a restart "start at N" has no page-layout home, so that
+  control is docx-only.)
 
 ---
 

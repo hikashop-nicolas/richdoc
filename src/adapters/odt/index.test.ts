@@ -738,6 +738,22 @@ describe("odt page geometry (page-layout)", () => {
     const s = strFromU8(unzipSync(out)["styles.xml"]);
     expect(s).not.toContain("fo:border");
   });
+
+  it("reads page-number format from style:num-format", () => {
+    expect(odtToParts(odtWith('fo:page-width="21cm" fo:page-height="29.7cm" style:num-format="i"')).page!.pageNumFormat).toBe("lowerRoman");
+    expect(odtToParts(odtWith('fo:page-width="21cm" fo:page-height="29.7cm" style:num-format="A"')).page!.pageNumFormat).toBe("upperLetter");
+  });
+
+  it("writes page-number format as style:num-format (and removes it when default)", () => {
+    const set = htmlToOdt("<p>x</p>", odtWith('fo:page-width="21cm" fo:page-height="29.7cm"'), {
+      page: { widthPx: 794, heightPx: 1123, margin: { top: 96, right: 96, bottom: 96, left: 96 }, pageNumFormat: "upperRoman" },
+    });
+    expect(strFromU8(unzipSync(set)["styles.xml"])).toContain('style:num-format="I"');
+    const cleared = htmlToOdt("<p>x</p>", odtWith('fo:page-width="21cm" fo:page-height="29.7cm" style:num-format="I"'), {
+      page: { widthPx: 794, heightPx: 1123, margin: { top: 96, right: 96, bottom: 96, left: 96 } },
+    });
+    expect(strFromU8(unzipSync(cleared)["styles.xml"])).not.toContain("style:num-format");
+  });
 });
 
 describe("odt editable tables (cell content round-trip)", () => {

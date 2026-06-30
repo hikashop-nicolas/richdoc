@@ -4,6 +4,7 @@
 // reference adapter; odt reuses this same engine.
 
 import { t } from "./i18n";
+import { formatPageNumber } from "./util";
 import { defaultPageGeometry, paginate } from "./page";
 import type { Adapter, EditorOptions, RichEditor, RichDoc, SecGeom, Note } from "./types";
 import { setupComments } from "./feature/comments";
@@ -101,6 +102,8 @@ export function createRichEditor(container: HTMLElement, adapter: Adapter, optio
   // Whole-page vertical layout (the optimised tategaki path). A document with section breaks is
   // laid out per-section instead (each box carries its own direction), so this is false there.
   const isVertical = (): boolean => caps.verticalText && !!geometry.vertical && !doc.querySelector("[data-rdoc-secbreak], [data-rdoc-secstart]");
+  // A 1-based page number rendered per the document's page-number restart (start at N) + format.
+  const formatPage = (n: number): string => formatPageNumber((geometry.pageNumStart ?? 1) + n - 1, geometry.pageNumFormat);
   applyGeometry();
 
   const band = (cls: string, label: string, html: string): HTMLElement | null => {
@@ -276,6 +279,8 @@ export function createRichEditor(container: HTMLElement, adapter: Adapter, optio
       geometry.vertical = g.vertical;
       geometry.rtl = g.rtl;
       geometry.pageBorder = g.pageBorder;
+      geometry.pageNumStart = g.pageNumStart;
+      geometry.pageNumFormat = g.pageNumFormat;
       geometryDirty = true;
       applyGeometry();
       return;
@@ -599,7 +604,8 @@ export function createRichEditor(container: HTMLElement, adapter: Adapter, optio
   const setCloneFields = (el: HTMLElement, page: number, total: number): void => {
     for (const f of Array.from(el.querySelectorAll<HTMLElement>(".docx-field"))) {
       const k = f.getAttribute("data-field");
-      if (k === "PAGE") f.textContent = String(page);
+      // PAGE honours a page-number restart (start at N) and format (roman / letters / decimal).
+      if (k === "PAGE") f.textContent = formatPage(page);
       else if (k === "NUMPAGES") f.textContent = String(total);
     }
   };
@@ -612,7 +618,7 @@ export function createRichEditor(container: HTMLElement, adapter: Adapter, optio
     if (fSrc) { const fc = mkClone(fSrc, footerCss); setCloneFields(fc, p + 1, total); hflayer.appendChild(fc); }
   };
   // Computed-field decoration (page numbers, caption sequences, cross-refs, TOC) is its own module.
-  const { decorateFields } = setupFields({ doc, scheduleReflow: () => scheduleReflow() });
+  const { decorateFields } = setupFields({ doc, scheduleReflow: () => scheduleReflow(), formatPage });
 
   const repaginateVertical = () => {
     for (const s of Array.from(doc.querySelectorAll(":scope > .docxedit-pagespacer"))) s.remove();
@@ -973,13 +979,13 @@ export function createRichEditor(container: HTMLElement, adapter: Adapter, optio
   // (N+1)th column for several), and the boxes are centred + stacked. The caret is preserved as
   // a (block, char-offset) pair across the reparent, like the column reflow.
   const SECPAGE = "docxedit-secpage";
-  const docGeom = (): SecGeom => ({ w: geometry.widthPx, h: geometry.heightPx, mt: geometry.margin.top, mr: geometry.margin.right, mb: geometry.margin.bottom, ml: geometry.margin.left, cols: geometry.columns, colGap: geometry.columnGapPx, vertical: geometry.vertical, rtl: geometry.rtl, pageBorder: geometry.pageBorder });
+  const docGeom = (): SecGeom => ({ w: geometry.widthPx, h: geometry.heightPx, mt: geometry.margin.top, mr: geometry.margin.right, mb: geometry.margin.bottom, ml: geometry.margin.left, cols: geometry.columns, colGap: geometry.columnGapPx, vertical: geometry.vertical, rtl: geometry.rtl, pageBorder: geometry.pageBorder, pageNumStart: geometry.pageNumStart, pageNumFormat: geometry.pageNumFormat });
   // Resolve a section's geometry from its (possibly partial) JSON: size + margins fall back to the
   // document, but section-specific fields (columns, direction) are taken only from the section, so
   // a section that omits them does NOT inherit the document's columns / writing direction.
   const mergeSecGeom = (j: Partial<SecGeom>): SecGeom => {
     const d = docGeom();
-    return { w: j.w ?? d.w, h: j.h ?? d.h, mt: j.mt ?? d.mt, mr: j.mr ?? d.mr, mb: j.mb ?? d.mb, ml: j.ml ?? d.ml, cols: j.cols, colGap: j.colGap, vertical: j.vertical, rtl: j.rtl, pageBorder: j.pageBorder };
+    return { w: j.w ?? d.w, h: j.h ?? d.h, mt: j.mt ?? d.mt, mr: j.mr ?? d.mr, mb: j.mb ?? d.mb, ml: j.ml ?? d.ml, cols: j.cols, colGap: j.colGap, vertical: j.vertical, rtl: j.rtl, pageBorder: j.pageBorder, pageNumStart: j.pageNumStart, pageNumFormat: j.pageNumFormat };
   };
   const repaginateSections = () => {
     const blocks: HTMLElement[] = [];

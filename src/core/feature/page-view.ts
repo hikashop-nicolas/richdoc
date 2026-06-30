@@ -618,6 +618,12 @@ export function setupPageView(deps: PageViewDeps) {
   pbRow.append(pbWidth, pbColor);
   const syncPb = () => { const on = pbStyleSel.value !== "none"; pbWidth.style.display = on ? "" : "none"; pbColor.style.display = on ? "" : "none"; };
   pbStyleSel.addEventListener("change", syncPb);
+  // Page numbering: format (both formats) and, where supported, a restart "start at N".
+  const { row: pnRow, sel: pnFmtSel } = mkSelectRow(t("pageNumberFormat"), [["", t("pnDefault")], ["decimal", "1, 2, 3"], ["lowerRoman", "i, ii, iii"], ["upperRoman", "I, II, III"], ["lowerLetter", "a, b, c"], ["upperLetter", "A, B, C"]]);
+  const pnStart = document.createElement("input");
+  pnStart.type = "number"; pnStart.min = "1"; pnStart.step = "1"; pnStart.className = "docxedit-dialog-size";
+  pnStart.placeholder = t("pageNumberStartPh"); pnStart.title = t("pageNumberStart"); pnStart.setAttribute("aria-label", t("pageNumberStart"));
+  if (caps.pageNumbering === "full") pnRow.append(pnStart);
   // Document-level header/footer variant toggles (apply to the whole document, not just one section).
   const mkCheckRow = (label: string): { row: HTMLElement; input: HTMLInputElement } => {
     const row = document.createElement("label");
@@ -646,7 +652,7 @@ export function setupPageView(deps: PageViewDeps) {
   const psActions = document.createElement("div");
   psActions.className = "docxedit-dialog-row docxedit-dialog-actions";
   psActions.append(psCancel, psApply);
-  psPanel.append(psTitle, sizeRow, customRow, orientRow, marginRow, marginCustomRow, colRow, ...(caps.verticalText ? [dirRow] : []), pbRow, firstRow, evenRow, psActions);
+  psPanel.append(psTitle, sizeRow, customRow, orientRow, marginRow, marginCustomRow, colRow, ...(caps.verticalText ? [dirRow] : []), pbRow, ...(caps.pageNumbering ? [pnRow] : []), firstRow, evenRow, psActions);
   scroll.appendChild(psOverlay);
   const closePageSetup = () => { psOverlay.hidden = true; };
   const openPageSetup = () => {
@@ -668,6 +674,8 @@ export function setupPageView(deps: PageViewDeps) {
     pbWidth.value = pb ? String(Math.round(pb.widthPx * 0.75 * 2) / 2) : "1"; // px -> pt
     pbColor.value = pb ? `#${pb.color}` : "#000000";
     syncPb();
+    pnFmtSel.value = g.pageNumFormat ?? "";
+    pnStart.value = g.pageNumStart != null ? String(g.pageNumStart) : "";
     firstCheck.checked = !!geometry.titlePage; // document-level, not per-section
     evenCheck.checked = !!geometry.evenOdd;
     syncCustom();
@@ -699,6 +707,10 @@ export function setupPageView(deps: PageViewDeps) {
     if (pbStyleSel.value !== "none") {
       const widthPt = Math.max(0.5, parseFloat(pbWidth.value) || 1);
       g.pageBorder = { style: pbStyleSel.value, widthPx: Math.max(1, Math.round(widthPt / 0.75)), color: pbColor.value.replace(/^#/, "").toUpperCase(), spacePt: cur.pageBorder?.spacePt };
+    }
+    if (caps.pageNumbering) {
+      g.pageNumFormat = pnFmtSel.value || undefined;
+      if (caps.pageNumbering === "full") { const sn = parseInt(pnStart.value, 10); g.pageNumStart = Number.isFinite(sn) && sn >= 1 ? sn : undefined; }
     }
     writeSectionGeom(g);
     // Document-level header/footer variants: only act on a change (so existing bands are kept).

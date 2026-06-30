@@ -987,7 +987,8 @@ function buildTrackedChanges(ctx: OdfCtx): Element | null {
 
 /** Set a page-layout-properties element's size, orientation, margins and columns (px -> cm), in
     place. Shared by the document Page setup and per-section master pages. */
-function setPageLayoutGeom(doc: Document, props: Element, g: { w: number; h: number; mt: number; mr: number; mb: number; ml: number; cols?: number; colGap?: number; vertical?: boolean; rtl?: boolean; pageBorder?: PageBorder }): void {
+const ODT_NUMFMT_WRITE: Record<string, string> = { decimal: "1", lowerRoman: "i", upperRoman: "I", lowerLetter: "a", upperLetter: "A" };
+function setPageLayoutGeom(doc: Document, props: Element, g: { w: number; h: number; mt: number; mr: number; mb: number; ml: number; cols?: number; colGap?: number; vertical?: boolean; rtl?: boolean; pageBorder?: PageBorder; pageNumFormat?: string }): void {
   // Size + orientation (page-width/height are stored already swapped for landscape).
   props.setAttributeNS(NS.fo, "fo:page-width", pxToCm(g.w));
   props.setAttributeNS(NS.fo, "fo:page-height", pxToCm(g.h));
@@ -1025,6 +1026,9 @@ function setPageLayoutGeom(doc: Document, props: Element, g: { w: number; h: num
     const pb = g.pageBorder;
     props.setAttributeNS(NS.fo, "fo:border", `${pxToCm(pb.widthPx)} ${pb.style} #${pb.color.toLowerCase()}`);
   }
+  // Page-number format: style:num-format on the page layout (odt has no page-layout start number).
+  props.removeAttributeNS(NS.style, "num-format");
+  if (g.pageNumFormat && ODT_NUMFMT_WRITE[g.pageNumFormat]) props.setAttributeNS(NS.style, "style:num-format", ODT_NUMFMT_WRITE[g.pageNumFormat]!);
 }
 
 /** Remove a section master's style:header/style:footer when its section has linked back to the
@@ -1057,7 +1061,7 @@ function applyPageMargins(files: Record<string, Uint8Array>, geometry: PageGeome
     props = doc.createElementNS(NS.style, "style:page-layout-properties");
     pl.insertBefore(props, pl.firstChild);
   }
-  setPageLayoutGeom(doc, props, { w: geometry.widthPx, h: geometry.heightPx, mt: geometry.margin.top, mr: geometry.margin.right, mb: geometry.margin.bottom, ml: geometry.margin.left, cols: geometry.columns, colGap: geometry.columnGapPx, vertical: geometry.vertical, rtl: geometry.rtl, pageBorder: geometry.pageBorder });
+  setPageLayoutGeom(doc, props, { w: geometry.widthPx, h: geometry.heightPx, mt: geometry.margin.top, mr: geometry.margin.right, mb: geometry.margin.bottom, ml: geometry.margin.left, cols: geometry.columns, colGap: geometry.columnGapPx, vertical: geometry.vertical, rtl: geometry.rtl, pageBorder: geometry.pageBorder, pageNumFormat: geometry.pageNumFormat });
   files["styles.xml"] = strToU8(new XMLSerializer().serializeToString(doc));
 }
 
@@ -1077,7 +1081,7 @@ function applySectionMasters(files: Record<string, Uint8Array>, htmlDoc: Documen
   let touched = false;
   for (const el of secs) {
     const name = el.getAttribute("data-odt-masterpage")!;
-    let g: { w: number; h: number; mt: number; mr: number; mb: number; ml: number; cols?: number; colGap?: number; vertical?: boolean; rtl?: boolean; pageBorder?: PageBorder };
+    let g: { w: number; h: number; mt: number; mr: number; mb: number; ml: number; cols?: number; colGap?: number; vertical?: boolean; rtl?: boolean; pageBorder?: PageBorder; pageNumFormat?: string };
     try { g = JSON.parse(el.getAttribute("data-rdoc-secstart")!); } catch { continue; }
     let master = Array.from(doc.getElementsByTagName("style:master-page")).find((m) => m.getAttribute("style:name") === name);
     // Leave an untouched section's existing master byte-for-byte; only act on edited / inserted ones.

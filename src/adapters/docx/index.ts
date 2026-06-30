@@ -104,6 +104,7 @@ export function createDocxAdapter(bytes: Uint8Array): Adapter {
       fields: true,
       equations: true,
       sections: "trailing",
+      pageNumbering: "full",
     },
   };
 }

@@ -1040,7 +1040,13 @@ function parsePageGeometry(sectPr: Element | undefined, evenOdd = false): PageGe
       pageBorder = { style, widthPx: Math.max(1, Math.round(sz / 6)), color: /^[0-9a-fA-F]{6}$/.test(col) ? col.toUpperCase() : "000000", spacePt: Number.isFinite(sp) ? sp : undefined };
     }
   }
-  return { widthPx: Math.round(w), heightPx: Math.round(h), margin: { top: m("top"), right: m("right"), bottom: m("bottom"), left: m("left") }, vertical, rtl, columns, columnGapPx: columns ? Math.round(colGap ?? 36) : undefined, titlePage: titlePage || undefined, evenOdd: evenOdd || undefined, pageBorder };
+  // Page numbering: w:pgNumType @w:start (restart) + @w:fmt (format; only the common tokens).
+  const pn = sectPr.getElementsByTagName("w:pgNumType")[0];
+  const pnStart = Number(pn?.getAttributeNS(W, "start") ?? pn?.getAttribute("w:start"));
+  const pageNumStart = Number.isFinite(pnStart) && pnStart >= 1 ? pnStart : undefined;
+  const pnFmt = pn?.getAttributeNS(W, "fmt") ?? pn?.getAttribute("w:fmt") ?? "";
+  const pageNumFormat = /^(decimal|lowerRoman|upperRoman|lowerLetter|upperLetter)$/.test(pnFmt) ? pnFmt : undefined;
+  return { widthPx: Math.round(w), heightPx: Math.round(h), margin: { top: m("top"), right: m("right"), bottom: m("bottom"), left: m("left") }, vertical, rtl, columns, columnGapPx: columns ? Math.round(colGap ?? 36) : undefined, titlePage: titlePage || undefined, evenOdd: evenOdd || undefined, pageBorder, pageNumStart, pageNumFormat };
 }
 
 /** The archive key for a relationship target relative to word/ (e.g. "header1.xml"). */

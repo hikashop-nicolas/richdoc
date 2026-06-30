@@ -788,6 +788,43 @@ describe("page geometry (w:sectPr)", () => {
   });
 });
 
+describe("page numbering (w:pgNumType)", () => {
+  it("reads restart start + format from w:pgNumType", () => {
+    const doc = `<?xml version="1.0"?>
+<w:document xmlns:w="http://schemas.openxmlformats.org/wordprocessingml/2006/main"><w:body>
+  <w:p><w:r><w:t>Hi</w:t></w:r></w:p>
+  <w:sectPr><w:pgSz w:w="11906" w:h="16838"/><w:pgNumType w:start="3" w:fmt="lowerRoman"/></w:sectPr>
+</w:body></w:document>`;
+    const page = docxToParts(makeDocx(doc)).page!;
+    expect(page.pageNumStart).toBe(3);
+    expect(page.pageNumFormat).toBe("lowerRoman");
+  });
+
+  it("writes restart start + format back into w:pgNumType, before w:cols", () => {
+    const out = htmlToDocx("<p>x</p>", makeDocx(), undefined, {
+      pageGeometry: { widthPx: 794, heightPx: 1123, margin: { top: 96, right: 96, bottom: 96, left: 96 }, pageNumStart: 5, pageNumFormat: "upperRoman" },
+    });
+    const xml = strFromU8(unzipSync(out)["word/document.xml"]);
+    const pn = /<w:pgNumType\b[^>]*\/>/.exec(xml)?.[0] ?? "";
+    expect(pn).toContain('w:start="5"');
+    expect(pn).toContain('w:fmt="upperRoman"');
+    expect(xml.indexOf("w:pgNumType")).toBeLessThan(xml.indexOf("w:cols")); // schema order
+  });
+
+  it("removes w:pgNumType when neither start nor format is set", () => {
+    const withPn = `<?xml version="1.0"?>
+<w:document xmlns:w="http://schemas.openxmlformats.org/wordprocessingml/2006/main"><w:body>
+  <w:p><w:r><w:t>Hi</w:t></w:r></w:p>
+  <w:sectPr><w:pgSz w:w="11906" w:h="16838"/><w:pgNumType w:start="3"/></w:sectPr>
+</w:body></w:document>`;
+    const out = htmlToDocx("<p>x</p>", makeDocx(withPn), undefined, {
+      pageGeometry: { widthPx: 794, heightPx: 1123, margin: { top: 96, right: 96, bottom: 96, left: 96 } },
+    });
+    const xml = strFromU8(unzipSync(out)["word/document.xml"]);
+    expect(xml).not.toContain("w:pgNumType");
+  });
+});
+
 describe("page border write-back (w:pgBorders)", () => {
   const withBorder = `<?xml version="1.0"?>
 <w:document xmlns:w="http://schemas.openxmlformats.org/wordprocessingml/2006/main"><w:body>

@@ -225,6 +225,10 @@ const dict: Dict = {
   borderTopBottom: "Haut et bas",
   borderLeftRight: "Gauche et droite",
   pageBorder: "Bordure de page",
+  pageNumberFormat: "Numéros de page",
+  pnDefault: "Par défaut",
+  pageNumberStart: "Commencer à",
+  pageNumberStartPh: "Commencer à",
 };
 
 export default dict;
