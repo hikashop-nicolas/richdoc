@@ -482,7 +482,10 @@ export function setupToolbar(deps: ToolbarDeps) {
     [t("borderAll"), BORDER_SIDES],
     [t("borderTop"), ["top"]],
     [t("borderBottom"), ["bottom"]],
+    [t("borderLeft"), ["left"]],
+    [t("borderRight"), ["right"]],
     [t("borderTopBottom"), ["top", "bottom"]],
+    [t("borderLeftRight"), ["left", "right"]],
     [t("borderNone"), null],
   ] as const) {
     const b = document.createElement("button");

@@ -318,7 +318,7 @@ export function setupStyles(deps: StylesDeps) {
   const dBorder = document.createElement("select");
   dBorder.className = "docxedit-dialog-font";
   dBorder.title = t("paraBorder");
-  for (const [v, key] of [["", "borderNone"], ["box", "borderAll"], ["top", "borderTop"], ["bottom", "borderBottom"], ["topbottom", "borderTopBottom"]] as const) dBorder.add(new Option(t(key), v));
+  for (const [v, key] of [["", "borderNone"], ["box", "borderAll"], ["top", "borderTop"], ["bottom", "borderBottom"], ["left", "borderLeft"], ["right", "borderRight"], ["topbottom", "borderTopBottom"], ["leftright", "borderLeftRight"]] as const) dBorder.add(new Option(t(key), v));
   const dBorderColor = document.createElement("input");
   dBorderColor.type = "color";
   dBorderColor.value = "#000000";
@@ -378,7 +378,7 @@ export function setupStyles(deps: StylesDeps) {
       delete css["padding"];
       const preset = dBorder.value;
       if (preset) {
-        const sides = preset === "box" ? ["top", "right", "bottom", "left"] : preset === "topbottom" ? ["top", "bottom"] : [preset];
+        const sides = preset === "box" ? ["top", "right", "bottom", "left"] : preset === "topbottom" ? ["top", "bottom"] : preset === "leftright" ? ["left", "right"] : [preset];
         const spec = `${dBorderWidth.value}px ${dBorderStyle.value} ${dBorderColor.value}`;
         for (const s of sides) css[`border-${s}`] = spec;
         css["padding"] = "2px 6px";
@@ -407,10 +407,11 @@ export function setupStyles(deps: StylesDeps) {
     for (const k of Object.keys(alignBtns)) alignBtns[k]!.classList.toggle("is-on", pre["text-align"] === k);
     // Border: pick the preset matching which sides are present, and its colour.
     const bsides = ["top", "right", "bottom", "left"].filter((s) => parseCssBorder(pre[`border-${s}`]));
+    const bset = new Set(bsides);
     dBorder.value = bsides.length === 4 ? "box"
-      : bsides.length === 2 && bsides.includes("top") && bsides.includes("bottom") ? "topbottom"
-      : bsides.length === 1 && bsides[0] === "top" ? "top"
-      : bsides.length === 1 && bsides[0] === "bottom" ? "bottom" : "";
+      : bsides.length === 1 ? bsides[0]! // top / bottom / left / right
+      : bsides.length === 2 && bset.has("top") && bset.has("bottom") ? "topbottom"
+      : bsides.length === 2 && bset.has("left") && bset.has("right") ? "leftright" : "";
     const firstB = bsides.length ? parseCssBorder(pre[`border-${bsides[0]}`]) : null;
     dBorderColor.value = firstB ? `#${firstB.hex.toLowerCase()}` : "#000000";
     dBorderStyle.value = firstB && ["solid", "dashed", "dotted", "double"].includes(firstB.style) ? firstB.style : "solid";

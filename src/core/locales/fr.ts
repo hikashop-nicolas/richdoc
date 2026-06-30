@@ -223,6 +223,7 @@ const dict: Dict = {
   paraShading: "Trame de fond du paragraphe",
   paraBorder: "Bordure du paragraphe",
   borderTopBottom: "Haut et bas",
+  borderLeftRight: "Gauche et droite",
 };
 
 export default dict;

@@ -223,6 +223,7 @@ const dict: Dict = {
   paraShading: "Paragraph shading",
   paraBorder: "Paragraph border",
   borderTopBottom: "Top & bottom",
+  borderLeftRight: "Left & right",
 };
 
 export default dict;

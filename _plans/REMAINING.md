@@ -24,9 +24,10 @@ regenerated from the HTML.
   formatting and as part of a named style, round-tripping on both formats (docx pPr `w:shd` /
   `w:pBdr` / `w:tabs`, odt `fo:background-color` / `fo:border-*` / `style:tab-stops`); a style's tab
   stops ride a `--rdoc-tabstops` custom property so styled paragraphs render them. The border picker
-  offers colour, line style (solid / dashed / dotted / double) and width, with box / top / bottom /
-  top-and-bottom side presets; an arbitrary single side (e.g. left only) still round-trips on import
-  but is not offered as a preset.
+  offers colour, line style (solid / dashed / dotted / double), width, and side presets for box, each
+  single edge (top / bottom / left / right), top-and-bottom and left-and-right; only the rare
+  multi-edge combinations (e.g. exactly three sides) are not a one-click preset, and those still
+  round-trip on import.
 - **Image layout fine detail.** Square / tight wrap uses alignment only (a file's exact
   `posOffset` for a wrapped image is not honored); behind / front offsets map to a
   CSS-positioned element rather than a true layout engine.

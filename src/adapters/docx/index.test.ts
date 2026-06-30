@@ -1425,6 +1425,16 @@ describe("list fidelity: nesting and ordered/bullet", () => {
     expect(docxToHtml(out)).toContain("border-bottom:1px solid #000000"); // and round-trips
   });
 
+  it("round-trips a single-side (left only) paragraph border", () => {
+    const out = htmlToDocx('<p style="border-left:2px solid #008000;padding:2px 6px">x</p>', makeDocx());
+    const xml = strFromU8(unzipSync(out)["word/document.xml"]!);
+    expect(xml).toMatch(/<w:pBdr>/);
+    expect(xml).toMatch(/<w:left[^>]*w:val="single"/);
+    expect(xml).not.toMatch(/<w:top[^>]*w:val=/); // only the left side
+    expect(docxToHtml(out)).toMatch(/border-left:2px solid #008000/i);
+    expect(docxToHtml(out)).not.toMatch(/border-top:/);
+  });
+
   it("round-trips a paragraph border's width, line style and colour", () => {
     const out = htmlToDocx('<p style="border-top:3px dashed #ff0000;padding:2px 6px">x</p>', makeDocx());
     const xml = strFromU8(unzipSync(out)["word/document.xml"]!);
