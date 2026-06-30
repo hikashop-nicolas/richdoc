@@ -76,6 +76,8 @@ export function imageLayoutFromEl(el: Element): ImageLayout | null {
     x: Number(el.getAttribute("data-rdoc-x")) || 0,
     y: Number(el.getAttribute("data-rdoc-y")) || 0,
     dist,
+    absX: el.getAttribute("data-rdoc-absx") === "1" || undefined,
+    absY: el.getAttribute("data-rdoc-absy") === "1" || undefined,
   };
 }
 
@@ -95,6 +97,12 @@ export function imageLayoutAttrs(layout: ImageLayout | null): string {
     if (layout.wrap === "square" || layout.wrap === "tight" || layout.wrap === "topbottom") {
       styles.push(`margin:${d.t}px ${d.r}px ${d.b}px ${d.l}px`); // the file's wrap padding
     }
+  }
+  // A wrapped image with an offset-placed axis: keep the offset (rendering still floats by alignment,
+  // but the exact position round-trips per axis instead of snapping to left/center/right on save).
+  if (layout.wrap !== "behind" && layout.wrap !== "front") {
+    if (layout.absX) out += ` data-rdoc-absx="1" data-rdoc-x="${layout.x}"`;
+    if (layout.absY) out += ` data-rdoc-absy="1" data-rdoc-y="${layout.y}"`;
   }
   if (styles.length) out += ` style="${styles.join(";")}"`;
   return out;

@@ -40,7 +40,7 @@ A full word-processor surface in the browser, the same for both formats unless n
   multi-column vertical text (stacked bands) and a vertical ruler.
 - **Images:** inline and floating / anchored with text wrap (square, tight,
   top-and-bottom, behind, in front), alignment, alt text and wrap padding, driven by an
-  on-select toolbar.
+  on-select toolbar. A wrapped image's exact offset round-trips per axis.
 - **Furigana / ruby**, rendered natively (reading above in horizontal text, to the
   right in vertical).
 - **Tabs & tab stops:** real tab characters plus custom tab stops with left / center /

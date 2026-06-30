@@ -17,9 +17,12 @@ HTML.
 These do not round-trip once the surrounding context is edited, because that context is
 regenerated from the HTML.
 
-- **Image layout fine detail.** Square / tight wrap uses alignment only (a file's exact
-  `posOffset` for a wrapped image is not honored); behind / front offsets map to a
-  CSS-positioned element rather than a true layout engine.
+- **Wrapped-image offset rendering.** A wrapped image's exact offset (docx `posOffset`, odt
+  `svg:x` / `svg:y`) now round-trips per axis instead of snapping to alignment on save, but the
+  editor still *renders* square / tight wrap by float at the nearest alignment rather than at the
+  precise offset, because arbitrary-offset text wrapping is not expressible in CSS. Choosing an
+  alignment in the image toolbar switches such an image to the alignment model. Behind / front
+  images are positioned exactly (CSS-positioned and draggable).
 
 ---
 

@@ -265,6 +265,25 @@ describe("odt images (draw:frame)", () => {
     expect(html).toContain('alt="a cat"');
   });
 
+  it("preserves a square frame's exact offset position (svg:x/y + from-left/top)", () => {
+    const content = `<?xml version="1.0"?><office:document-content ${FLOAT_ROOT}>` +
+      "<office:automatic-styles>" +
+      '<style:style style:name="fr1" style:family="graphic"><style:graphic-properties style:wrap="parallel" style:horizontal-pos="from-left" style:vertical-pos="from-top"/></style:style>' +
+      "</office:automatic-styles><office:body><office:text>" +
+      '<text:p>hi<draw:frame text:anchor-type="paragraph" draw:style-name="fr1" svg:x="2.54cm" svg:y="1.27cm" svg:width="2.54cm" svg:height="1.27cm"><draw:image xlink:href="Pictures/p.png"/></draw:frame></text:p>' +
+      "</office:text></office:body></office:document-content>";
+    const odt = makeImgOdt(content);
+    const html = odtToHtml(odt);
+    expect(html).toContain('data-rdoc-absx="1"');
+    expect(html).toContain('data-rdoc-absy="1"');
+    const xml = strFromU8(unzipSync(htmlToOdt(html.replace(">hi<", ">HI<"), odt))["content.xml"]);
+    expect(xml).toMatch(/style:wrap="parallel"/); // still a square wrap, just offset-placed
+    expect(xml).toMatch(/style:horizontal-pos="from-left"/);
+    expect(xml).toMatch(/style:vertical-pos="from-top"/);
+    expect(xml).toMatch(/svg:x="2.54cm"/);
+    expect(xml).toMatch(/svg:y="1.27cm"/);
+  });
+
   it("round-trips a floating frame's wrap distances", () => {
     const content = `<?xml version="1.0"?><office:document-content ${FLOAT_ROOT} xmlns:fo="urn:oasis:names:tc:opendocument:xmlns:xsl-fo-compatible:1.0">` +
       "<office:automatic-styles>" +

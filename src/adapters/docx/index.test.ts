@@ -269,6 +269,27 @@ describe("docx <-> html", () => {
     expect(html).toContain('alt="a cat"');
   });
 
+  it("preserves a square image's exact offset position (posOffset, not alignment)", () => {
+    const posH = '<wp:positionH relativeFrom="column"><wp:posOffset>914400</wp:posOffset></wp:positionH>'; // 96px
+    const docx = imgDocx(anchorImg('<wp:wrapSquare wrapText="bothSides"/>', posH)); // fixture's posV is posOffset 476250 (50px)
+    const html = docxToHtml(docx);
+    expect(html).toContain('data-rdoc-absx="1"');
+    expect(html).toContain('data-rdoc-absy="1"');
+    const xml = strFromU8(unzipSync(htmlToDocx(html.replace("text", "TEXT"), docx))["word/document.xml"]!);
+    expect(xml).toContain("wp:wrapSquare");
+    expect(xml).not.toContain("<wp:align>"); // positioned by offset on both axes, no alignment
+    expect(xml).toMatch(/<wp:positionH[^>]*><wp:posOffset>914400<\/wp:posOffset>/);
+    expect(xml).toMatch(/<wp:positionV[^>]*><wp:posOffset>476250<\/wp:posOffset>/);
+  });
+
+  it("keeps the V offset of a square image aligned in H", () => {
+    // H = align right, V = posOffset 476250 (50px): the alignment AND the vertical offset both survive.
+    const docx = imgDocx(anchorImg('<wp:wrapSquare wrapText="bothSides"/>', '<wp:positionH relativeFrom="column"><wp:align>right</wp:align></wp:positionH>'));
+    const xml = strFromU8(unzipSync(htmlToDocx(docxToHtml(docx), docx))["word/document.xml"]!);
+    expect(xml).toContain("<wp:align>right</wp:align>");
+    expect(xml).toMatch(/<wp:positionV[^>]*><wp:posOffset>476250<\/wp:posOffset>/);
+  });
+
   it("round-trips a floating image's wrap through an edit", () => {
     const docx = imgDocx(anchorImg('<wp:wrapSquare wrapText="bothSides"/>', '<wp:positionH relativeFrom="column"><wp:align>right</wp:align></wp:positionH>'));
     const html = docxToHtml(docx);

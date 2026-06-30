@@ -34,7 +34,12 @@ export function readLayout(run: Element): ImageLayout | null {
   const dist = hasDist
     ? { t: emuToPx(anchor.getAttribute("distT")), r: emuToPx(anchor.getAttribute("distR")), b: emuToPx(anchor.getAttribute("distB")), l: emuToPx(anchor.getAttribute("distL")) }
     : undefined;
-  return { wrap, align, x, y, dist };
+  // A wrapped image axis positioned by posOffset (not wp:align) keeps that exact offset on save;
+  // each axis is independent (a square image is commonly aligned in H but offset in V).
+  const wrapped = wrap !== "behind" && wrap !== "front";
+  const absX = wrapped && !!posH?.getElementsByTagName("wp:posOffset")[0] && !posH.getElementsByTagName("wp:align")[0] ? true : undefined;
+  const absY = wrapped && !!posV?.getElementsByTagName("wp:posOffset")[0] && !posV.getElementsByTagName("wp:align")[0] ? true : undefined;
+  return { wrap, align, x, y, dist, absX, absY };
 }
 
 const el = (doc: Document, name: string): Element => doc.createElementNS(WP_NS, name);
@@ -105,9 +110,13 @@ export function makeContainer(
   const simple = el(doc, "wp:simplePos");
   simple.setAttribute("x", "0");
   simple.setAttribute("y", "0");
-  const absolute = layout.wrap === "behind" || layout.wrap === "front";
-  const posH = position(doc, "wp:positionH", "column", absolute ? null : layout.align, layout.x);
-  const posV = position(doc, "wp:positionV", "paragraph", absolute ? null : "top", layout.y);
+  // behind/front are always offset-positioned; a wrapped image is offset per axis when read as
+  // absX / absY (positioned by posOffset rather than alignment), else H uses align and V is "top".
+  const float = layout.wrap !== "behind" && layout.wrap !== "front";
+  const offH = !float || layout.absX;
+  const offV = !float || layout.absY;
+  const posH = position(doc, "wp:positionH", "column", offH ? null : layout.align, layout.x);
+  const posV = position(doc, "wp:positionV", "paragraph", offV ? null : "top", layout.y);
   anchor.append(simple, posH, posV, extent, wrapElement(doc, layout.wrap), docPr, graphic);
   return anchor;
 }

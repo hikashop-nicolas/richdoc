@@ -31,9 +31,14 @@ export type ImageWrap = "square" | "tight" | "topbottom" | "behind" | "front";
 export interface ImageLayout {
   wrap: ImageWrap;
   align: "left" | "center" | "right";
-  x: number; // px offset from the anchor (behind/front only)
-  y: number; // px offset from the anchor (behind/front only)
+  x: number; // px offset from the anchor (behind/front, or a wrapped image whose H is offset-placed)
+  y: number; // px offset from the anchor (behind/front, or a wrapped image whose V is offset-placed)
   dist?: { t: number; r: number; b: number; l: number }; // wrap padding; omitted = adapter default
+  // A wrapped (square/tight/topbottom) image whose horizontal / vertical position is an absolute
+  // offset rather than alignment. Each axis is independent (Word commonly aligns H but offsets V).
+  // Rendered float-approximate, but the offset axes round-trip instead of snapping to alignment.
+  absX?: boolean;
+  absY?: boolean;
 }
 
 /** A named default page size used when a document carries no geometry of its own. */

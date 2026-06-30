@@ -12,6 +12,7 @@ export interface GraphicStyleInfo {
   wrap?: string; // style:wrap
   runThrough?: string; // style:run-through (background = behind, foreground = in front)
   hpos?: string; // style:horizontal-pos
+  vpos?: string; // style:vertical-pos
   dist?: { t: number; r: number; b: number; l: number }; // fo:margin-* (wrap padding, px)
 }
 
@@ -28,6 +29,7 @@ export function collectGraphicStyles(doc: Document, lenToPx: (v: string | null) 
       wrap: gp?.getAttribute("style:wrap") ?? undefined,
       runThrough: gp?.getAttribute("style:run-through") ?? undefined,
       hpos: gp?.getAttribute("style:horizontal-pos") ?? undefined,
+      vpos: gp?.getAttribute("style:vertical-pos") ?? undefined,
       dist: hasMargin
         ? { t: Math.round(lenToPx(gp!.getAttribute("fo:margin-top")) ?? 0), r: Math.round(lenToPx(gp!.getAttribute("fo:margin-right")) ?? 0), b: Math.round(lenToPx(gp!.getAttribute("fo:margin-bottom")) ?? 0), l: Math.round(lenToPx(gp!.getAttribute("fo:margin-left")) ?? 0) }
         : undefined,
@@ -46,17 +48,25 @@ export function readOdtLayout(frame: Element, gmap: Map<string, GraphicStyleInfo
   else if (gs?.wrap === "run-through") wrap = gs.runThrough === "background" ? "behind" : "front";
   else if (gs?.wrap === "dynamic") wrap = "tight";
   else wrap = "square";
-  const align = gs?.hpos === "right" || gs?.hpos === "center" ? gs.hpos : "left";
+  const hpos = gs?.hpos ?? "";
+  const align = hpos === "right" || hpos === "center" ? hpos : "left";
   const x = lenToPx(frame.getAttribute("svg:x")) ?? 0;
   const y = lenToPx(frame.getAttribute("svg:y")) ?? 0;
-  return { wrap, align, x, y, dist: gs?.dist };
+  // A wrapped frame positioned from an edge (style:horizontal/vertical-pos="from-*") keeps its
+  // offset per axis (the svg:x / svg:y values).
+  const wrapped = wrap !== "behind" && wrap !== "front";
+  const absX = wrapped && /^from-/.test(hpos) ? true : undefined;
+  const absY = wrapped && /^from-/.test(gs?.vpos ?? "") ? true : undefined;
+  return { wrap, align, x, y, dist: gs?.dist, absX, absY };
 }
 
 /** Create (once) an automatic graphic style for a wrap mode + alignment; return its name. */
 export function graphicStyleFor(doc: Document, auto: Element, created: Map<string, string>, layout: ImageLayout): string {
-  const absolute = layout.wrap === "behind" || layout.wrap === "front";
+  const runThrough = layout.wrap === "behind" || layout.wrap === "front"; // text flows over/under
+  const offH = runThrough || !!layout.absX; // H placed by svg:x offset rather than alignment
+  const offV = runThrough || !!layout.absY; // V placed by svg:y offset rather than "top"
   const d = layout.dist;
-  const key = `g_${layout.wrap}_${absolute ? "abs" : layout.align}_${d ? `${d.t},${d.r},${d.b},${d.l}` : ""}`;
+  const key = `g_${layout.wrap}_${offH ? "ax" : layout.align}_${offV ? "ay" : "top"}_${d ? `${d.t},${d.r},${d.b},${d.l}` : ""}`;
   const existing = created.get(key);
   if (existing) return existing;
   const name = `OT_fr${created.size}`;
@@ -64,12 +74,13 @@ export function graphicStyleFor(doc: Document, auto: Element, created: Map<strin
   st.setAttributeNS(NS.style, "style:name", name);
   st.setAttributeNS(NS.style, "style:family", "graphic");
   const gp = doc.createElementNS(NS.style, "style:graphic-properties");
-  const wrapVal = layout.wrap === "topbottom" ? "none" : layout.wrap === "tight" ? "dynamic" : absolute ? "run-through" : "parallel";
+  // The wrap value follows the wrap mode (an offset-placed square is still parallel wrap).
+  const wrapVal = layout.wrap === "topbottom" ? "none" : layout.wrap === "tight" ? "dynamic" : runThrough ? "run-through" : "parallel";
   gp.setAttributeNS(NS.style, "style:wrap", wrapVal);
-  if (absolute) gp.setAttributeNS(NS.style, "style:run-through", layout.wrap === "behind" ? "background" : "foreground");
-  gp.setAttributeNS(NS.style, "style:horizontal-pos", absolute ? "from-left" : layout.align);
+  if (runThrough) gp.setAttributeNS(NS.style, "style:run-through", layout.wrap === "behind" ? "background" : "foreground");
+  gp.setAttributeNS(NS.style, "style:horizontal-pos", offH ? "from-left" : layout.align);
   gp.setAttributeNS(NS.style, "style:horizontal-rel", "paragraph");
-  gp.setAttributeNS(NS.style, "style:vertical-pos", absolute ? "from-top" : "top");
+  gp.setAttributeNS(NS.style, "style:vertical-pos", offV ? "from-top" : "top");
   gp.setAttributeNS(NS.style, "style:vertical-rel", "paragraph");
   if (d) {
     gp.setAttributeNS(NS.fo, "fo:margin-top", pxToCm(d.t));
@@ -95,11 +106,7 @@ export function applyFrameLayout(doc: Document, frame: Element, layout: ImageLay
   }
   frame.setAttributeNS(NS.text, "text:anchor-type", "paragraph");
   frame.setAttributeNS(NS.draw, "draw:style-name", graphicStyleFor(doc, auto, created, layout));
-  if (layout.wrap === "behind" || layout.wrap === "front") {
-    frame.setAttributeNS(NS.svg, "svg:x", pxToCm(layout.x));
-    frame.setAttributeNS(NS.svg, "svg:y", pxToCm(layout.y));
-  } else {
-    frame.removeAttributeNS(NS.svg, "x");
-    frame.removeAttributeNS(NS.svg, "y");
-  }
+  const runThrough = layout.wrap === "behind" || layout.wrap === "front";
+  if (runThrough || layout.absX) frame.setAttributeNS(NS.svg, "svg:x", pxToCm(layout.x)); else frame.removeAttributeNS(NS.svg, "x");
+  if (runThrough || layout.absY) frame.setAttributeNS(NS.svg, "svg:y", pxToCm(layout.y)); else frame.removeAttributeNS(NS.svg, "y");
 }

@@ -64,13 +64,20 @@ export function setupImageLayout(deps: ImageLayoutDeps) {
       for (const a of ["data-rdoc-wrap", "data-rdoc-align", "data-rdoc-x", "data-rdoc-y", "data-rdoc-wrapdist"]) img.removeAttribute(a);
       img.style.cssText = ""; // drop the left/top/margin the floating layout set
     } else {
-      if ((mode === "behind" || mode === "front") && !img.getAttribute("data-rdoc-wrap")) {
-        const x = img.offsetLeft;
-        const y = img.offsetTop;
-        img.setAttribute("data-rdoc-x", String(x));
-        img.setAttribute("data-rdoc-y", String(y));
-        img.style.left = `${x}px`;
-        img.style.top = `${y}px`;
+      if (mode === "behind" || mode === "front") {
+        if (!img.getAttribute("data-rdoc-wrap")) {
+          const x = img.offsetLeft;
+          const y = img.offsetTop;
+          img.setAttribute("data-rdoc-x", String(x));
+          img.setAttribute("data-rdoc-y", String(y));
+          img.style.left = `${x}px`;
+          img.style.top = `${y}px`;
+        }
+        for (const at of ["data-rdoc-absx", "data-rdoc-absy"]) img.removeAttribute(at); // behind/front carry their own x/y
+      } else {
+        // square / tight / top-and-bottom: the editor positions these by alignment, so drop any
+        // imported absolute offset (it would otherwise re-emit a stale position the user can't see).
+        for (const at of ["data-rdoc-absx", "data-rdoc-absy", "data-rdoc-x", "data-rdoc-y"]) img.removeAttribute(at);
       }
       img.setAttribute("data-rdoc-wrap", mode);
       if (!img.getAttribute("data-rdoc-align")) img.setAttribute("data-rdoc-align", "left");
@@ -83,6 +90,8 @@ export function setupImageLayout(deps: ImageLayoutDeps) {
   const setAlign = (a: "left" | "center" | "right"): void => {
     if (!img || !img.getAttribute("data-rdoc-wrap")) return;
     img.setAttribute("data-rdoc-align", a);
+    // Choosing an alignment replaces an imported absolute offset with the alignment model.
+    for (const at of ["data-rdoc-absx", "data-rdoc-absy", "data-rdoc-x", "data-rdoc-y"]) img.removeAttribute(at);
     mark();
     reposition();
     sync();
