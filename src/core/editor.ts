@@ -281,6 +281,10 @@ export function createRichEditor(container: HTMLElement, adapter: Adapter, optio
       geometry.pageBorder = g.pageBorder;
       geometry.pageNumStart = g.pageNumStart;
       geometry.pageNumFormat = g.pageNumFormat;
+      geometry.lineNumbers = g.lineNumbers;
+      geometry.lineNumberInterval = g.lineNumberInterval;
+      geometry.lineNumberRestart = g.lineNumberRestart;
+      geometry.lineNumberStart = g.lineNumberStart;
       geometryDirty = true;
       applyGeometry();
       return;
@@ -979,13 +983,13 @@ export function createRichEditor(container: HTMLElement, adapter: Adapter, optio
   // (N+1)th column for several), and the boxes are centred + stacked. The caret is preserved as
   // a (block, char-offset) pair across the reparent, like the column reflow.
   const SECPAGE = "docxedit-secpage";
-  const docGeom = (): SecGeom => ({ w: geometry.widthPx, h: geometry.heightPx, mt: geometry.margin.top, mr: geometry.margin.right, mb: geometry.margin.bottom, ml: geometry.margin.left, cols: geometry.columns, colGap: geometry.columnGapPx, vertical: geometry.vertical, rtl: geometry.rtl, pageBorder: geometry.pageBorder, pageNumStart: geometry.pageNumStart, pageNumFormat: geometry.pageNumFormat });
+  const docGeom = (): SecGeom => ({ w: geometry.widthPx, h: geometry.heightPx, mt: geometry.margin.top, mr: geometry.margin.right, mb: geometry.margin.bottom, ml: geometry.margin.left, cols: geometry.columns, colGap: geometry.columnGapPx, vertical: geometry.vertical, rtl: geometry.rtl, pageBorder: geometry.pageBorder, pageNumStart: geometry.pageNumStart, pageNumFormat: geometry.pageNumFormat, lineNumbers: geometry.lineNumbers, lineNumberInterval: geometry.lineNumberInterval, lineNumberRestart: geometry.lineNumberRestart, lineNumberStart: geometry.lineNumberStart });
   // Resolve a section's geometry from its (possibly partial) JSON: size + margins fall back to the
   // document, but section-specific fields (columns, direction) are taken only from the section, so
   // a section that omits them does NOT inherit the document's columns / writing direction.
   const mergeSecGeom = (j: Partial<SecGeom>): SecGeom => {
     const d = docGeom();
-    return { w: j.w ?? d.w, h: j.h ?? d.h, mt: j.mt ?? d.mt, mr: j.mr ?? d.mr, mb: j.mb ?? d.mb, ml: j.ml ?? d.ml, cols: j.cols, colGap: j.colGap, vertical: j.vertical, rtl: j.rtl, pageBorder: j.pageBorder, pageNumStart: j.pageNumStart, pageNumFormat: j.pageNumFormat };
+    return { w: j.w ?? d.w, h: j.h ?? d.h, mt: j.mt ?? d.mt, mr: j.mr ?? d.mr, mb: j.mb ?? d.mb, ml: j.ml ?? d.ml, cols: j.cols, colGap: j.colGap, vertical: j.vertical, rtl: j.rtl, pageBorder: j.pageBorder, pageNumStart: j.pageNumStart, pageNumFormat: j.pageNumFormat, lineNumbers: j.lineNumbers ?? d.lineNumbers, lineNumberInterval: j.lineNumberInterval ?? d.lineNumberInterval, lineNumberRestart: j.lineNumberRestart ?? d.lineNumberRestart, lineNumberStart: j.lineNumberStart ?? d.lineNumberStart };
   };
   const repaginateSections = () => {
     const blocks: HTMLElement[] = [];
@@ -1237,6 +1241,49 @@ export function createRichEditor(container: HTMLElement, adapter: Adapter, optio
     if (caretBlock && caretBlock.isConnected) placeCaret(caretBlock, caretOffset);
   };
 
+  // Line numbers in the margin, for the single-column horizontal layout. Counts every wrapped line
+  // (via line-box rects), shows one every `interval`, optionally restarting each page. Other layouts
+  // (sections / vertical / columns) round-trip the setting but do not render the numbers.
+  const drawLineNumbers = (kids: HTMLElement[], pageStep: number): void => {
+    if (!geometry.lineNumbers) return;
+    const interval = Math.max(1, Math.round(geometry.lineNumberInterval ?? 1));
+    const start = geometry.lineNumberStart ?? 1;
+    const perPage = geometry.lineNumberRestart === "newPage";
+    const pageRect = page.getBoundingClientRect();
+    const z = page.offsetWidth ? pageRect.width / page.offsetWidth : 1;
+    if (!z) return;
+    const rtl = !isVertical() && caps.verticalText && !!geometry.rtl;
+    const layer = document.createElement("div");
+    layer.className = "docxedit-linenumbers";
+    layer.setAttribute("aria-hidden", "true");
+    const range = document.createRange();
+    let n = start, curPage = -1;
+    for (const block of kids) {
+      if (block.classList.contains("docxedit-pagespacer") || block.classList.contains("docx-pagebreak")) continue;
+      range.selectNodeContents(block);
+      const tops: number[] = [];
+      for (const r of Array.from(range.getClientRects())) {
+        if (r.height <= 1) continue;
+        const yU = (r.top - pageRect.top) / z;
+        if (!tops.some((y) => Math.abs(y - yU) < 4)) tops.push(yU); // collapse inline fragments to one line
+      }
+      for (const yU of tops) {
+        const pg = Math.floor(yU / pageStep);
+        if (perPage && pg !== curPage) { n = start; curPage = pg; }
+        if (n % interval === 0) {
+          const lab = document.createElement("div");
+          lab.className = "docxedit-linenumber";
+          lab.textContent = String(n);
+          lab.style.top = `${yU}px`;
+          lab.style.left = rtl ? `${geometry.widthPx - geometry.margin.right + 8}px` : `${geometry.margin.left - 36}px`;
+          layer.appendChild(lab);
+        }
+        n++;
+      }
+    }
+    hflayer.appendChild(layer);
+  };
+
   const repaginate = () => {
     if (!paginated || editingBand) return;
     footnotesPerPage = false; // only the single-section path places footnotes per page
@@ -1333,6 +1380,7 @@ export function createRichEditor(container: HTMLElement, adapter: Adapter, optio
 
     page.style.minHeight = `${cardCount * pageStep - PAGE_GAP}px`;
     decorateFields(cardCount, pageStep, false);
+    drawLineNumbers(kids, pageStep);
   };
 
   // Body HTML for saving: the live doc minus pagination artifacts (inert spacers and the

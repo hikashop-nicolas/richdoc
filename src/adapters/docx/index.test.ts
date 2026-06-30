@@ -825,6 +825,45 @@ describe("page numbering (w:pgNumType)", () => {
   });
 });
 
+describe("line numbering (w:lnNumType)", () => {
+  it("reads interval / restart / start from w:lnNumType", () => {
+    const doc = `<?xml version="1.0"?>
+<w:document xmlns:w="http://schemas.openxmlformats.org/wordprocessingml/2006/main"><w:body>
+  <w:p><w:r><w:t>Hi</w:t></w:r></w:p>
+  <w:sectPr><w:pgSz w:w="11906" w:h="16838"/><w:lnNumType w:countBy="5" w:restart="continuous" w:start="1"/></w:sectPr>
+</w:body></w:document>`;
+    const page = docxToParts(makeDocx(doc)).page!;
+    expect(page.lineNumbers).toBe(true);
+    expect(page.lineNumberInterval).toBe(5);
+    expect(page.lineNumberRestart).toBe("continuous");
+    expect(page.lineNumberStart).toBe(1);
+  });
+
+  it("writes line numbering into w:lnNumType, before w:pgNumType / w:cols", () => {
+    const out = htmlToDocx("<p>x</p>", makeDocx(), undefined, {
+      pageGeometry: { widthPx: 794, heightPx: 1123, margin: { top: 96, right: 96, bottom: 96, left: 96 }, lineNumbers: true, lineNumberInterval: 3, lineNumberRestart: "newPage", pageNumFormat: "decimal" },
+    });
+    const xml = strFromU8(unzipSync(out)["word/document.xml"]);
+    const ln = /<w:lnNumType\b[^>]*\/>/.exec(xml)?.[0] ?? "";
+    expect(ln).toContain('w:countBy="3"');
+    expect(ln).toContain('w:restart="newPage"');
+    expect(xml.indexOf("w:lnNumType")).toBeLessThan(xml.indexOf("w:pgNumType")); // schema order
+    expect(xml.indexOf("w:lnNumType")).toBeLessThan(xml.indexOf("w:cols"));
+  });
+
+  it("removes w:lnNumType when line numbering is off", () => {
+    const withLn = `<?xml version="1.0"?>
+<w:document xmlns:w="http://schemas.openxmlformats.org/wordprocessingml/2006/main"><w:body>
+  <w:p><w:r><w:t>Hi</w:t></w:r></w:p>
+  <w:sectPr><w:pgSz w:w="11906" w:h="16838"/><w:lnNumType w:countBy="1" w:restart="newPage"/></w:sectPr>
+</w:body></w:document>`;
+    const out = htmlToDocx("<p>x</p>", makeDocx(withLn), undefined, {
+      pageGeometry: { widthPx: 794, heightPx: 1123, margin: { top: 96, right: 96, bottom: 96, left: 96 } },
+    });
+    expect(strFromU8(unzipSync(out)["word/document.xml"])).not.toContain("w:lnNumType");
+  });
+});
+
 describe("page border write-back (w:pgBorders)", () => {
   const withBorder = `<?xml version="1.0"?>
 <w:document xmlns:w="http://schemas.openxmlformats.org/wordprocessingml/2006/main"><w:body>

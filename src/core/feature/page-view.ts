@@ -608,6 +608,17 @@ export function setupPageView(deps: PageViewDeps) {
   marginCustomRow.append(fMT.wrap, fMR.wrap, fMB.wrap, fML.wrap);
   const { row: colRow, sel: colSel } = mkSelectRow(t("columns"), [["1", "1"], ["2", "2"], ["3", "3"]]);
   const { row: dirRow, sel: dirSel } = mkSelectRow(t("textDirection"), [["horizontal", t("dirHorizontal")], ["vertical", t("dirVertical")], ["rtl", t("dirRtl")]]);
+  // A checkbox row (used by line numbering and the header/footer variant toggles).
+  const mkCheckRow = (label: string): { row: HTMLElement; input: HTMLInputElement } => {
+    const row = document.createElement("label");
+    row.className = "docxedit-dialog-row docxedit-pagesetup-check";
+    const input = document.createElement("input");
+    input.type = "checkbox";
+    const span = document.createElement("span");
+    span.textContent = label;
+    row.append(input, span);
+    return { row, input };
+  };
   // Page border: a uniform box around the page. Style "none" removes it; width is in points.
   const { row: pbRow, sel: pbStyleSel } = mkSelectRow(t("pageBorder"), [["none", t("none")], ["solid", t("bsSolid")], ["double", t("bsDouble")], ["dashed", t("bsDashed")], ["dotted", t("bsDotted")]]);
   const pbWidth = document.createElement("input");
@@ -624,17 +635,19 @@ export function setupPageView(deps: PageViewDeps) {
   pnStart.type = "number"; pnStart.min = "1"; pnStart.step = "1"; pnStart.className = "docxedit-dialog-size";
   pnStart.placeholder = t("pageNumberStartPh"); pnStart.title = t("pageNumberStart"); pnStart.setAttribute("aria-label", t("pageNumberStart"));
   if (caps.pageNumbering === "full") pnRow.append(pnStart);
+  // Line numbering: on/off + interval + restart. odt offers continuous / each page; docx adds each section.
+  const { row: lnRow, input: lnCheck } = mkCheckRow(t("lineNumbers"));
+  const lnInterval = document.createElement("input");
+  lnInterval.type = "number"; lnInterval.min = "1"; lnInterval.step = "1"; lnInterval.className = "docxedit-dialog-size";
+  lnInterval.title = t("lineNumberInterval"); lnInterval.setAttribute("aria-label", t("lineNumberInterval"));
+  const lnRestart = document.createElement("select");
+  const lnOpts: [string, string][] = [["continuous", t("lnContinuous")], ["newPage", t("lnNewPage")]];
+  if (caps.lineNumbering === "full") lnOpts.push(["newSection", t("lnNewSection")]);
+  for (const [v, lbl] of lnOpts) lnRestart.add(new Option(lbl, v));
+  lnRow.append(lnInterval, lnRestart);
+  const syncLn = () => { const on = lnCheck.checked; lnInterval.style.display = on ? "" : "none"; lnRestart.style.display = on ? "" : "none"; };
+  lnCheck.addEventListener("change", syncLn);
   // Document-level header/footer variant toggles (apply to the whole document, not just one section).
-  const mkCheckRow = (label: string): { row: HTMLElement; input: HTMLInputElement } => {
-    const row = document.createElement("label");
-    row.className = "docxedit-dialog-row docxedit-pagesetup-check";
-    const input = document.createElement("input");
-    input.type = "checkbox";
-    const span = document.createElement("span");
-    span.textContent = label;
-    row.append(input, span);
-    return { row, input };
-  };
   const { row: firstRow, input: firstCheck } = mkCheckRow(t("differentFirstPage"));
   const { row: evenRow, input: evenCheck } = mkCheckRow(t("differentEvenOdd"));
   const syncCustom = () => {
@@ -652,7 +665,7 @@ export function setupPageView(deps: PageViewDeps) {
   const psActions = document.createElement("div");
   psActions.className = "docxedit-dialog-row docxedit-dialog-actions";
   psActions.append(psCancel, psApply);
-  psPanel.append(psTitle, sizeRow, customRow, orientRow, marginRow, marginCustomRow, colRow, ...(caps.verticalText ? [dirRow] : []), pbRow, ...(caps.pageNumbering ? [pnRow] : []), firstRow, evenRow, psActions);
+  psPanel.append(psTitle, sizeRow, customRow, orientRow, marginRow, marginCustomRow, colRow, ...(caps.verticalText ? [dirRow] : []), pbRow, ...(caps.pageNumbering ? [pnRow] : []), ...(caps.lineNumbering ? [lnRow] : []), firstRow, evenRow, psActions);
   scroll.appendChild(psOverlay);
   const closePageSetup = () => { psOverlay.hidden = true; };
   const openPageSetup = () => {
@@ -676,6 +689,10 @@ export function setupPageView(deps: PageViewDeps) {
     syncPb();
     pnFmtSel.value = g.pageNumFormat ?? "";
     pnStart.value = g.pageNumStart != null ? String(g.pageNumStart) : "";
+    lnCheck.checked = !!g.lineNumbers;
+    lnInterval.value = String(g.lineNumberInterval ?? 1);
+    lnRestart.value = g.lineNumberRestart ?? "continuous";
+    syncLn();
     firstCheck.checked = !!geometry.titlePage; // document-level, not per-section
     evenCheck.checked = !!geometry.evenOdd;
     syncCustom();
@@ -711,6 +728,13 @@ export function setupPageView(deps: PageViewDeps) {
     if (caps.pageNumbering) {
       g.pageNumFormat = pnFmtSel.value || undefined;
       if (caps.pageNumbering === "full") { const sn = parseInt(pnStart.value, 10); g.pageNumStart = Number.isFinite(sn) && sn >= 1 ? sn : undefined; }
+    }
+    if (caps.lineNumbering && lnCheck.checked) {
+      g.lineNumbers = true;
+      const iv = parseInt(lnInterval.value, 10);
+      g.lineNumberInterval = Number.isFinite(iv) && iv > 1 ? iv : undefined;
+      g.lineNumberRestart = (lnRestart.value as SecGeom["lineNumberRestart"]) || undefined;
+      g.lineNumberStart = cur.lineNumberStart; // round-trip the (UI-less) start
     }
     writeSectionGeom(g);
     // Document-level header/footer variants: only act on a change (so existing bands are kept).

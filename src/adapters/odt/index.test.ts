@@ -754,6 +754,36 @@ describe("odt page geometry (page-layout)", () => {
     });
     expect(strFromU8(unzipSync(cleared)["styles.xml"])).not.toContain("style:num-format");
   });
+
+  it("reads line numbering from text:linenumbering-configuration", () => {
+    const styles =
+      '<?xml version="1.0"?><office:document-styles xmlns:office="urn:oasis:names:tc:opendocument:xmlns:office:1.0" ' +
+      'xmlns:style="urn:oasis:names:tc:opendocument:xmlns:style:1.0" xmlns:fo="urn:oasis:names:tc:opendocument:xmlns:xsl-fo-compatible:1.0" xmlns:text="urn:oasis:names:tc:opendocument:xmlns:text:1.0">' +
+      '<office:styles><text:linenumbering-configuration text:number-lines="true" text:increment="5" text:restart-on-page-change="true"/></office:styles>' +
+      '<office:automatic-styles><style:page-layout style:name="pm1"><style:page-layout-properties fo:page-width="21cm" fo:page-height="29.7cm"/></style:page-layout></office:automatic-styles>' +
+      '<office:master-styles><style:master-page style:name="Standard" style:page-layout-name="pm1"/></office:master-styles></office:document-styles>';
+    const odt = zipSync({
+      mimetype: [strToU8("application/vnd.oasis.opendocument.text"), { level: 0 }],
+      "content.xml": strToU8(CONTENT),
+      "styles.xml": strToU8(styles),
+      "META-INF/manifest.xml": strToU8("<m/>"),
+    });
+    const page = odtToParts(odt).page!;
+    expect(page.lineNumbers).toBe(true);
+    expect(page.lineNumberInterval).toBe(5);
+    expect(page.lineNumberRestart).toBe("newPage");
+  });
+
+  it("writes line numbering as text:linenumbering-configuration (and removes it when off)", () => {
+    const set = htmlToOdt("<p>x</p>", odtWith('fo:page-width="21cm" fo:page-height="29.7cm"'), {
+      page: { widthPx: 794, heightPx: 1123, margin: { top: 96, right: 96, bottom: 96, left: 96 }, lineNumbers: true, lineNumberInterval: 2, lineNumberRestart: "newPage" },
+    });
+    const s = strFromU8(unzipSync(set)["styles.xml"]);
+    expect(s).toContain("text:linenumbering-configuration");
+    expect(s).toContain('text:number-lines="true"');
+    expect(s).toContain('text:increment="2"');
+    expect(s).toContain('text:restart-on-page-change="true"');
+  });
 });
 
 describe("odt editable tables (cell content round-trip)", () => {

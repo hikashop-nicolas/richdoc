@@ -229,6 +229,11 @@ const dict: Dict = {
   pnDefault: "Par défaut",
   pageNumberStart: "Commencer à",
   pageNumberStartPh: "Commencer à",
+  lineNumbers: "Numéros de ligne",
+  lineNumberInterval: "Intervalle",
+  lnContinuous: "Continu",
+  lnNewPage: "Recommencer à chaque page",
+  lnNewSection: "Recommencer à chaque section",
 };
 
 export default dict;

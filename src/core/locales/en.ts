@@ -229,6 +229,11 @@ const dict: Dict = {
   pnDefault: "Default",
   pageNumberStart: "Start at",
   pageNumberStartPh: "Start at",
+  lineNumbers: "Line numbers",
+  lineNumberInterval: "Count by",
+  lnContinuous: "Continuous",
+  lnNewPage: "Restart each page",
+  lnNewSection: "Restart each section",
 };
 
 export default dict;

@@ -41,10 +41,13 @@ they are realistic to do, just not yet built.
   (REF / PAGEREF / SEQ), and the date / time / author / file-name info fields are authored;
   other, less-common fields (document title / subject, ASK / input, ...) are preserved but
   not insertable.
-- Line numbering and page vertical alignment - preserved on the section, not yet authorable.
-  (Page borders and page-number restart / format are authorable through Page setup; on odt the
-  page-number *format* is authorable but a restart "start at N" has no page-layout home, so that
-  control is docx-only.)
+- Page vertical alignment - preserved on the section, not yet authorable (docx w:vAlign;
+  odt has no page-content vertical-alignment, so it would be docx-only).
+- Page borders, page-number restart / format and line numbering are authorable through Page
+  setup. A few format asymmetries: the page-number restart "start at N" and the line-number
+  "start at" / "restart each section" are docx-only (odt has no page-layout home for them);
+  line numbers render in-editor only in the single-column horizontal layout (other layouts
+  round-trip the setting but do not draw the numbers).
 
 ---
 

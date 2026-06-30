@@ -1046,7 +1046,16 @@ function parsePageGeometry(sectPr: Element | undefined, evenOdd = false): PageGe
   const pageNumStart = Number.isFinite(pnStart) && pnStart >= 1 ? pnStart : undefined;
   const pnFmt = pn?.getAttributeNS(W, "fmt") ?? pn?.getAttribute("w:fmt") ?? "";
   const pageNumFormat = /^(decimal|lowerRoman|upperRoman|lowerLetter|upperLetter)$/.test(pnFmt) ? pnFmt : undefined;
-  return { widthPx: Math.round(w), heightPx: Math.round(h), margin: { top: m("top"), right: m("right"), bottom: m("bottom"), left: m("left") }, vertical, rtl, columns, columnGapPx: columns ? Math.round(colGap ?? 36) : undefined, titlePage: titlePage || undefined, evenOdd: evenOdd || undefined, pageBorder, pageNumStart, pageNumFormat };
+  // Line numbering: w:lnNumType (@w:countBy interval, @w:restart, @w:start). Absent restart = newPage.
+  const ln = sectPr.getElementsByTagName("w:lnNumType")[0];
+  const lineNumbers = ln ? true : undefined;
+  const lnCountBy = Number(ln?.getAttributeNS(W, "countBy") ?? ln?.getAttribute("w:countBy"));
+  const lineNumberInterval = Number.isFinite(lnCountBy) && lnCountBy > 1 ? lnCountBy : undefined;
+  const lnRestart = ln?.getAttributeNS(W, "restart") ?? ln?.getAttribute("w:restart") ?? "newPage";
+  const lineNumberRestart = ln ? (/^(continuous|newPage|newSection)$/.test(lnRestart) ? (lnRestart as "continuous" | "newPage" | "newSection") : "newPage") : undefined;
+  const lnStart = Number(ln?.getAttributeNS(W, "start") ?? ln?.getAttribute("w:start"));
+  const lineNumberStart = Number.isFinite(lnStart) ? lnStart : undefined;
+  return { widthPx: Math.round(w), heightPx: Math.round(h), margin: { top: m("top"), right: m("right"), bottom: m("bottom"), left: m("left") }, vertical, rtl, columns, columnGapPx: columns ? Math.round(colGap ?? 36) : undefined, titlePage: titlePage || undefined, evenOdd: evenOdd || undefined, pageBorder, pageNumStart, pageNumFormat, lineNumbers, lineNumberInterval, lineNumberRestart, lineNumberStart };
 }
 
 /** The archive key for a relationship target relative to word/ (e.g. "header1.xml"). */

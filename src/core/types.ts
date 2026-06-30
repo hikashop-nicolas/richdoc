@@ -63,6 +63,14 @@ export interface PageGeometry {
   pageNumStart?: number;
   /** Page-number format: decimal | lowerRoman | upperRoman | lowerLetter | upperLetter. */
   pageNumFormat?: string;
+  /** Show line numbers in the margin (docx w:lnNumType, odt text:linenumbering-configuration). */
+  lineNumbers?: boolean;
+  /** Number every Nth line (docx w:countBy, odt text:increment); 1 = every line. */
+  lineNumberInterval?: number;
+  /** Where the count restarts (docx w:restart; odt supports newPage / continuous only). */
+  lineNumberRestart?: "continuous" | "newPage" | "newSection";
+  /** Starting line number (docx w:lnNumType@w:start); round-tripped, no dedicated control. */
+  lineNumberStart?: number;
   /** Top-to-bottom, right-to-left text (Japanese tategaki) when true. */
   vertical?: boolean;
   /** Horizontal right-to-left text (Arabic/Hebrew) when true. Ignored if `vertical`. */
@@ -181,6 +189,9 @@ export interface Capabilities {
   /** Page-number authoring: "full" = format + restart (docx), "format" = format only
       (odt has no page-layout home for a start number), false = not authorable. */
   pageNumbering: "full" | "format" | false;
+  /** Line-number authoring: "full" = restart per page / section (docx), "basic" = on/off +
+      interval + restart-each-page (odt), false = not authorable. */
+  lineNumbering: "full" | "basic" | false;
 }
 
 /** A section's page geometry in px (the on-the-wire shape stashed on a section-boundary
@@ -199,6 +210,10 @@ export interface SecGeom {
   pageBorder?: PageBorder; // a border around the page, per-section
   pageNumStart?: number; // restart page numbering at N (docx only)
   pageNumFormat?: string; // page-number format token
+  lineNumbers?: boolean; // show line numbers (docx per-section; odt document-level)
+  lineNumberInterval?: number; // number every Nth line
+  lineNumberRestart?: "continuous" | "newPage" | "newSection";
+  lineNumberStart?: number; // starting line number (round-tripped)
 }
 
 /** A footnote / endnote body. The inline reference in the body HTML carries the matching id. */

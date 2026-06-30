@@ -23,10 +23,10 @@ A full word-processor surface in the browser, the same for both formats unless n
   and tab stops), preserving each style's other properties and its inheritance.
 - **Tables:** editable cells, cell borders (colour / style / width), column / row /
   indent resize, merge, and in-cell formatting.
-- **Page layout:** page size, margins, orientation, a page border (style, width, colour)
-  and page numbering (format, plus restart "start at N" on docx) in a paginated page view,
-  with horizontal + vertical margin rulers that follow the caret's page, zoom, and a page
-  setup dialog.
+- **Page layout:** page size, margins, orientation, a page border (style, width, colour),
+  page numbering (format, plus restart "start at N" on docx) and line numbering (interval +
+  restart) in a paginated page view, with horizontal + vertical margin rulers that follow the
+  caret's page, zoom, and a page setup dialog.
 - **Sections:** mid-document section breaks with mixed per-section page size,
   orientation, margins and columns; insert-section-break; per-section page setup; and
   distinct per-section headers/footers with a link-to-previous toggle.

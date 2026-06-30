@@ -901,7 +901,13 @@ function parsePageGeometry(files: Record<string, Uint8Array>): PageGeometry | un
   const columns = Number.isFinite(numCols) && numCols > 1 ? numCols : undefined;
   const gapAttr = colsEl?.getElementsByTagName("style:column-sep")[0]?.getAttribute("style:width");
   const pageBorder = parseOdtPageBorder(props, lenToPx);
-  return { widthPx: Math.round(w), heightPx: Math.round(h), margin: { top: m("top"), right: m("right"), bottom: m("bottom"), left: m("left") }, vertical, rtl, columns, columnGapPx: columns ? Math.round(lenToPx(gapAttr) ?? 36) : undefined, pageBorder, pageNumFormat: odtNumFormat(props) };
+  // Line numbering: document-level text:linenumbering-configuration in office:styles.
+  const lnc = doc.getElementsByTagName("text:linenumbering-configuration")[0];
+  const lineNumbers = lnc && lnc.getAttribute("text:number-lines") !== "false" ? true : undefined;
+  const lnInc = Number(lnc?.getAttribute("text:increment"));
+  const lineNumberInterval = lineNumbers && Number.isFinite(lnInc) && lnInc > 1 ? lnInc : undefined;
+  const lineNumberRestart = lineNumbers ? (lnc!.getAttribute("text:restart-on-page-change") === "true" ? "newPage" as const : "continuous" as const) : undefined;
+  return { widthPx: Math.round(w), heightPx: Math.round(h), margin: { top: m("top"), right: m("right"), bottom: m("bottom"), left: m("left") }, vertical, rtl, columns, columnGapPx: columns ? Math.round(lenToPx(gapAttr) ?? 36) : undefined, pageBorder, pageNumFormat: odtNumFormat(props), lineNumbers, lineNumberInterval, lineNumberRestart };
 }
 
 export function odtToParts(bytes: Uint8Array): { body: string; comments: CommentThread[]; header: string; footer: string; headerEven?: { html: string; path?: string }; footerEven?: { html: string; path?: string }; headerFirst?: { html: string; path?: string }; footerFirst?: { html: string; path?: string }; sectionBands?: Record<string, { html: string; path: string }>; notes?: { id: string; kind: "footnote" | "endnote"; html: string }[]; page?: PageGeometry; paragraphStyles?: { id: string; name: string }[]; characterStyles?: { id: string; name: string }[]; styleDefs?: { id: string; kind: "paragraph" | "character"; css: Record<string, string> }[]; styleCss?: string; noteCss?: string } {

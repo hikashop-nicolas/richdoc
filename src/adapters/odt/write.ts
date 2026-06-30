@@ -1062,6 +1062,19 @@ function applyPageMargins(files: Record<string, Uint8Array>, geometry: PageGeome
     pl.insertBefore(props, pl.firstChild);
   }
   setPageLayoutGeom(doc, props, { w: geometry.widthPx, h: geometry.heightPx, mt: geometry.margin.top, mr: geometry.margin.right, mb: geometry.margin.bottom, ml: geometry.margin.left, cols: geometry.columns, colGap: geometry.columnGapPx, vertical: geometry.vertical, rtl: geometry.rtl, pageBorder: geometry.pageBorder, pageNumFormat: geometry.pageNumFormat });
+  // Line numbering: a document-level text:linenumbering-configuration in office:styles (odt has no
+  // per-section / start; only on/off, interval and restart-each-page round-trip).
+  for (const e of Array.from(doc.getElementsByTagName("text:linenumbering-configuration"))) e.parentNode!.removeChild(e);
+  if (geometry.lineNumbers) {
+    let officeStyles = doc.getElementsByTagName("office:styles")[0];
+    if (!officeStyles) { officeStyles = doc.createElementNS(NS.office, "office:styles"); doc.documentElement!.appendChild(officeStyles); }
+    const lnc = doc.createElementNS(NS.text, "text:linenumbering-configuration");
+    lnc.setAttributeNS(NS.text, "text:number-lines", "true");
+    lnc.setAttributeNS(NS.text, "text:count-empty-lines", "true");
+    lnc.setAttributeNS(NS.text, "text:increment", String(Math.max(1, Math.round(geometry.lineNumberInterval ?? 1))));
+    lnc.setAttributeNS(NS.text, "text:restart-on-page-change", geometry.lineNumberRestart === "newPage" ? "true" : "false");
+    officeStyles.appendChild(lnc);
+  }
   files["styles.xml"] = strToU8(new XMLSerializer().serializeToString(doc));
 }
 
