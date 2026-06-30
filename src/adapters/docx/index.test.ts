@@ -1213,6 +1213,53 @@ describe("list fidelity: nesting and ordered/bullet", () => {
     expect(docxToHtml(out)).toContain('class="docx-eq"');
   });
 
+  it("writes an authored MathML matrix as an OMML m:m", () => {
+    const body = '<p><span class="docx-eq" data-rdoc-eq contenteditable="false">' +
+      '<math xmlns="http://www.w3.org/1998/Math/MathML"><mtable>' +
+      "<mtr><mtd><mi>a</mi></mtd><mtd><mi>b</mi></mtd></mtr>" +
+      "<mtr><mtd><mi>c</mi></mtd><mtd><mi>d</mi></mtd></mtr>" +
+      "</mtable></math></span></p>";
+    const out = htmlToDocx(body, makeDocx());
+    const xml = strFromU8(unzipSync(out)["word/document.xml"]!);
+    expect(xml).toMatch(/<m:m>/);
+    expect((xml.match(/<m:mr>/g) ?? []).length).toBe(2);
+    expect((xml.match(/<m:e>/g) ?? []).length).toBe(4); // 2x2 cells
+    expect(xml).toMatch(/<m:count m:val="2"/);
+  });
+
+  it("reads an OMML matrix back as a MathML mtable", () => {
+    const m = 'xmlns:m="http://schemas.openxmlformats.org/officeDocument/2006/math"';
+    const doc = `<?xml version="1.0"?>
+<w:document xmlns:w="http://schemas.openxmlformats.org/wordprocessingml/2006/main">
+ <w:body><w:p><m:oMath ${m}><m:m><m:mr><m:e><m:r><m:t>a</m:t></m:r></m:e><m:e><m:r><m:t>b</m:t></m:r></m:e></m:mr></m:m></m:oMath></w:p></w:body>
+</w:document>`;
+    const html = docxToHtml(makeDocx(doc));
+    expect(html).toContain("<mtable>");
+    expect(html).toContain("<mtr>");
+    expect(html).toContain("<mtd>");
+  });
+
+  it("round-trips an accent (hat) as an OMML m:acc", () => {
+    const body = '<p><span class="docx-eq" data-rdoc-eq contenteditable="false">' +
+      '<math xmlns="http://www.w3.org/1998/Math/MathML"><mover accent="true"><mi>x</mi><mo>^</mo></mover></math></span></p>';
+    const out = htmlToDocx(body, makeDocx());
+    const xml = strFromU8(unzipSync(out)["word/document.xml"]!);
+    expect(xml).toMatch(/<m:acc>/);
+    expect(xml).toMatch(/<m:chr m:val="̂"/); // combining circumflex
+    // and it re-reads as an accent over the base
+    expect(docxToHtml(out)).toContain("<mover");
+  });
+
+  it("round-trips an overline (menclose) as an OMML m:bar", () => {
+    const body = '<p><span class="docx-eq" data-rdoc-eq contenteditable="false">' +
+      '<math xmlns="http://www.w3.org/1998/Math/MathML"><menclose notation="top"><mrow><mi>A</mi><mi>B</mi></mrow></menclose></math></span></p>';
+    const out = htmlToDocx(body, makeDocx());
+    const xml = strFromU8(unzipSync(out)["word/document.xml"]!);
+    expect(xml).toMatch(/<m:bar>/);
+    expect(xml).toMatch(/<m:pos m:val="top"/);
+    expect(docxToHtml(out)).toContain("<menclose");
+  });
+
   it("round-trips an internal hyperlink as a w:hyperlink w:anchor", () => {
     const out = htmlToDocx('<p>See <a href="#intro">the intro</a></p>', makeDocx());
     const xml = strFromU8(unzipSync(out)["word/document.xml"]!);

@@ -38,7 +38,7 @@ browser's native MathML rendering, no runtime dependency.
 
 - **docx (OMML)**: `src/adapters/docx/omml.ts` converts OMML <-> MathML for the common constructs
   (runs/mi/mn/mo, mrow, fraction m:f, scripts m:sSup/m:sSub/m:sSubSup, radical m:rad, n-ary m:nary,
-  delimiters m:d). Read: `m:oMath` -> MathML span, keeping the original OMML in `data-omml` so an
+  delimiters m:d, matrices m:m, accents m:acc, bars m:bar). Read: `m:oMath` -> MathML span, keeping the original OMML in `data-omml` so an
   un-edited equation rewrites verbatim (lossless). Write: a span with `data-omml` and no edit ->
   original OMML; otherwise MathML -> OMML. Constructs outside the common set stay passthrough.
 - **odt**: an embedded formula object. Read: a `draw:frame` whose `draw:object` resolves to an
@@ -59,7 +59,9 @@ conversion lives in the docx adapter, not the engine.
 ## Deferred / not done
 
 - Editing an imported odt equation orphans its original Object sub-document (unreferenced, harmless).
-- OMML constructs beyond the common set (matrices, accents, bars, boxes) stay verbatim passthrough.
-- MathML -> LaTeX recovery (`mathml-latex.ts`) covers the common subset; constructs outside it fall
+- OMML constructs beyond the covered set (boxes m:box, group-chars m:groupChr, equation arrays
+  m:eqArr, box borders) stay verbatim passthrough.
+- Matrix delimiters: a pmatrix/bmatrix recovers as a plain matrix wrapped in literal brackets (the
+  auto-sizing fence is not reconstructed), and authored matrices carry no per-column alignment.
+- MathML -> LaTeX recovery (`mathml-latex.ts`) covers the supported set; constructs outside it fall
   back to text content, so editing a very exotic imported equation may lose detail.
-- Matrices in the authoring UI rely on LaTeX.

@@ -35,6 +35,13 @@ const tokenLatex = (raw: string): string => {
 
 const kidsOf = (el: Element): Element[] => Array.from(el.children);
 
+// An accent glyph (the mo over a base) -> its LaTeX command.
+const ACCENT: Record<string, string> = {
+  "^": "\\hat", "ˆ": "\\hat", "~": "\\tilde", "˜": "\\tilde", "‾": "\\bar",
+  "ˉ": "\\bar", "¯": "\\bar", "→": "\\vec", "⃗": "\\vec", "˙": "\\dot",
+  ".": "\\dot", "¨": "\\ddot", "ˇ": "\\check",
+};
+
 // A LaTeX argument: braces only when it is more than a single character / command (so "x^2" stays
 // "x^{2}" but "(a+b)^n" becomes "{...}^{n}" with the base braced where needed).
 const arg = (el: Element | undefined): string => {
@@ -78,8 +85,21 @@ function nodeLatex(el: Element): string {
       return `${base(k[0])}_{${arg(k[1])}}^{${arg(k[2])}}`;
     case "munder":
       return `${base(k[0])}_{${arg(k[1])}}`;
-    case "mover":
-      return `${base(k[0])}^{${arg(k[1])}}`;
+    case "mover": {
+      const over = k[1];
+      const cmd = over && over.localName === "mo" ? ACCENT[(over.textContent ?? "").trim()] : undefined;
+      return cmd ? `${cmd}{${arg(k[0])}}` : `${base(k[0])}^{${arg(k[1])}}`;
+    }
+    case "menclose": {
+      const notation = el.getAttribute("notation") ?? "";
+      const cmd = notation.includes("bottom") || notation === "underline" ? "\\underline" : "\\overline";
+      return `${cmd}{${k.map(nodeLatex).join("")}}`;
+    }
+    case "mtable":
+      return `\\begin{matrix}${k
+        .filter((r) => r.localName === "mtr")
+        .map((r) => kidsOf(r).filter((c) => c.localName === "mtd").map(nodeLatex).join(" & "))
+        .join(" \\\\ ")}\\end{matrix}`;
     case "munderover":
       return `${base(k[0])}_{${arg(k[1])}}^{${arg(k[2])}}`;
     case "msqrt":

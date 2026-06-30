@@ -1,12 +1,22 @@
 // OMML (Office Math, docx) <-> MathML conversion for the common constructs: runs, grouping,
-// fractions, scripts, radicals, n-ary operators (sum / integral / product) and delimiters. MathML is
-// the editor's in-document representation; this is the only place that knows OMML. Anything outside the
-// common set is read best-effort (the original OMML is kept verbatim for a lossless rewrite) and, when
-// authored, falls back to a plain run. Element matching is by localName so the prefix ("m") is irrelevant.
+// fractions, scripts, radicals, n-ary operators (sum / integral / product), delimiters, matrices,
+// accents and bars. MathML is the editor's in-document representation; this is the only place that
+// knows OMML. Anything outside the common set is read best-effort (the original OMML is kept verbatim
+// for a lossless rewrite) and, when authored, falls back to a plain run. Element matching is by
+// localName so the prefix ("m") is irrelevant.
 const M = "http://schemas.openxmlformats.org/officeDocument/2006/math";
 const MML = "http://www.w3.org/1998/Math/MathML";
 const NARY_OVER = "∑∏⋃⋂⋁⋀∐"; // operators whose limits sit above/below (vs. at the corner)
 const OPERATOR = /[+\-*/=<>±×÷·∗∘≤≥≠≈≡→←↔∈∉⊂⊆∪∩∧∨¬∀∃∇∂∞%!|,;:(){}[\]]/;
+// An accent over a base: the spacing glyph MathML (temml) uses <-> the combining char OMML stores.
+const ACCENT_TO_COMBINING: Record<string, string> = {
+  "^": "̂", "ˆ": "̂", "~": "̃", "˜": "̃", "∼": "̃",
+  "ˉ": "̄", "‾": "̄", "¯": "̄", "→": "⃗", "⃗": "⃗",
+  "˙": "̇", ".": "̇", "¨": "̈", "ˇ": "̌",
+};
+const COMBINING_TO_GLYPH: Record<string, string> = {
+  "̂": "^", "̃": "~", "̄": "‾", "⃗": "→", "̇": "˙", "̈": "¨", "̌": "ˇ",
+};
 
 const escXml = (s: string): string => s.replace(/&/g, "&amp;").replace(/</g, "&lt;").replace(/>/g, "&gt;");
 const escAttr = (s: string): string => escXml(s).replace(/"/g, "&quot;");
@@ -49,6 +59,11 @@ function mmlSeq(nodes: ChildNode[]): string {
       case "msub": case "msup": case "msubsup": case "munder": case "mover": case "munderover": {
         const base = kids[0] ?? null;
         const tag = ln(el);
+        // An accent (hat / bar / vec / ...): mover whose script is a single accent glyph -> m:acc.
+        if (tag === "mover" && kids[1] && ln(kids[1]!) === "mo") {
+          const comb = ACCENT_TO_COMBINING[(kids[1]!.textContent ?? "").trim()];
+          if (comb) { out += `<m:acc><m:accPr><m:chr m:val="${escAttr(comb)}"/></m:accPr><m:e>${mmlSlot(base)}</m:e></m:acc>`; break; }
+        }
         const sub = tag === "msup" || tag === "mover" ? null : kids[1] ?? null;
         const sup = tag === "msub" || tag === "munder" ? null : tag === "msup" || tag === "mover" ? kids[1] ?? null : kids[2] ?? null;
         const chr = base && ln(base) === "mo" ? (base.textContent ?? "").trim() : "";
@@ -64,6 +79,20 @@ function mmlSeq(nodes: ChildNode[]): string {
       case "mfenced": {
         const open = el.getAttribute("open") ?? "(", close = el.getAttribute("close") ?? ")";
         out += `<m:d><m:dPr><m:begChr m:val="${escAttr(open)}"/><m:endChr m:val="${escAttr(close)}"/></m:dPr><m:e>${mmlSeq(Array.from(el.childNodes))}</m:e></m:d>`;
+        break;
+      }
+      case "mtable": {
+        const rows = kids.filter((c) => ln(c) === "mtr");
+        const cols = Math.max(0, ...rows.map((r) => elemChildren(r).filter((c) => ln(c) === "mtd").length));
+        const mr = rows.map((r) => `<m:mr>${elemChildren(r).filter((c) => ln(c) === "mtd").map((c) => `<m:e>${mmlSeq(Array.from(c.childNodes))}</m:e>`).join("")}</m:mr>`).join("");
+        const mcs = `<m:mcs><m:mc><m:mcPr><m:count m:val="${cols}"/><m:mcJc m:val="center"/></m:mcPr></m:mc></m:mcs>`;
+        out += `<m:m><m:mPr>${mcs}</m:mPr>${mr}</m:m>`;
+        break;
+      }
+      case "menclose": { // overline / underline enclosure -> a bar
+        const notation = el.getAttribute("notation") ?? "";
+        const pos = notation.includes("bottom") || notation === "underline" ? "bot" : "top";
+        out += `<m:bar><m:barPr><m:pos m:val="${pos}"/></m:barPr><m:e>${mmlSeq(Array.from(el.childNodes))}</m:e></m:bar>`;
         break;
       }
       default: out += mRun(el.textContent ?? ""); // unknown: keep its text
@@ -133,8 +162,24 @@ function ommlSeq(els: Element[]): string {
         break;
       }
       case "func": out += `<mrow>${ommlSlot(child(el, "fName"))}${ommlSlot(child(el, "e"))}</mrow>`; break;
+      case "m": { // a matrix: m:mr rows of m:e cells
+        const rows = elemChildren(el).filter((c) => ln(c) === "mr");
+        const mtr = rows.map((r) => `<mtr>${elemChildren(r).filter((c) => ln(c) === "e").map((c) => `<mtd>${ommlSeq(elemChildren(c))}</mtd>`).join("")}</mtr>`).join("");
+        out += `<mtable>${mtr}</mtable>`;
+        break;
+      }
+      case "acc": { // an accent over a base
+        const comb = (child(child(el, "accPr") ?? el, "chr")?.getAttribute("m:val")) || "̂";
+        out += `<mover accent="true">${ommlSlot(child(el, "e"))}<mo>${escXml(COMBINING_TO_GLYPH[comb] ?? comb)}</mo></mover>`;
+        break;
+      }
+      case "bar": { // an overline / underline
+        const pos = (child(child(el, "barPr") ?? el, "pos")?.getAttribute("m:val")) || "top";
+        out += `<menclose notation="${pos === "bot" ? "bottom" : "top"}">${ommlSlot(child(el, "e"))}</menclose>`;
+        break;
+      }
       case "e": case "num": case "den": case "sub": case "sup": case "deg": case "fName": out += ommlSeq(elemChildren(el)); break;
-      case "rPr": case "naryPr": case "fPr": case "dPr": case "radPr": case "ctrlPr": break; // properties, no glyphs
+      case "rPr": case "naryPr": case "fPr": case "dPr": case "radPr": case "ctrlPr": case "mPr": case "accPr": case "barPr": break; // properties, no glyphs
       default: { const t = el.textContent ?? ""; if (t.trim()) out += mmlTok(t); }
     }
   }

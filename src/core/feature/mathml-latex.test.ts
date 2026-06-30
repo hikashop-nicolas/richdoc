@@ -51,6 +51,20 @@ describe("mathmlToLatex", () => {
     expect(latex).toContain("{2a}"); // denominator
   });
 
+  it("recovers a matrix", () => {
+    const inner =
+      "<mtable><mtr><mtd><mi>a</mi></mtd><mtd><mi>b</mi></mtd></mtr>" +
+      "<mtr><mtd><mi>c</mi></mtd><mtd><mi>d</mi></mtd></mtr></mtable>";
+    expect(recover(inner)).toBe("\\begin{matrix}a & b \\\\ c & d\\end{matrix}");
+  });
+
+  it("recovers accents and overline", () => {
+    expect(recover('<mover accent="true"><mi>x</mi><mo>^</mo></mover>')).toBe("\\hat{x}");
+    expect(recover('<mover accent="true"><mi>v</mi><mo>&#8594;</mo></mover>')).toBe("\\vec{v}"); // U+2192
+    expect(recover('<mover accent="true"><mi>x</mi><mo>&#8254;</mo></mover>')).toBe("\\bar{x}"); // U+203E
+    expect(recover('<menclose notation="top"><mrow><mi>A</mi><mi>B</mi></mrow></menclose>')).toBe("\\overline{AB}");
+  });
+
   it("falls back to text for unknown constructs and empty math", () => {
     expect(recover("")).toBe("");
     expect(recover("<munknown><mi>q</mi></munknown>")).toBe("q");
