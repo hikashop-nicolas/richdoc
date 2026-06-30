@@ -110,7 +110,15 @@ function nodeLatex(el: Element): string {
       return k.map(nodeLatex).join("");
     case "semantics": // presentation child first; the annotation (StarMath / TeX) is dropped
       return k.length ? nodeLatex(k[0]!) : "";
-    case "mi":
+    case "mi": {
+      const s = (el.textContent ?? "").replace(INVISIBLE, "").trim();
+      const mv = el.getAttribute("mathvariant");
+      if (s && !FUNCS.has(s) && !SYM[s]) {
+        if (mv === "normal") return `\\mathrm{${s}}`;
+        if (mv === "bold" || mv === "bold-italic") return `\\mathbf{${s}}`;
+      }
+      return tokenLatex(el.textContent ?? "");
+    }
     case "mn":
     case "mo":
     case "ms":

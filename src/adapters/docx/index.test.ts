@@ -1293,6 +1293,21 @@ describe("list fidelity: nesting and ordered/bullet", () => {
     expect(docxToHtml(out)).toContain("<menclose");
   });
 
+  it("keeps function names and \\mathrm upright via an OMML run style", () => {
+    const body = '<p><span class="docx-eq" data-rdoc-eq contenteditable="false">' +
+      '<math xmlns="http://www.w3.org/1998/Math/MathML">' +
+      "<mi>sin</mi><mi>x</mi><mi mathvariant=\"normal\">d</mi><mi mathvariant=\"bold\">v</mi>" +
+      "</math></span></p>";
+    const out = htmlToDocx(body, makeDocx());
+    const xml = strFromU8(unzipSync(out)["word/document.xml"]!);
+    expect((xml.match(/<m:sty m:val="p"\/>/g) ?? []).length).toBe(2); // sin (multi-letter) + \mathrm d
+    expect(xml).toMatch(/<m:sty m:val="b"\/>/); // bold v
+    // the single italic identifier x carries no explicit style
+    expect((xml.match(/<m:sty/g) ?? []).length).toBe(3);
+    // and an upright run re-reads as a normal-variant identifier
+    expect(docxToHtml(out)).toMatch(/<mi mathvariant="normal">d<\/mi>/);
+  });
+
   it("round-trips an internal hyperlink as a w:hyperlink w:anchor", () => {
     const out = htmlToDocx('<p>See <a href="#intro">the intro</a></p>', makeDocx());
     const xml = strFromU8(unzipSync(out)["word/document.xml"]!);

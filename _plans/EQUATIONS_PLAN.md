@@ -41,7 +41,9 @@ browser's native MathML rendering, no runtime dependency.
   delimiters m:d, matrices m:m, accents m:acc, bars m:bar, over/under braces m:groupChr +
   m:limUpp/m:limLow). Read: `m:oMath` -> MathML span, keeping the original OMML in `data-omml` so an
   un-edited equation rewrites verbatim (lossless). Write: a span with `data-omml` and no edit ->
-  original OMML; otherwise MathML -> OMML. Constructs outside the common set stay passthrough.
+  original OMML; otherwise MathML -> OMML. Identifier runs carry an `m:sty` (p / b / bi) from the
+  mathvariant (or the MathML default that a multi-letter mi is upright), so functions and `\mathrm`
+  stay upright in Word instead of italicised. Constructs outside the common set stay passthrough.
 - **odt**: an embedded formula object. Read: a `draw:frame` whose `draw:object` resolves to an
   `Object/content.xml` with a `math` root -> a MathML equation span, the whole frame stashed in
   `data-odt-xml` so an untouched equation re-emits verbatim (its sub-document is preserved in the

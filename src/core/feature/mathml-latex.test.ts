@@ -92,6 +92,13 @@ describe("mathmlToLatex", () => {
     expect(recover(ub)).toBe("\\underbrace{x+y}_{m}");
   });
 
+  it("recovers mathvariant identifiers (mathrm / mathbf), functions still win", () => {
+    expect(recover('<mi mathvariant="normal">d</mi>')).toBe("\\mathrm{d}");
+    expect(recover('<mi mathvariant="bold">v</mi>')).toBe("\\mathbf{v}");
+    expect(recover('<mi mathvariant="normal">sin</mi>')).toBe("\\sin"); // a function stays a function
+    expect(recover("<mi>x</mi>")).toBe("x"); // plain italic identifier untouched
+  });
+
   it("falls back to text for unknown constructs and empty math", () => {
     expect(recover("")).toBe("");
     expect(recover("<munknown><mi>q</mi></munknown>")).toBe("q");

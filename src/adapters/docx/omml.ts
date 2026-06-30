@@ -33,6 +33,18 @@ export function mathmlToOmml(math: Element): string {
 }
 
 const mRun = (text: string): string => { const t = text.replace(INVISIBLE, ""); return t ? `<m:r><m:t xml:space="preserve">${escXml(t)}</m:t></m:r>` : ""; };
+// mathvariant (or the MathML default that a multi-letter mi is upright) -> OMML run style. A math run
+// is italic by default, so only a non-italic style needs an m:sty; this keeps functions (sin, log)
+// and \mathrm upright in Word instead of italicised.
+const STY: Record<string, string> = { normal: "p", bold: "b", italic: "i", "bold-italic": "bi" };
+const miRun = (el: Element): string => {
+  const t = (el.textContent ?? "").replace(INVISIBLE, "");
+  if (!t) return "";
+  const mv = el.getAttribute("mathvariant") ?? (t.length > 1 ? "normal" : "");
+  const sty = STY[mv];
+  const pr = sty && sty !== "i" ? `<m:rPr><m:sty m:val="${sty}"/></m:rPr>` : "";
+  return `<m:r>${pr}<m:t xml:space="preserve">${escXml(t)}</m:t></m:r>`;
+};
 // A slot (numerator, base, sub, ...) holding one MathML node -> its OMML, flattening a wrapping mrow.
 const mmlSlot = (node: Element | null): string => {
   if (!node) return "";
@@ -73,7 +85,8 @@ function mmlSeq(nodes: ChildNode[]): string {
     const el = n as Element;
     const kids = elemChildren(el);
     switch (ln(el)) {
-      case "mi": case "mn": case "mo": case "mtext": case "ms": out += mRun(el.textContent ?? ""); break;
+      case "mi": out += miRun(el); break;
+      case "mn": case "mo": case "mtext": case "ms": out += mRun(el.textContent ?? ""); break;
       case "mrow": case "mstyle": case "mpadded": {
         const fm = fencedMatrix(el); // pmatrix / bmatrix / cases: brackets around a matrix
         if (fm) out += `<m:d><m:dPr><m:begChr m:val="${escAttr(fm.open)}"/><m:endChr m:val="${escAttr(fm.close)}"/></m:dPr><m:e>${matrixOmml(fm.table)}</m:e></m:d>`;
@@ -140,13 +153,16 @@ export function ommlToMathml(oMath: Element): string {
   return `<math xmlns="${MML}" display="inline">${ommlSeq(elemChildren(oMath))}</math>`;
 }
 
-const mmlTok = (raw: string): string => {
+// OMML run style -> the MathML mathvariant put on identifiers (italic is the default, so omitted).
+const VARIANT: Record<string, string> = { p: "normal", b: "bold", bi: "bold-italic" };
+const mmlTok = (raw: string, variant?: string): string => {
   // Split a run into identifier / number / operator / other tokens for sensible MathML spacing.
   const text = raw.replace(INVISIBLE, "");
+  const mv = variant ? ` mathvariant="${variant}"` : "";
   let out = "";
   for (const m of text.matchAll(/(\d+\.?\d*)|([A-Za-z]+)|(\s+)|(.)/g)) {
     if (m[1]) out += `<mn>${escXml(m[1])}</mn>`;
-    else if (m[2]) out += `<mi>${escXml(m[2])}</mi>`;
+    else if (m[2]) out += `<mi${mv}>${escXml(m[2])}</mi>`;
     else if (m[3]) out += "<mspace width=\"0.2em\"/>";
     else if (m[4]) out += OPERATOR.test(m[4]) ? `<mo>${escXml(m[4])}</mo>` : `<mtext>${escXml(m[4])}</mtext>`;
   }
@@ -163,7 +179,11 @@ function ommlSeq(els: Element[]): string {
   let out = "";
   for (const el of els) {
     switch (ln(el)) {
-      case "r": out += mmlTok(child(el, "t")?.textContent ?? el.textContent ?? ""); break;
+      case "r": { // a run; m:rPr/m:sty carries an upright/bold style for its identifiers
+        const sty = child(child(el, "rPr") ?? el, "sty")?.getAttribute("m:val");
+        out += mmlTok(child(el, "t")?.textContent ?? el.textContent ?? "", sty ? VARIANT[sty] : undefined);
+        break;
+      }
       case "f": out += `<mfrac>${ommlSlot(child(el, "num"))}${ommlSlot(child(el, "den"))}</mfrac>`; break;
       case "sSup": out += `<msup>${ommlSlot(child(el, "e"))}${ommlSlot(child(el, "sup"))}</msup>`; break;
       case "sSub": out += `<msub>${ommlSlot(child(el, "e"))}${ommlSlot(child(el, "sub"))}</msub>`; break;
