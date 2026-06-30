@@ -220,6 +220,7 @@ const dict: Dict = {
   fieldTime: "Heure",
   fieldAuthor: "Auteur",
   fieldFileName: "Nom du fichier",
+  paraShading: "Trame de fond du paragraphe",
 };
 
 export default dict;

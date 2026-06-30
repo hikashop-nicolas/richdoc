@@ -1092,6 +1092,15 @@ describe("odt equations (draw:object formula)", () => {
   });
 });
 
+describe("odt paragraph shading", () => {
+  it("round-trips paragraph shading as fo:background-color", () => {
+    const out = htmlToOdt('<p style="background-color:#ffeecc">hi</p>', makeOdt());
+    const xml = strFromU8(unzipSync(out)["content.xml"]);
+    expect(xml).toMatch(/<style:paragraph-properties[^>]*fo:background-color="#ffeecc"/i);
+    expect(odtToHtml(out)).toContain("background-color:#ffeecc"); // and reads back
+  });
+});
+
 describe("odt info fields (date / author / file name)", () => {
   it("writes inserted info fields as odt text fields", () => {
     const body = "<p>" +

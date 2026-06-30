@@ -1373,6 +1373,19 @@ describe("list fidelity: nesting and ordered/bullet", () => {
     expect(xml).toContain("Jane"); // the cached snapshot survives
   });
 
+  it("round-trips paragraph shading as a pPr w:shd", () => {
+    const doc = `<?xml version="1.0"?>
+<w:document xmlns:w="http://schemas.openxmlformats.org/wordprocessingml/2006/main">
+ <w:body><w:p><w:pPr><w:shd w:val="clear" w:color="auto" w:fill="ffeecc"/></w:pPr><w:r><w:t>hi</w:t></w:r></w:p></w:body>
+</w:document>`;
+    expect(docxToHtml(makeDocx(doc))).toContain("background-color:#ffeecc"); // read -> rendered
+
+    const out = htmlToDocx('<p style="background-color:#ffeecc">hi</p>', makeDocx());
+    const xml = strFromU8(unzipSync(out)["word/document.xml"]!);
+    expect(xml).toMatch(/<w:shd[^>]*w:fill="ffeecc"/i); // authored -> w:shd
+    expect(docxToHtml(out)).toContain("background-color:#ffeecc"); // and round-trips
+  });
+
   it("round-trips an internal hyperlink as a w:hyperlink w:anchor", () => {
     const out = htmlToDocx('<p>See <a href="#intro">the intro</a></p>', makeDocx());
     const xml = strFromU8(unzipSync(out)["word/document.xml"]!);

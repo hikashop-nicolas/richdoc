@@ -416,6 +416,31 @@ export function setupToolbar(deps: ToolbarDeps) {
   const indentBtn = iconBtn(indentIcon(1), t("indent"), () => adjustIndent(1));
   const outdentBtn = iconBtn(indentIcon(-1), t("outdent"), () => adjustIndent(-1));
 
+  // Paragraph shading: a colour picker (+ clear) that fills the selected paragraphs' background,
+  // round-tripping as a pPr w:shd (docx) / paragraph-properties fo:background-color (odt).
+  const paraShade = (color: string | null): void => {
+    getActiveEl().focus();
+    for (const b of selectedBlocks()) {
+      if (color) b.style.backgroundColor = color;
+      else b.style.removeProperty("background-color");
+    }
+    mark();
+  };
+  const paraShadeWrap = caps.textColor ? document.createElement("span") : null;
+  if (paraShadeWrap) {
+    paraShadeWrap.className = "docxedit-bg docxedit-parashade";
+    const input = document.createElement("input");
+    input.type = "color";
+    input.value = "#fff2a8";
+    input.title = t("paraShading");
+    input.setAttribute("aria-label", t("paraShading"));
+    input.className = "docxedit-color";
+    input.addEventListener("mousedown", () => getActiveEl().focus());
+    input.addEventListener("input", () => paraShade(input.value));
+    const clear = btn("⌫", t("none"), () => paraShade(null), "docxedit-bg-clear");
+    paraShadeWrap.append(input, clear);
+  }
+
   // Line spacing: an icon button (like the others) opening a small menu of presets.
   const lineSpacingMenu = document.createElement("div");
   lineSpacingMenu.className = "docxedit-menu";
@@ -909,6 +934,7 @@ export function setupToolbar(deps: ToolbarDeps) {
     outdentBtn,
     indentBtn,
     lineSpacingBtn,
+    paraShadeWrap,
     insertGroup.has ? sep() : null,
     insertGroup.has ? insertGroup.slot : null,
     caps.trackChanges ? sep() : null,

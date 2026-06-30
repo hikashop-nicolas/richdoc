@@ -20,10 +20,11 @@ regenerated from the HTML.
 - **Vertical + multi-column mid-section.** A whole-document vertical multi-column layout
   works; a *mid-document* section that is BOTH vertical AND multi-column renders as a
   single vertical flow.
-- **Style authoring depth.** Editing a named style preserves its other properties and its
-  inheritance, but the dialog only authors the common ones; borders and the long tail
-  cannot be set from the UI, and tab stops can be set per paragraph (via the ruler) but
-  not yet as part of a named style definition.
+- **Style authoring depth.** Paragraph shading is now authorable as direct formatting and
+  round-trips (docx pPr `w:shd`, odt `fo:background-color`). Still pending: paragraph borders
+  (rendered from a docx on read, but not yet written back or authorable, and not read on odt),
+  and the named-style *dialog* only authors the common run/paragraph properties, not shading /
+  borders / tab stops as part of a style definition.
 - **Image layout fine detail.** Square / tight wrap uses alignment only (a file's exact
   `posOffset` for a wrapped image is not honored); behind / front offsets map to a
   CSS-positioned element rather than a true layout engine.

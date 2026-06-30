@@ -17,7 +17,7 @@ A full word-processor surface in the browser, the same for both formats unless n
 - **Text & paragraphs:** headings (H1-H3); nested ordered / unordered lists whose
   numbering restarts, continues or starts at N; bold, italic, underline, strikethrough,
   super/subscript; text colour, highlight, shading; font family and size; paragraph
-  alignment, indent, line spacing and space before/after.
+  alignment, indent, line spacing, space before/after, and paragraph shading (background fill).
 - **Named styles:** apply, author and edit paragraph and character styles, preserving
   each style's other properties and its inheritance.
 - **Tables:** editable cells, cell borders (colour / style / width), column / row /

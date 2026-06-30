@@ -246,6 +246,12 @@ function paragraphBorderStyle(pPr: Element | undefined): string {
   if (parts.length) parts.push("padding:2px 6px");
   return parts.join(";");
 }
+// Paragraph shading (a w:shd directly in w:pPr) -> a CSS background-color, or "" if none.
+function paragraphShading(pPr: Element | undefined): string {
+  const shd = pPr ? Array.from(pPr.children).find((c) => c.tagName === "w:shd") : undefined;
+  const fill = shd?.getAttribute("w:fill");
+  return fill && /^[0-9a-f]{6}$/i.test(fill) ? `#${fill.toLowerCase()}` : "";
+}
 
 /** Render a w:tbl to a read-only HTML table; the real table is preserved as passthrough. */
 // Preserve a property element (w:tblPr / w:tblGrid / w:tcPr) as a data-attribute, so a
@@ -669,6 +675,7 @@ interface PInfo {
   spaceBeforePx?: number; // w:spacing @w:before, in px
   spaceAfterPx?: number; // w:spacing @w:after, in px
   border?: string; // CSS border declaration block
+  shading?: string; // CSS background-color from w:shd (paragraph shading)
   styleId?: string; // a named paragraph style (w:pStyle val) that is not a heading
   pageBreakBefore: boolean;
   revPara?: "ins" | "del"; // paragraph-mark revision (split/merge)
@@ -735,6 +742,7 @@ function paragraphInfo(p: Element, numbering: Map<string, boolean>): PInfo {
     spaceAfterPx: spaceAfterPx === undefined ? undefined : Math.round(spaceAfterPx),
     styleId: !hm && rawStyle ? rawStyle : undefined,
     border: paragraphBorderStyle(pPr),
+    shading: paragraphShading(pPr),
     pageBreakBefore: onFlag(pPr, "w:pageBreakBefore"),
     revPara: mark ? (mark.tagName === "w:del" ? "del" : "ins") : undefined,
     revAuthor: mark?.getAttribute("w:author") ?? undefined,
@@ -760,6 +768,7 @@ function blockStyleAttr(info: PInfo): string {
   if (info.lineHeight) parts.push(`line-height:${info.lineHeight}`);
   if (info.spaceBeforePx !== undefined) parts.push(`margin-top:${info.spaceBeforePx}px`);
   if (info.spaceAfterPx !== undefined) parts.push(`margin-bottom:${info.spaceAfterPx}px`);
+  if (info.shading) parts.push(`background-color:${info.shading}`);
   if (info.border) parts.push(info.border);
   const style = parts.length ? ` style="${parts.join(";")}"` : "";
   const styleAttr = info.styleId ? ` data-rdoc-style="${escapeAttr(info.styleId)}"` : "";

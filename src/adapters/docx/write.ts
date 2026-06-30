@@ -469,7 +469,8 @@ function makeParagraph(ctx: DocxCtx, src: HTMLElement, opts: { heading?: number;
   // section passes its original sectPr through byte-for-byte.
   const regenSect = !!secGeom && (src.getAttribute("data-rdoc-secedited") === "1" || !sectXml);
   const tabStops = src.getAttribute("data-rdoc-tabstops"); // custom tab stops (JSON), schema-ordered before spacing
-  if (opts.heading || namedStyle || opts.listNumId || jc || revPara || sectXml || regenSect || tabStops || indentPx > 0 || lineHeight > 0 || hasBefore || hasAfter) {
+  const shadeHex = toHex6(src.style.backgroundColor); // paragraph shading -> w:shd
+  if (opts.heading || namedStyle || opts.listNumId || jc || revPara || sectXml || regenSect || tabStops || shadeHex || indentPx > 0 || lineHeight > 0 || hasBefore || hasAfter) {
     const pPr = ctx.doc.createElementNS(W, "w:pPr");
     if (opts.heading || namedStyle) {
       const st = ctx.doc.createElementNS(W, "w:pStyle");
@@ -484,6 +485,14 @@ function makeParagraph(ctx: DocxCtx, src: HTMLElement, opts: { heading?: number;
       numId.setAttributeNS(W, "w:val", opts.listNumId);
       numPr.append(ilvl, numId);
       pPr.appendChild(numPr);
+    }
+    // w:shd sits after numPr and before tabs/spacing in the pPr schema order.
+    if (shadeHex) {
+      const shd = ctx.doc.createElementNS(W, "w:shd");
+      shd.setAttributeNS(W, "w:val", "clear");
+      shd.setAttributeNS(W, "w:color", "auto");
+      shd.setAttributeNS(W, "w:fill", shadeHex);
+      pPr.appendChild(shd);
     }
     if (tabStops) {
       try {

@@ -298,8 +298,10 @@ function collectParaStyles(doc: Document): Map<string, PFmt> {
     const mb = pp?.getAttribute("fo:margin-bottom");
     const spaceBeforePx = mt != null ? Math.round(lenToPx(mt) ?? 0) : undefined;
     const spaceAfterPx = mb != null ? Math.round(lenToPx(mb) ?? 0) : undefined;
-    if (align || indentPx || lineHeight || spaceBeforePx !== undefined || spaceAfterPx !== undefined)
-      map.set(name, { align, indentPx, lineHeight, spaceBeforePx, spaceAfterPx });
+    const pbg = pp?.getAttribute("fo:background-color");
+    const shading = pbg && /^#[0-9a-f]{6}$/i.test(pbg) ? pbg.toLowerCase() : undefined;
+    if (align || indentPx || lineHeight || spaceBeforePx !== undefined || spaceAfterPx !== undefined || shading)
+      map.set(name, { align, indentPx, lineHeight, spaceBeforePx, spaceAfterPx, shading });
   }
   return map;
 }
@@ -746,6 +748,7 @@ function blockToHtml(el: Element, ctx: RCtx): string {
     if (pf.lineHeight) css.push(`line-height:${pf.lineHeight}`);
     if (pf.spaceBeforePx !== undefined) css.push(`margin-top:${pf.spaceBeforePx}px`);
     if (pf.spaceAfterPx !== undefined) css.push(`margin-bottom:${pf.spaceAfterPx}px`);
+    if (pf.shading) css.push(`background-color:${pf.shading}`);
     return css.length ? ` style="${css.join(";")}"` : "";
   };
   // The named paragraph style behind this block: a direct reference, or the parent of an
