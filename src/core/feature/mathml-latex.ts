@@ -24,11 +24,21 @@ const SYM: Record<string, string> = {
   "Π": "\\Pi", "Σ": "\\Sigma", "Φ": "\\Phi", "Ψ": "\\Psi", "Ω": "\\Omega",
 };
 
-// A token (mi/mn/mo): map known symbols to commands (with a trailing space so "\pm b" stays two
-// tokens), pass plain characters through.
+// Standard operators that LaTeX uprights via a command (mathrm), so recovery keeps them upright.
+const FUNCS = new Set([
+  "sin", "cos", "tan", "cot", "sec", "csc", "sinh", "cosh", "tanh", "coth",
+  "arcsin", "arccos", "arctan", "log", "ln", "lg", "exp", "lim", "limsup",
+  "liminf", "max", "min", "sup", "inf", "det", "dim", "gcd", "deg", "arg", "ker", "hom", "Pr",
+]);
+// Invisible operators MathML inserts for layout (function application, invisible times, ...): dropped.
+const INVISIBLE = /[⁡⁢⁣⁤​]/g;
+
+// A token (mi/mn/mo): drop invisible operators, map known symbols to commands (with a trailing space
+// so "\pm b" stays two tokens), upright known function names, pass plain characters through.
 const tokenLatex = (raw: string): string => {
-  const s = raw.trim();
+  const s = raw.replace(INVISIBLE, "").trim();
   if (!s) return "";
+  if (FUNCS.has(s)) return `\\${s} `;
   if (SYM[s]) return /^\\[a-zA-Z]+$/.test(SYM[s]) ? `${SYM[s]} ` : SYM[s];
   return s;
 };
@@ -58,6 +68,16 @@ const fencedMatrixLatex = (el: Element): string | null => {
   const close = (k[2]!.textContent ?? "").trim();
   const env = matrixEnv(open, close);
   return env ? `\\begin{${env}}${tableBody(k[1]!)}\\end{${env}}` : `${open}\\begin{matrix}${tableBody(k[1]!)}\\end{matrix}${close}`;
+};
+
+// A horizontal brace as the over/under glyph -> its LaTeX command (temml nests these:
+// mover[mover[body, ⏞], label] for \overbrace{body}^{label}).
+const BRACE: Record<string, string> = { "⏞": "\\overbrace", "⏟": "\\underbrace" };
+// If `el` is the inner brace mover/munder, return [command, body]; else null.
+const braceInner = (el: Element): [string, Element] | null => {
+  const k = kidsOf(el);
+  const g = k.length === 2 && k[1]!.localName === "mo" ? (k[1]!.textContent ?? "").trim() : "";
+  return BRACE[g] ? [BRACE[g]!, k[0]!] : null;
 };
 
 // An accent glyph (the mo over a base) -> its LaTeX command.
@@ -96,7 +116,7 @@ function nodeLatex(el: Element): string {
     case "ms":
       return tokenLatex(el.textContent ?? "");
     case "mtext": {
-      const s = el.textContent ?? "";
+      const s = (el.textContent ?? "").replace(INVISIBLE, "");
       return s.trim() ? `\\text{${s}}` : s;
     }
     case "mspace":
@@ -109,9 +129,18 @@ function nodeLatex(el: Element): string {
       return `${base(k[0])}_{${arg(k[1])}}`;
     case "msubsup":
       return `${base(k[0])}_{${arg(k[1])}}^{${arg(k[2])}}`;
-    case "munder":
+    case "munder": {
+      const inner = braceInner(el); // bare \underbrace{body}
+      if (inner) return `${inner[0]}{${arg(inner[1])}}`;
+      const labeled = k[0] ? braceInner(k[0]) : null; // \underbrace{body}_{label}
+      if (labeled) return `${labeled[0]}{${arg(labeled[1])}}_{${arg(k[1])}}`;
       return `${base(k[0])}_{${arg(k[1])}}`;
+    }
     case "mover": {
+      const inner = braceInner(el); // bare \overbrace{body}
+      if (inner) return `${inner[0]}{${arg(inner[1])}}`;
+      const labeled = k[0] ? braceInner(k[0]) : null; // \overbrace{body}^{label}
+      if (labeled) return `${labeled[0]}{${arg(labeled[1])}}^{${arg(k[1])}}`;
       const over = k[1];
       const cmd = over && over.localName === "mo" ? ACCENT[(over.textContent ?? "").trim()] : undefined;
       return cmd ? `${cmd}{${arg(k[0])}}` : `${base(k[0])}^{${arg(k[1])}}`;

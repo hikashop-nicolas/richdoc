@@ -38,7 +38,8 @@ browser's native MathML rendering, no runtime dependency.
 
 - **docx (OMML)**: `src/adapters/docx/omml.ts` converts OMML <-> MathML for the common constructs
   (runs/mi/mn/mo, mrow, fraction m:f, scripts m:sSup/m:sSub/m:sSubSup, radical m:rad, n-ary m:nary,
-  delimiters m:d, matrices m:m, accents m:acc, bars m:bar). Read: `m:oMath` -> MathML span, keeping the original OMML in `data-omml` so an
+  delimiters m:d, matrices m:m, accents m:acc, bars m:bar, over/under braces m:groupChr +
+  m:limUpp/m:limLow). Read: `m:oMath` -> MathML span, keeping the original OMML in `data-omml` so an
   un-edited equation rewrites verbatim (lossless). Write: a span with `data-omml` and no edit ->
   original OMML; otherwise MathML -> OMML. Constructs outside the common set stay passthrough.
 - **odt**: an embedded formula object. Read: a `draw:frame` whose `draw:object` resolves to an
@@ -59,8 +60,11 @@ conversion lives in the docx adapter, not the engine.
 ## Deferred / not done
 
 - Editing an imported odt equation orphans its original Object sub-document (unreferenced, harmless).
-- OMML constructs beyond the covered set (boxes m:box, group-chars m:groupChr, equation arrays
-  m:eqArr, box borders) stay verbatim passthrough.
+- OMML constructs beyond the covered set (boxes m:box, equation arrays m:eqArr, box borders) stay
+  verbatim passthrough.
+- Recovery (`mathml-latex.ts`) uprights standard function names (\sin, \log, \lim, ...) and drops
+  invisible operators (function application, invisible times); unlisted function-style identifiers
+  still recover as plain letters.
 - Delimited matrices (pmatrix / bmatrix / vmatrix / Vmatrix / Bmatrix / cases) round-trip via an
   OMML m:d wrapping the m:m, and recovery names the environment from the bracket pair. Per-column
   alignment is not preserved (matrices write centered; cases recovers but is not left-aligned).

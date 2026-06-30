@@ -1268,6 +1268,21 @@ describe("list fidelity: nesting and ordered/bullet", () => {
     expect(docxToHtml(out)).toContain("<mover");
   });
 
+  it("round-trips a labeled overbrace as an OMML m:groupChr inside m:limUpp", () => {
+    const body = '<p><span class="docx-eq" data-rdoc-eq contenteditable="false">' +
+      '<math xmlns="http://www.w3.org/1998/Math/MathML"><mover><mover>' +
+      "<mrow><mi>a</mi><mo>+</mo><mi>b</mi></mrow><mo stretchy=\"true\">⏞</mo></mover><mi>n</mi></mover></math></span></p>";
+    const out = htmlToDocx(body, makeDocx());
+    const xml = strFromU8(unzipSync(out)["word/document.xml"]!);
+    expect(xml).toMatch(/<m:limUpp>/);
+    expect(xml).toMatch(/<m:groupChr>/);
+    expect(xml).toMatch(/<m:pos m:val="top"/);
+    // re-reads as a brace with a label above
+    const html = docxToHtml(out);
+    expect(html).toContain("<mover>");
+    expect(html).toContain("⏞");
+  });
+
   it("round-trips an overline (menclose) as an OMML m:bar", () => {
     const body = '<p><span class="docx-eq" data-rdoc-eq contenteditable="false">' +
       '<math xmlns="http://www.w3.org/1998/Math/MathML"><menclose notation="top"><mrow><mi>A</mi><mi>B</mi></mrow></menclose></math></span></p>';

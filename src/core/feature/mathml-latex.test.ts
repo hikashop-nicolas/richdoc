@@ -79,6 +79,19 @@ describe("mathmlToLatex", () => {
     expect(recover(`<mrow><mo>{</mo>${tbl}<mo></mo></mrow>`)).toBe("\\begin{cases}1 & x>0 \\\\ 0 & x\\le 0\\end{cases}");
   });
 
+  it("uprights function names and drops invisible operators", () => {
+    expect(recover("<mi>sin</mi><mo>&#8289;</mo><mi>x</mi>")).toBe("\\sin x"); // U+2061 function application dropped
+    expect(recover("<mi>log</mi><mo>&#8289;</mo><mi>n</mi>")).toBe("\\log n");
+    expect(recover("<mi>x</mi><mo>&#8290;</mo><mi>y</mi>")).toBe("xy"); // U+2062 invisible times dropped
+  });
+
+  it("recovers over/underbraces (nested mover/munder)", () => {
+    const ob = "<mover><mover><mrow><mi>a</mi><mo>+</mo><mi>b</mi></mrow><mo stretchy=\"true\">&#9182;</mo></mover><mi>n</mi></mover>";
+    expect(recover(ob)).toBe("\\overbrace{a+b}^{n}");
+    const ub = "<munder><munder><mrow><mi>x</mi><mo>+</mo><mi>y</mi></mrow><mo stretchy=\"true\">&#9183;</mo></munder><mi>m</mi></munder>";
+    expect(recover(ub)).toBe("\\underbrace{x+y}_{m}");
+  });
+
   it("falls back to text for unknown constructs and empty math", () => {
     expect(recover("")).toBe("");
     expect(recover("<munknown><mi>q</mi></munknown>")).toBe("q");

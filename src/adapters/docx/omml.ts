@@ -1,6 +1,6 @@
 // OMML (Office Math, docx) <-> MathML conversion for the common constructs: runs, grouping,
 // fractions, scripts, radicals, n-ary operators (sum / integral / product), delimiters, matrices,
-// accents and bars. MathML is the editor's in-document representation; this is the only place that
+// accents, bars and over/under braces. MathML is the editor's in-document representation; this is the only place that
 // knows OMML. Anything outside the common set is read best-effort (the original OMML is kept verbatim
 // for a lossless rewrite) and, when authored, falls back to a plain run. Element matching is by
 // localName so the prefix ("m") is irrelevant.
@@ -17,7 +17,10 @@ const ACCENT_TO_COMBINING: Record<string, string> = {
 const COMBINING_TO_GLYPH: Record<string, string> = {
   "̂": "^", "̃": "~", "̄": "‾", "⃗": "→", "̇": "˙", "̈": "¨", "̌": "ˇ",
 };
+const BRACE_OVER = "⏞"; // over-brace glyph (U+23DE), an OMML group-char positioned on top
+const BRACE_UNDER = "⏟"; // under-brace glyph (U+23DF), positioned on the bottom
 
+const INVISIBLE = /[⁡-⁤]/g; // function application / invisible times / separator / plus
 const escXml = (s: string): string => s.replace(/&/g, "&amp;").replace(/</g, "&lt;").replace(/>/g, "&gt;");
 const escAttr = (s: string): string => escXml(s).replace(/"/g, "&quot;");
 const ln = (el: Element): string => el.localName;
@@ -29,7 +32,7 @@ export function mathmlToOmml(math: Element): string {
   return `<m:oMath xmlns:m="${M}">${mmlSeq(Array.from(math.childNodes))}</m:oMath>`;
 }
 
-const mRun = (text: string): string => (text ? `<m:r><m:t xml:space="preserve">${escXml(text)}</m:t></m:r>` : "");
+const mRun = (text: string): string => { const t = text.replace(INVISIBLE, ""); return t ? `<m:r><m:t xml:space="preserve">${escXml(t)}</m:t></m:r>` : ""; };
 // A slot (numerator, base, sub, ...) holding one MathML node -> its OMML, flattening a wrapping mrow.
 const mmlSlot = (node: Element | null): string => {
   if (!node) return "";
@@ -46,6 +49,11 @@ const matrixOmml = (table: Element): string => {
   const cols = Math.max(0, ...rows.map((r) => elemChildren(r).filter((c) => ln(c) === "mtd").length));
   const mr = rows.map((r) => `<m:mr>${elemChildren(r).filter((c) => ln(c) === "mtd").map((c) => `<m:e>${mmlSeq(Array.from(c.childNodes))}</m:e>`).join("")}</m:mr>`).join("");
   return `<m:m><m:mPr><m:mcs><m:mc><m:mcPr><m:count m:val="${cols}"/><m:mcJc m:val="center"/></m:mcPr></m:mc></m:mcs></m:mPr>${mr}</m:m>`;
+};
+// An over/underbrace -> an OMML group character over (top) or under (bottom) the base.
+const groupChrOmml = (chr: string, body: string): string => {
+  const pos = chr === BRACE_OVER ? "top" : "bot";
+  return `<m:groupChr><m:groupChrPr><m:chr m:val="${escAttr(chr)}"/><m:pos m:val="${pos}"/><m:vertJc m:val="${pos === "top" ? "bot" : "top"}"/></m:groupChrPr><m:e>${body}</m:e></m:groupChr>`;
 };
 // A delimited matrix: an mrow of exactly [open mo, mtable, close mo] (what temml emits for
 // pmatrix / bmatrix / vmatrix / cases). Returns the brackets + table, or null if it is a plain mrow.
@@ -84,6 +92,18 @@ function mmlSeq(nodes: ChildNode[]): string {
           const comb = ACCENT_TO_COMBINING[(kids[1]!.textContent ?? "").trim()];
           if (comb) { out += `<m:acc><m:accPr><m:chr m:val="${escAttr(comb)}"/></m:accPr><m:e>${mmlSlot(base)}</m:e></m:acc>`; break; }
         }
+        // An over/underbrace: mover/munder with a brace glyph (bare), or a label wrapping one.
+        if (tag === "mover" || tag === "munder") {
+          const g = kids[1] && ln(kids[1]!) === "mo" ? (kids[1]!.textContent ?? "").trim() : "";
+          if (g === BRACE_OVER || g === BRACE_UNDER) { out += groupChrOmml(g, mmlSlot(base)); break; }
+          const bk = base ? elemChildren(base) : []; // labeled: base is itself a brace mover/munder
+          const bg = bk[1] && ln(bk[1]!) === "mo" ? (bk[1]!.textContent ?? "").trim() : "";
+          if (bg === BRACE_OVER || bg === BRACE_UNDER) {
+            const gc = groupChrOmml(bg, mmlSlot(bk[0] ?? null)), lim = mmlSlot(kids[1] ?? null);
+            out += bg === BRACE_OVER ? `<m:limUpp><m:e>${gc}</m:e><m:lim>${lim}</m:lim></m:limUpp>` : `<m:limLow><m:e>${gc}</m:e><m:lim>${lim}</m:lim></m:limLow>`;
+            break;
+          }
+        }
         const sub = tag === "msup" || tag === "mover" ? null : kids[1] ?? null;
         const sup = tag === "msub" || tag === "munder" ? null : tag === "msup" || tag === "mover" ? kids[1] ?? null : kids[2] ?? null;
         const chr = base && ln(base) === "mo" ? (base.textContent ?? "").trim() : "";
@@ -120,8 +140,9 @@ export function ommlToMathml(oMath: Element): string {
   return `<math xmlns="${MML}" display="inline">${ommlSeq(elemChildren(oMath))}</math>`;
 }
 
-const mmlTok = (text: string): string => {
+const mmlTok = (raw: string): string => {
   // Split a run into identifier / number / operator / other tokens for sensible MathML spacing.
+  const text = raw.replace(INVISIBLE, "");
   let out = "";
   for (const m of text.matchAll(/(\d+\.?\d*)|([A-Za-z]+)|(\s+)|(.)/g)) {
     if (m[1]) out += `<mn>${escXml(m[1])}</mn>`;
@@ -192,8 +213,17 @@ function ommlSeq(els: Element[]): string {
         out += `<menclose notation="${pos === "bot" ? "bottom" : "top"}">${ommlSlot(child(el, "e"))}</menclose>`;
         break;
       }
-      case "e": case "num": case "den": case "sub": case "sup": case "deg": case "fName": out += ommlSeq(elemChildren(el)); break;
-      case "rPr": case "naryPr": case "fPr": case "dPr": case "radPr": case "ctrlPr": case "mPr": case "accPr": case "barPr": break; // properties, no glyphs
+      case "groupChr": { // an over/under brace (no label)
+        const pr = child(el, "groupChrPr");
+        const chr = (pr && child(pr, "chr")?.getAttribute("m:val")) || BRACE_UNDER;
+        const tag = ((pr && child(pr, "pos")?.getAttribute("m:val")) || "bot") === "top" ? "mover" : "munder";
+        out += `<${tag}>${ommlSlot(child(el, "e"))}<mo stretchy="true">${escXml(chr)}</mo></${tag}>`;
+        break;
+      }
+      case "limUpp": out += `<mover>${ommlSlot(child(el, "e"))}${ommlSlot(child(el, "lim"))}</mover>`; break; // a brace with a label above
+      case "limLow": out += `<munder>${ommlSlot(child(el, "e"))}${ommlSlot(child(el, "lim"))}</munder>`; break; // ... or below
+      case "e": case "num": case "den": case "sub": case "sup": case "deg": case "fName": case "lim": out += ommlSeq(elemChildren(el)); break;
+      case "rPr": case "naryPr": case "fPr": case "dPr": case "radPr": case "ctrlPr": case "mPr": case "accPr": case "barPr": case "groupChrPr": break; // properties, no glyphs
       default: { const t = el.textContent ?? ""; if (t.trim()) out += mmlTok(t); }
     }
   }
