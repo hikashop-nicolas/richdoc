@@ -71,6 +71,8 @@ export interface PageGeometry {
   lineNumberRestart?: "continuous" | "newPage" | "newSection";
   /** Starting line number (docx w:lnNumType@w:start); round-tripped, no dedicated control. */
   lineNumberStart?: number;
+  /** Vertical alignment of page content (docx w:vAlign; docx only). "top" = default. */
+  pageVAlign?: "top" | "center" | "both" | "bottom";
   /** Top-to-bottom, right-to-left text (Japanese tategaki) when true. */
   vertical?: boolean;
   /** Horizontal right-to-left text (Arabic/Hebrew) when true. Ignored if `vertical`. */
@@ -192,6 +194,8 @@ export interface Capabilities {
   /** Line-number authoring: "full" = restart per page / section (docx), "basic" = on/off +
       interval + restart-each-page (odt), false = not authorable. */
   lineNumbering: "full" | "basic" | false;
+  /** Page-content vertical alignment authoring (docx w:vAlign; odt has no equivalent). */
+  pageVAlign: boolean;
 }
 
 /** A section's page geometry in px (the on-the-wire shape stashed on a section-boundary
@@ -214,6 +218,7 @@ export interface SecGeom {
   lineNumberInterval?: number; // number every Nth line
   lineNumberRestart?: "continuous" | "newPage" | "newSection";
   lineNumberStart?: number; // starting line number (round-tripped)
+  pageVAlign?: "top" | "center" | "both" | "bottom"; // page-content vertical alignment (docx only)
 }
 
 /** A footnote / endnote body. The inline reference in the body HTML carries the matching id. */

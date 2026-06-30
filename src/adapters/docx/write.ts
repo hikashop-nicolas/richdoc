@@ -1532,7 +1532,7 @@ function applyDeletedComments(files: Record<string, Uint8Array>, ids: string[]):
  */
 /** Set a w:sectPr's page size, orientation, margins and columns (px -> twips), in place. Used for
     both the body-level section (Page setup) and an in-paragraph section break (per-section setup). */
-function setSectPrGeom(doc: Document, sectPr: Element, g: { w: number; h: number; mt: number; mr: number; mb: number; ml: number; cols?: number; colGap?: number; vertical?: boolean; rtl?: boolean; pageBorder?: PageBorder; pageNumStart?: number; pageNumFormat?: string; lineNumbers?: boolean; lineNumberInterval?: number; lineNumberRestart?: string; lineNumberStart?: number }): void {
+function setSectPrGeom(doc: Document, sectPr: Element, g: { w: number; h: number; mt: number; mr: number; mb: number; ml: number; cols?: number; colGap?: number; vertical?: boolean; rtl?: boolean; pageBorder?: PageBorder; pageNumStart?: number; pageNumFormat?: string; lineNumbers?: boolean; lineNumberInterval?: number; lineNumberRestart?: string; lineNumberStart?: number; pageVAlign?: string }): void {
   const tw = (px: number): string => String(Math.round(px * 15));
   const child = (tag: string): Element => {
     let e = sectPr.getElementsByTagName(tag)[0];
@@ -1614,6 +1614,13 @@ function setSectPrGeom(doc: Document, sectPr: Element, g: { w: number; h: number
     if (g.lineNumberStart != null) ln.setAttributeNS(W, "w:start", String(g.lineNumberStart));
     insertOrdered(ln);
   }
+  // Page vertical alignment (w:vAlign): centre / both / bottom; remove for top (the default).
+  dropTag("w:vAlign");
+  if (g.pageVAlign && g.pageVAlign !== "top") {
+    const va = doc.createElementNS(W, "w:vAlign");
+    va.setAttributeNS(W, "w:val", g.pageVAlign);
+    insertOrdered(va);
+  }
   // Writing direction: vertical tategaki (w:textDirection tbRl) / horizontal RTL (w:bidi).
   dropTag("w:textDirection");
   dropTag("w:bidi");
@@ -1680,7 +1687,7 @@ function applyHFRef(ctx: DocxCtx, sectPr: Element, role: "header" | "footer", ke
     refs, page borders, etc. survive) or a fresh next-page break otherwise. headerKey/footerKey
     carry the section's header/footer link state. */
 function buildSectPr(ctx: DocxCtx, geomJson: string, stashedXml: string | null, headerKey: string | null, footerKey: string | null): Element | null {
-  let g: { w: number; h: number; mt: number; mr: number; mb: number; ml: number; cols?: number; colGap?: number; vertical?: boolean; rtl?: boolean; pageBorder?: PageBorder; pageNumStart?: number; pageNumFormat?: string; lineNumbers?: boolean; lineNumberInterval?: number; lineNumberRestart?: string; lineNumberStart?: number };
+  let g: { w: number; h: number; mt: number; mr: number; mb: number; ml: number; cols?: number; colGap?: number; vertical?: boolean; rtl?: boolean; pageBorder?: PageBorder; pageNumStart?: number; pageNumFormat?: string; lineNumbers?: boolean; lineNumberInterval?: number; lineNumberRestart?: string; lineNumberStart?: number; pageVAlign?: string };
   try { g = JSON.parse(geomJson); } catch { return null; }
   let sectPr = stashedXml ? importPassthrough(ctx, stashedXml) : null;
   if (!sectPr || sectPr.tagName !== "w:sectPr") {
@@ -1704,7 +1711,7 @@ function applyPageMargins(files: Record<string, Uint8Array>, geometry: PageGeome
   const doc = new DOMParser().parseFromString(strFromU8(raw), "application/xml");
   const sectPr = Array.from(doc.getElementsByTagName("w:sectPr")).pop();
   if (!sectPr) return;
-  setSectPrGeom(doc, sectPr, { w: geometry.widthPx, h: geometry.heightPx, mt: geometry.margin.top, mr: geometry.margin.right, mb: geometry.margin.bottom, ml: geometry.margin.left, cols: geometry.columns, colGap: geometry.columnGapPx, vertical: geometry.vertical, rtl: geometry.rtl, pageBorder: geometry.pageBorder, pageNumStart: geometry.pageNumStart, pageNumFormat: geometry.pageNumFormat, lineNumbers: geometry.lineNumbers, lineNumberInterval: geometry.lineNumberInterval, lineNumberRestart: geometry.lineNumberRestart, lineNumberStart: geometry.lineNumberStart });
+  setSectPrGeom(doc, sectPr, { w: geometry.widthPx, h: geometry.heightPx, mt: geometry.margin.top, mr: geometry.margin.right, mb: geometry.margin.bottom, ml: geometry.margin.left, cols: geometry.columns, colGap: geometry.columnGapPx, vertical: geometry.vertical, rtl: geometry.rtl, pageBorder: geometry.pageBorder, pageNumStart: geometry.pageNumStart, pageNumFormat: geometry.pageNumFormat, lineNumbers: geometry.lineNumbers, lineNumberInterval: geometry.lineNumberInterval, lineNumberRestart: geometry.lineNumberRestart, lineNumberStart: geometry.lineNumberStart, pageVAlign: geometry.pageVAlign });
   files["word/document.xml"] = strToU8(new XMLSerializer().serializeToString(doc));
 }
 

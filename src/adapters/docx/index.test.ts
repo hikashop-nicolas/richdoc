@@ -825,6 +825,31 @@ describe("page numbering (w:pgNumType)", () => {
   });
 });
 
+describe("page vertical alignment (w:vAlign)", () => {
+  it("reads w:vAlign (center / both / bottom; top is the default)", () => {
+    const doc = `<?xml version="1.0"?>
+<w:document xmlns:w="http://schemas.openxmlformats.org/wordprocessingml/2006/main"><w:body>
+  <w:p><w:r><w:t>Hi</w:t></w:r></w:p>
+  <w:sectPr><w:pgSz w:w="11906" w:h="16838"/><w:vAlign w:val="center"/></w:sectPr>
+</w:body></w:document>`;
+    expect(docxToParts(makeDocx(doc)).page!.pageVAlign).toBe("center");
+  });
+
+  it("writes w:vAlign back (after w:cols), and omits it for top", () => {
+    const out = htmlToDocx("<p>x</p>", makeDocx(), undefined, {
+      pageGeometry: { widthPx: 794, heightPx: 1123, margin: { top: 96, right: 96, bottom: 96, left: 96 }, pageVAlign: "bottom" },
+    });
+    const xml = strFromU8(unzipSync(out)["word/document.xml"]);
+    expect(xml).toMatch(/<w:vAlign w:val="bottom"\/>/);
+    expect(xml.indexOf("w:cols")).toBeLessThan(xml.indexOf("w:vAlign")); // schema order
+
+    const top = htmlToDocx("<p>x</p>", makeDocx(), undefined, {
+      pageGeometry: { widthPx: 794, heightPx: 1123, margin: { top: 96, right: 96, bottom: 96, left: 96 } },
+    });
+    expect(strFromU8(unzipSync(top)["word/document.xml"])).not.toContain("w:vAlign");
+  });
+});
+
 describe("line numbering (w:lnNumType)", () => {
   it("reads interval / restart / start from w:lnNumType", () => {
     const doc = `<?xml version="1.0"?>

@@ -1055,7 +1055,11 @@ function parsePageGeometry(sectPr: Element | undefined, evenOdd = false): PageGe
   const lineNumberRestart = ln ? (/^(continuous|newPage|newSection)$/.test(lnRestart) ? (lnRestart as "continuous" | "newPage" | "newSection") : "newPage") : undefined;
   const lnStart = Number(ln?.getAttributeNS(W, "start") ?? ln?.getAttribute("w:start"));
   const lineNumberStart = Number.isFinite(lnStart) ? lnStart : undefined;
-  return { widthPx: Math.round(w), heightPx: Math.round(h), margin: { top: m("top"), right: m("right"), bottom: m("bottom"), left: m("left") }, vertical, rtl, columns, columnGapPx: columns ? Math.round(colGap ?? 36) : undefined, titlePage: titlePage || undefined, evenOdd: evenOdd || undefined, pageBorder, pageNumStart, pageNumFormat, lineNumbers, lineNumberInterval, lineNumberRestart, lineNumberStart };
+  // Page vertical alignment: w:vAlign @w:val (center / both / bottom; top is the default).
+  const va = sectPr.getElementsByTagName("w:vAlign")[0];
+  const vaVal = va?.getAttributeNS(W, "val") ?? va?.getAttribute("w:val") ?? "";
+  const pageVAlign = /^(center|both|bottom)$/.test(vaVal) ? (vaVal as "center" | "both" | "bottom") : undefined;
+  return { widthPx: Math.round(w), heightPx: Math.round(h), margin: { top: m("top"), right: m("right"), bottom: m("bottom"), left: m("left") }, vertical, rtl, columns, columnGapPx: columns ? Math.round(colGap ?? 36) : undefined, titlePage: titlePage || undefined, evenOdd: evenOdd || undefined, pageBorder, pageNumStart, pageNumFormat, lineNumbers, lineNumberInterval, lineNumberRestart, lineNumberStart, pageVAlign };
 }
 
 /** The archive key for a relationship target relative to word/ (e.g. "header1.xml"). */

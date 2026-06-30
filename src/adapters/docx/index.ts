@@ -106,6 +106,7 @@ export function createDocxAdapter(bytes: Uint8Array): Adapter {
       sections: "trailing",
       pageNumbering: "full",
       lineNumbering: "full",
+      pageVAlign: true,
     },
   };
 }

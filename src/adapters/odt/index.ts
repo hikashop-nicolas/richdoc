@@ -91,6 +91,7 @@ export function createOdtAdapter(bytes: Uint8Array): Adapter {
       sections: "leading",
       pageNumbering: "format", // style:num-format on the page layout; no page-layout start
       lineNumbering: "basic", // document-level text:linenumbering-configuration (no per-section / start)
+      pageVAlign: false, // odt has no page-content vertical alignment
     },
   };
 }

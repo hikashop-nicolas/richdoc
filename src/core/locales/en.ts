@@ -234,6 +234,11 @@ const dict: Dict = {
   lnContinuous: "Continuous",
   lnNewPage: "Restart each page",
   lnNewSection: "Restart each section",
+  pageVAlign: "Vertical alignment",
+  vaTop: "Top",
+  vaCenter: "Centre",
+  vaBottom: "Bottom",
+  vaJustify: "Justified",
 };
 
 export default dict;

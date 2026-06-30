@@ -285,6 +285,7 @@ export function createRichEditor(container: HTMLElement, adapter: Adapter, optio
       geometry.lineNumberInterval = g.lineNumberInterval;
       geometry.lineNumberRestart = g.lineNumberRestart;
       geometry.lineNumberStart = g.lineNumberStart;
+      geometry.pageVAlign = g.pageVAlign;
       geometryDirty = true;
       applyGeometry();
       return;
@@ -983,13 +984,13 @@ export function createRichEditor(container: HTMLElement, adapter: Adapter, optio
   // (N+1)th column for several), and the boxes are centred + stacked. The caret is preserved as
   // a (block, char-offset) pair across the reparent, like the column reflow.
   const SECPAGE = "docxedit-secpage";
-  const docGeom = (): SecGeom => ({ w: geometry.widthPx, h: geometry.heightPx, mt: geometry.margin.top, mr: geometry.margin.right, mb: geometry.margin.bottom, ml: geometry.margin.left, cols: geometry.columns, colGap: geometry.columnGapPx, vertical: geometry.vertical, rtl: geometry.rtl, pageBorder: geometry.pageBorder, pageNumStart: geometry.pageNumStart, pageNumFormat: geometry.pageNumFormat, lineNumbers: geometry.lineNumbers, lineNumberInterval: geometry.lineNumberInterval, lineNumberRestart: geometry.lineNumberRestart, lineNumberStart: geometry.lineNumberStart });
+  const docGeom = (): SecGeom => ({ w: geometry.widthPx, h: geometry.heightPx, mt: geometry.margin.top, mr: geometry.margin.right, mb: geometry.margin.bottom, ml: geometry.margin.left, cols: geometry.columns, colGap: geometry.columnGapPx, vertical: geometry.vertical, rtl: geometry.rtl, pageBorder: geometry.pageBorder, pageNumStart: geometry.pageNumStart, pageNumFormat: geometry.pageNumFormat, lineNumbers: geometry.lineNumbers, lineNumberInterval: geometry.lineNumberInterval, lineNumberRestart: geometry.lineNumberRestart, lineNumberStart: geometry.lineNumberStart, pageVAlign: geometry.pageVAlign });
   // Resolve a section's geometry from its (possibly partial) JSON: size + margins fall back to the
   // document, but section-specific fields (columns, direction) are taken only from the section, so
   // a section that omits them does NOT inherit the document's columns / writing direction.
   const mergeSecGeom = (j: Partial<SecGeom>): SecGeom => {
     const d = docGeom();
-    return { w: j.w ?? d.w, h: j.h ?? d.h, mt: j.mt ?? d.mt, mr: j.mr ?? d.mr, mb: j.mb ?? d.mb, ml: j.ml ?? d.ml, cols: j.cols, colGap: j.colGap, vertical: j.vertical, rtl: j.rtl, pageBorder: j.pageBorder, pageNumStart: j.pageNumStart, pageNumFormat: j.pageNumFormat, lineNumbers: j.lineNumbers ?? d.lineNumbers, lineNumberInterval: j.lineNumberInterval ?? d.lineNumberInterval, lineNumberRestart: j.lineNumberRestart ?? d.lineNumberRestart, lineNumberStart: j.lineNumberStart ?? d.lineNumberStart };
+    return { w: j.w ?? d.w, h: j.h ?? d.h, mt: j.mt ?? d.mt, mr: j.mr ?? d.mr, mb: j.mb ?? d.mb, ml: j.ml ?? d.ml, cols: j.cols, colGap: j.colGap, vertical: j.vertical, rtl: j.rtl, pageBorder: j.pageBorder, pageNumStart: j.pageNumStart, pageNumFormat: j.pageNumFormat, lineNumbers: j.lineNumbers ?? d.lineNumbers, lineNumberInterval: j.lineNumberInterval ?? d.lineNumberInterval, lineNumberRestart: j.lineNumberRestart ?? d.lineNumberRestart, lineNumberStart: j.lineNumberStart ?? d.lineNumberStart, pageVAlign: j.pageVAlign };
   };
   const repaginateSections = () => {
     const blocks: HTMLElement[] = [];
@@ -1381,6 +1382,12 @@ export function createRichEditor(container: HTMLElement, adapter: Adapter, optio
     page.style.minHeight = `${cardCount * pageStep - PAGE_GAP}px`;
     decorateFields(cardCount, pageStep, false);
     drawLineNumbers(kids, pageStep);
+    // Page vertical alignment: on a single page with spare room, push content down (centre /
+    // bottom). Multi-page and "both" (justified) stay top in the preview; all values round-trip.
+    if (cardCount === 1 && (geometry.pageVAlign === "center" || geometry.pageVAlign === "bottom")) {
+      const leftover = contentHeight - heights.reduce((a, b) => a + b, 0);
+      if (leftover > 0) doc.style.paddingTop = `${contentTop + (geometry.pageVAlign === "center" ? leftover / 2 : leftover)}px`;
+    }
   };
 
   // Body HTML for saving: the live doc minus pagination artifacts (inert spacers and the

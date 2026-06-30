@@ -647,6 +647,8 @@ export function setupPageView(deps: PageViewDeps) {
   lnRow.append(lnInterval, lnRestart);
   const syncLn = () => { const on = lnCheck.checked; lnInterval.style.display = on ? "" : "none"; lnRestart.style.display = on ? "" : "none"; };
   lnCheck.addEventListener("change", syncLn);
+  // Page vertical alignment (docx only): top / centre / bottom / justified.
+  const { row: vaRow, sel: vaSel } = mkSelectRow(t("pageVAlign"), [["top", t("vaTop")], ["center", t("vaCenter")], ["bottom", t("vaBottom")], ["both", t("vaJustify")]]);
   // Document-level header/footer variant toggles (apply to the whole document, not just one section).
   const { row: firstRow, input: firstCheck } = mkCheckRow(t("differentFirstPage"));
   const { row: evenRow, input: evenCheck } = mkCheckRow(t("differentEvenOdd"));
@@ -665,7 +667,7 @@ export function setupPageView(deps: PageViewDeps) {
   const psActions = document.createElement("div");
   psActions.className = "docxedit-dialog-row docxedit-dialog-actions";
   psActions.append(psCancel, psApply);
-  psPanel.append(psTitle, sizeRow, customRow, orientRow, marginRow, marginCustomRow, colRow, ...(caps.verticalText ? [dirRow] : []), pbRow, ...(caps.pageNumbering ? [pnRow] : []), ...(caps.lineNumbering ? [lnRow] : []), firstRow, evenRow, psActions);
+  psPanel.append(psTitle, sizeRow, customRow, orientRow, marginRow, marginCustomRow, colRow, ...(caps.verticalText ? [dirRow] : []), pbRow, ...(caps.pageNumbering ? [pnRow] : []), ...(caps.lineNumbering ? [lnRow] : []), ...(caps.pageVAlign ? [vaRow] : []), firstRow, evenRow, psActions);
   scroll.appendChild(psOverlay);
   const closePageSetup = () => { psOverlay.hidden = true; };
   const openPageSetup = () => {
@@ -693,6 +695,7 @@ export function setupPageView(deps: PageViewDeps) {
     lnInterval.value = String(g.lineNumberInterval ?? 1);
     lnRestart.value = g.lineNumberRestart ?? "continuous";
     syncLn();
+    vaSel.value = g.pageVAlign ?? "top";
     firstCheck.checked = !!geometry.titlePage; // document-level, not per-section
     evenCheck.checked = !!geometry.evenOdd;
     syncCustom();
@@ -736,6 +739,7 @@ export function setupPageView(deps: PageViewDeps) {
       g.lineNumberRestart = (lnRestart.value as SecGeom["lineNumberRestart"]) || undefined;
       g.lineNumberStart = cur.lineNumberStart; // round-trip the (UI-less) start
     }
+    if (caps.pageVAlign) g.pageVAlign = vaSel.value !== "top" ? (vaSel.value as SecGeom["pageVAlign"]) : undefined;
     writeSectionGeom(g);
     // Document-level header/footer variants: only act on a change (so existing bands are kept).
     if (!!geometry.titlePage !== firstCheck.checked) toggleHFVariant("first", firstCheck.checked);
