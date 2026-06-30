@@ -31,11 +31,12 @@ regenerated from the HTML.
 These round-trip untouched today. Adding an insert/edit UI would make them authorable;
 they are realistic to do, just not yet built.
 
-- Legacy symbol-font glyphs (`w:sym`): rendered and round-tripped verbatim, but not authored as
-  `w:sym` from the UI (the special-character picker inserts plain Unicode, the modern equivalent).
-  Symbol, Webdings and Wingdings 2/3 map to Unicode and Wingdings renders via the bundled open
-  MaterialDings font, so none needs the proprietary font installed; any other (rare, custom) symbol
-  font still falls back to the named font and displays only where it is installed.
+- Legacy symbol-font glyphs (`w:sym`): fully rendered and round-tripped verbatim. Symbol, Webdings
+  and Wingdings 2/3 map to Unicode and Wingdings renders via the bundled open MaterialDings font, so
+  none needs the proprietary font installed; any other (rare, custom) symbol font falls back to the
+  named font and displays only where it is installed. The special-character picker deliberately
+  *inserts* plain Unicode (the modern equivalent) rather than emitting legacy `w:sym`, so there is
+  nothing left to do here; this entry just records that authoring-as-`w:sym` is intentionally absent.
 - Complex fields - PAGE / NUMPAGES / TOC, the cross-reference / caption fields
   (REF / PAGEREF / SEQ), and the date / time / author / file-name info fields are authored;
   other, less-common fields (document title / subject, ASK / input, ...) are preserved but
