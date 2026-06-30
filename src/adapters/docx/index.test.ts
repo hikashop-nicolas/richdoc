@@ -995,6 +995,18 @@ describe("authoring new styles", () => {
     expect(def?.css["border-top"]?.toLowerCase()).toBe("1px solid #ff0000"); // round-trips into the dialog's model
   });
 
+  it("writes a paragraph style's tab stops as w:tabs and reads them back", () => {
+    const out = htmlToDocx('<p data-rdoc-style="Tabbed">x</p>', make(P("<w:p/>")), undefined, {
+      newStyles: [{ id: "Tabbed", name: "Tabbed", kind: "paragraph", css: { "--rdoc-tabstops": JSON.stringify([{ pos: 96, val: "right", leader: "dot" }]) } }],
+    });
+    const stylesXml = strFromU8(unzipSync(out)["word/styles.xml"]!);
+    expect(stylesXml).toMatch(/<w:tabs>/);
+    expect(stylesXml).toMatch(/<w:tab[^>]*w:val="right"/);
+    expect(stylesXml).toMatch(/<w:tab[^>]*w:pos="1440"/); // 96px * 15 = 1440 twips
+    const def = (docxToParts(out).styleDefs ?? []).find((d) => d.id === "Tabbed");
+    expect(JSON.parse(def?.css["--rdoc-tabstops"] ?? "[]")[0]?.pos).toBe(96); // round-trips into the style def
+  });
+
   it("editing an existing style replaces its definition in place (no duplicate)", () => {
     const STYLES = `<?xml version="1.0"?><w:styles xmlns:w="http://schemas.openxmlformats.org/wordprocessingml/2006/main">
  <w:style w:type="paragraph" w:styleId="Quote"><w:name w:val="Quote"/><w:rPr><w:i/></w:rPr></w:style></w:styles>`;

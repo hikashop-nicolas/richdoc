@@ -19,8 +19,8 @@ A full word-processor surface in the browser, the same for both formats unless n
   super/subscript; text colour, highlight, shading; font family and size; paragraph
   alignment, indent, line spacing, space before/after, paragraph shading (background fill), and
   paragraph borders (box / edge presets).
-- **Named styles:** apply, author and edit paragraph and character styles (including shading and
-  borders), preserving each style's other properties and its inheritance.
+- **Named styles:** apply, author and edit paragraph and character styles (including shading, borders
+  and tab stops), preserving each style's other properties and its inheritance.
 - **Tables:** editable cells, cell borders (colour / style / width), column / row /
   indent resize, merge, and in-cell formatting.
 - **Page layout:** page size, margins and orientation in a paginated page view, with

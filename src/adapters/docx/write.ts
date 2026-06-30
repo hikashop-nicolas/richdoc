@@ -450,6 +450,25 @@ function appendInline(ctx: DocxCtx, node: Node, parent: Element, f: Fmt, del = f
   }
 }
 
+// Build a w:tabs from a tab-stops JSON ("[{pos,val,leader}]", px positions), or null if empty.
+function wTabsEl(doc: Document, tabStops: string | null): Element | null {
+  if (!tabStops) return null;
+  try {
+    const stops = JSON.parse(tabStops) as { pos: number; val?: string; leader?: string }[];
+    if (!Array.isArray(stops) || !stops.length) return null;
+    const tabs = doc.createElementNS(W, "w:tabs");
+    for (const s of stops) {
+      const tb = doc.createElementNS(W, "w:tab");
+      tb.setAttributeNS(W, "w:val", s.val || "left");
+      tb.setAttributeNS(W, "w:pos", String(Math.round((s.pos || 0) * 15)));
+      if (s.leader) tb.setAttributeNS(W, "w:leader", s.leader);
+      tabs.appendChild(tb);
+    }
+    return tabs;
+  } catch {
+    return null;
+  }
+}
 function makeParagraph(ctx: DocxCtx, src: HTMLElement, opts: { heading?: number; listLevel?: number; listNumId?: string }): Element {
   const p = ctx.doc.createElementNS(W, "w:p");
   const jc = JC_BY_ALIGN[src.style.textAlign || ""];
@@ -507,22 +526,8 @@ function makeParagraph(ctx: DocxCtx, src: HTMLElement, opts: { heading?: number;
       shd.setAttributeNS(W, "w:fill", shadeHex);
       pPr.appendChild(shd);
     }
-    if (tabStops) {
-      try {
-        const stops = JSON.parse(tabStops) as { pos: number; val?: string; leader?: string }[];
-        if (Array.isArray(stops) && stops.length) {
-          const tabs = ctx.doc.createElementNS(W, "w:tabs");
-          for (const s of stops) {
-            const tb = ctx.doc.createElementNS(W, "w:tab");
-            tb.setAttributeNS(W, "w:val", s.val || "left");
-            tb.setAttributeNS(W, "w:pos", String(Math.round((s.pos || 0) * 15)));
-            if (s.leader) tb.setAttributeNS(W, "w:leader", s.leader);
-            tabs.appendChild(tb);
-          }
-          pPr.appendChild(tabs);
-        }
-      } catch { /* malformed: skip */ }
-    }
+    const tabsEl = wTabsEl(ctx.doc, tabStops);
+    if (tabsEl) pPr.appendChild(tabsEl);
     // schema order: w:spacing and w:ind come before w:jc; line + before/after share one element
     if (lineHeight > 0 || hasBefore || hasAfter) {
       const sp = ctx.doc.createElementNS(W, "w:spacing");
@@ -1674,7 +1679,7 @@ function addNewStyles(files: Record<string, Uint8Array>, styles: NewStyle[]): vo
   }
   // The style properties the dialog owns; on edit only these are re-derived, so the long tail
   // (tabs, keepNext, outline level, small caps, ...) the dialog does not model is preserved.
-  const PPR_MODELED = new Set(["w:spacing", "w:ind", "w:jc", "w:shd", "w:pBdr"]);
+  const PPR_MODELED = new Set(["w:spacing", "w:ind", "w:jc", "w:shd", "w:pBdr", "w:tabs"]);
   const SIDES = ["top", "right", "bottom", "left"] as const;
   const RPR_MODELED = new Set(["w:rFonts", "w:b", "w:i", "w:u", "w:strike", "w:color", "w:sz", "w:shd"]);
   const directChild = (parent: Element, tag: string): Element | undefined => Array.from(parent.children).find((c) => c.tagName === tag);
@@ -1689,7 +1694,8 @@ function addNewStyles(files: Record<string, Uint8Array>, styles: NewStyle[]): vo
     }
     if (s.kind === "paragraph") {
       const hasBorder = SIDES.some((s) => parseCssBorder(c[`border-${s}`]));
-      const hasPara = !!(c["margin-top"] || c["margin-bottom"] || c["line-height"] || c["margin-left"] || JC_BY_ALIGN[c["text-align"] ?? ""] || /^[0-9a-f]{6}$/i.test((c["background-color"] ?? "").replace(/^#/, "")) || hasBorder);
+      const styleTabs = wTabsEl(doc, c["--rdoc-tabstops"] ?? null);
+      const hasPara = !!(c["margin-top"] || c["margin-bottom"] || c["line-height"] || c["margin-left"] || JC_BY_ALIGN[c["text-align"] ?? ""] || /^[0-9a-f]{6}$/i.test((c["background-color"] ?? "").replace(/^#/, "")) || hasBorder || styleTabs);
       let pPr = directChild(st, "w:pPr");
       if (pPr || hasPara) {
         if (!pPr) { pPr = el("w:pPr"); st.insertBefore(pPr, st.firstChild); }
@@ -1726,6 +1732,7 @@ function addNewStyles(files: Record<string, Uint8Array>, styles: NewStyle[]): vo
         }
         const pbg = (c["background-color"] ?? "").replace(/^#/, "");
         if (/^[0-9a-f]{6}$/i.test(pbg)) shd(pPr, pbg); // paragraph shading
+        if (styleTabs) pPr.appendChild(styleTabs); // tab stops as part of the style
         if (!pPr.childNodes.length) st.removeChild(pPr); // edited down to nothing
       }
     }

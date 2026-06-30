@@ -837,6 +837,17 @@ describe("odt authoring new styles", () => {
     expect(def?.css["border-top"]?.toLowerCase()).toBe("1px solid #ff0000");
   });
 
+  it("writes a paragraph style's tab stops as style:tab-stops and reads them back", () => {
+    const out = htmlToOdt('<p data-rdoc-style="Tabbed">Hi</p>', make(), {
+      newStyles: [{ id: "Tabbed", name: "Tabbed", kind: "paragraph", css: { "--rdoc-tabstops": JSON.stringify([{ pos: 96, val: "right", leader: "dot" }]) } }],
+    });
+    const stylesXml = strFromU8(unzipSync(out)["styles.xml"]);
+    expect(stylesXml).toMatch(/<style:tab-stops>/);
+    expect(stylesXml).toMatch(/style:type="right"/);
+    const def = (odtToParts(out).styleDefs ?? []).find((d) => d.id === "Tabbed");
+    expect(JSON.parse(def?.css["--rdoc-tabstops"] ?? "[]")[0]?.pos).toBe(96);
+  });
+
   it("adds an authored character style to styles.xml", () => {
     const out = htmlToOdt('<p>a <span data-rdoc-cstyle="Em">b</span></p>', make(), {
       newStyles: [{ id: "Em", name: "Emph", kind: "character", css: { "font-style": "italic" } }],

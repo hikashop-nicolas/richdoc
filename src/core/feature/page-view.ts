@@ -444,12 +444,21 @@ export function setupPageView(deps: PageViewDeps) {
   const layoutTabs = () => {
     const z = effectiveZoom();
     if (!(z > 0)) return;
-    for (const block of Array.from(page.querySelectorAll<HTMLElement>("[data-rdoc-tabstops]"))) {
+    // Paragraphs with their own tab stops, plus styled paragraphs whose named style defines them
+    // (a style's stops ride a --rdoc-tabstops custom property that the injected style CSS sets).
+    const targets = new Map<HTMLElement, string>();
+    for (const b of Array.from(page.querySelectorAll<HTMLElement>("[data-rdoc-tabstops]"))) targets.set(b, b.getAttribute("data-rdoc-tabstops") || "[]");
+    for (const b of Array.from(page.querySelectorAll<HTMLElement>("[data-rdoc-style]"))) {
+      if (targets.has(b) || !b.querySelector(".docx-tab")) continue; // own stops win
+      const cv = getComputedStyle(b).getPropertyValue("--rdoc-tabstops").trim();
+      if (cv) targets.set(b, cv);
+    }
+    for (const [block, raw] of targets) {
       const tabs = Array.from(block.querySelectorAll<HTMLElement>(".docx-tab"));
       if (!tabs.length) continue;
       if (getComputedStyle(block).writingMode !== "horizontal-tb") continue; // vertical: keep default grid
       let stops: { pos: number; val: string; leader?: string }[];
-      try { stops = JSON.parse(block.getAttribute("data-rdoc-tabstops") || "[]"); } catch { continue; }
+      try { stops = JSON.parse(raw); } catch { continue; }
       stops = (Array.isArray(stops) ? stops : []).filter((s) => s && s.pos > 0).sort((a, b) => a.pos - b.pos);
       // .docx-tab-laid (in the stylesheet) makes the span an inline-block on the baseline; only the
       // computed width is per-tab, so it is the one inline value we set.

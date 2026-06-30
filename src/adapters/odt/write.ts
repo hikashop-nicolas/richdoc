@@ -72,6 +72,26 @@ function styleFor(doc: Document, auto: Element, created: Map<string, string>, f:
   return name;
 }
 
+// Build a style:tab-stops element from a tab-stops array (px positions), or null if empty.
+function buildOdtTabStops(doc: Document, stops: { pos: number; val?: string; leader?: string }[] | undefined): Element | null {
+  if (!stops || !stops.length) return null;
+  const ts = doc.createElementNS(NS.style, "style:tab-stops");
+  const ODT_TYPE: Record<string, string> = { left: "left", center: "center", right: "right", decimal: "char" };
+  for (const s of stops) {
+    const tb = doc.createElementNS(NS.style, "style:tab-stop");
+    tb.setAttributeNS(NS.style, "style:position", pxToCm(s.pos || 0));
+    const type = ODT_TYPE[s.val || "left"] ?? "left";
+    if (type !== "left") tb.setAttributeNS(NS.style, "style:type", type);
+    if (type === "char") tb.setAttributeNS(NS.style, "style:char", ".");
+    if (s.leader) {
+      tb.setAttributeNS(NS.style, "style:leader-style", "dotted");
+      tb.setAttributeNS(NS.style, "style:leader-text", ".");
+    }
+    ts.appendChild(tb);
+  }
+  return ts;
+}
+
 /** Create (once) a paragraph style for an alignment and return its name. The breakBefore /
     breakAfter / masterPage fields carry a section break (a new page, optionally with a
     different page master) so editing a paragraph does not drop it. */
@@ -107,23 +127,8 @@ function paraStyleFor(doc: Document, auto: Element, created: Map<string, string>
   if (breakAfter) pp.setAttributeNS(NS.fo, "fo:break-after", breakAfter);
   if (shading) pp.setAttributeNS(NS.fo, "fo:background-color", `#${shading}`);
   for (const b of borders ?? []) pp.setAttributeNS(NS.fo, `fo:border-${b.side}`, `${pxToCm(b.px)} ${b.style} #${b.hex.toLowerCase()}`);
-  if (tabStops) {
-    const ts = doc.createElementNS(NS.style, "style:tab-stops");
-    const ODT_TYPE: Record<string, string> = { left: "left", center: "center", right: "right", decimal: "char" };
-    for (const s of tabStops) {
-      const tb = doc.createElementNS(NS.style, "style:tab-stop");
-      tb.setAttributeNS(NS.style, "style:position", pxToCm(s.pos || 0));
-      const type = ODT_TYPE[s.val || "left"] ?? "left";
-      if (type !== "left") tb.setAttributeNS(NS.style, "style:type", type);
-      if (type === "char") tb.setAttributeNS(NS.style, "style:char", ".");
-      if (s.leader) {
-        tb.setAttributeNS(NS.style, "style:leader-style", "dotted");
-        tb.setAttributeNS(NS.style, "style:leader-text", ".");
-      }
-      ts.appendChild(tb);
-    }
-    pp.appendChild(ts);
-  }
+  const ts = buildOdtTabStops(doc, tabStops);
+  if (ts) pp.appendChild(ts);
   st.appendChild(pp);
   auto.appendChild(st);
   created.set(key, name);
@@ -1119,7 +1124,7 @@ function addOdtStyles(files: Record<string, Uint8Array>, styles: NewStyle[]): vo
       const a = ODF_ALIGN[c["text-align"] ?? ""];
       const align = a && a !== "left" ? (a === "right" ? "end" : a === "center" ? "center" : "justify") : undefined;
       const pBorders = (["top", "right", "bottom", "left"] as const).map((side) => ({ side, b: parseCssBorder(c[`border-${side}`]) })).filter((x) => x.b);
-      const hasPara = !!(align || c["margin-left"] || c["margin-top"] || c["margin-bottom"] || c["line-height"] || c["background-color"] || pBorders.length);
+      const hasPara = !!(align || c["margin-left"] || c["margin-top"] || c["margin-bottom"] || c["line-height"] || c["background-color"] || pBorders.length || c["--rdoc-tabstops"]);
       let pp = directChild(st, "style:paragraph-properties");
       if (pp || hasPara) {
         if (!pp) { pp = doc.createElementNS(NS.style, "style:paragraph-properties"); st.insertBefore(pp, st.firstChild); }
@@ -1131,7 +1136,13 @@ function addOdtStyles(files: Record<string, Uint8Array>, styles: NewStyle[]): vo
         if (c["line-height"]) pp.setAttributeNS(NS.fo, "fo:line-height", `${Math.round(parseFloat(c["line-height"]) * 100)}%`);
         if (c["background-color"]) pp.setAttributeNS(NS.fo, "fo:background-color", c["background-color"]);
         for (const { side, b } of pBorders) pp.setAttributeNS(NS.fo, `fo:border-${side}`, `${pxToCm(b!.px)} ${b!.style} #${b!.hex.toLowerCase()}`);
-        if (!pp.attributes.length) st.removeChild(pp);
+        // Tab stops as part of the style: re-derive style:tab-stops from the css JSON.
+        for (const ch of Array.from(pp.children)) if (ch.tagName === "style:tab-stops") pp.removeChild(ch);
+        let styleStops: { pos: number; val?: string; leader?: string }[] | undefined;
+        try { const j = JSON.parse(c["--rdoc-tabstops"] ?? "[]"); if (Array.isArray(j) && j.length) styleStops = j; } catch { /* skip */ }
+        const tsEl = buildOdtTabStops(doc, styleStops);
+        if (tsEl) pp.appendChild(tsEl);
+        if (!pp.attributes.length && !pp.children.length) st.removeChild(pp);
       }
     }
     {

@@ -20,12 +20,11 @@ regenerated from the HTML.
 - **Vertical + multi-column mid-section.** A whole-document vertical multi-column layout
   works; a *mid-document* section that is BOTH vertical AND multi-column renders as a
   single vertical flow.
-- **Style authoring depth.** Paragraph shading and borders are authorable both as direct formatting
-  and as part of a named style (the style dialog has a background picker and a border preset + colour),
-  round-tripping on both formats (docx pPr `w:shd` / `w:pBdr`, odt `fo:background-color` /
-  `fo:border-*`). What remains: tab stops can be set per paragraph (via the ruler) but not yet as part
-  of a named style *definition*; and the border presets are 1px box / edge (any width or line style
-  still round-trips on import).
+- **Style authoring depth.** Paragraph shading, borders and tab stops are authorable both as direct
+  formatting and as part of a named style, round-tripping on both formats (docx pPr `w:shd` /
+  `w:pBdr` / `w:tabs`, odt `fo:background-color` / `fo:border-*` / `style:tab-stops`); a style's tab
+  stops ride a `--rdoc-tabstops` custom property so styled paragraphs render them. The only limit left
+  is cosmetic: the border presets are 1px box / edge (any width or line style still round-trips on import).
 - **Image layout fine detail.** Square / tight wrap uses alignment only (a file's exact
   `posOffset` for a wrapped image is not honored); behind / front offsets map to a
   CSS-positioned element rather than a true layout engine.

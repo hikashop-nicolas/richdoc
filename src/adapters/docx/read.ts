@@ -695,6 +695,15 @@ function refRid(sectPr: Element | undefined, tag: string): string | undefined {
   const pick = refs.find((r) => (r.getAttribute("w:type") ?? "default") === "default") ?? refs[0];
   return pick?.getAttributeNS(R, "id") ?? pick?.getAttribute("r:id") ?? undefined;
 }
+// A paragraph's / style's custom tab stops (w:pPr/w:tabs), in px, skipping "clear" entries.
+function parseWTabs(pPr: Element | undefined): { pos: number; val: string; leader?: string }[] {
+  const tabsEl = pPr ? Array.from(pPr.children).find((c) => c.tagName === "w:tabs") : undefined;
+  if (!tabsEl) return [];
+  return Array.from(tabsEl.getElementsByTagName("w:tab"))
+    .filter((tb) => (tb.getAttribute("w:val") ?? "left") !== "clear")
+    .map((tb) => ({ pos: Math.round(twipToPx(tb.getAttribute("w:pos")) ?? 0), val: tb.getAttribute("w:val") ?? "left", leader: tb.getAttribute("w:leader") ?? undefined }))
+    .filter((s) => s.pos > 0);
+}
 function paragraphInfo(p: Element, numbering: Map<string, boolean>): PInfo {
   const pPr = p.getElementsByTagName("w:pPr")[0];
   let heading = 0;
@@ -722,13 +731,7 @@ function paragraphInfo(p: Element, numbering: Map<string, boolean>): PInfo {
   const sectEl = pPr ? Array.from(pPr.children).find((c) => c.tagName === "w:sectPr") : undefined;
   const sectType = sectEl?.getElementsByTagName("w:type")[0]?.getAttribute("w:val");
   // Custom tab stops (w:pPr/w:tabs); skip "clear" entries. Preserved so an edit keeps them.
-  const tabsEl = pPr ? Array.from(pPr.children).find((c) => c.tagName === "w:tabs") : undefined;
-  const stops = tabsEl
-    ? Array.from(tabsEl.getElementsByTagName("w:tab"))
-        .filter((tb) => (tb.getAttribute("w:val") ?? "left") !== "clear")
-        .map((tb) => ({ pos: Math.round(twipToPx(tb.getAttribute("w:pos")) ?? 0), val: tb.getAttribute("w:val") ?? "left", leader: tb.getAttribute("w:leader") ?? undefined }))
-        .filter((s) => s.pos > 0)
-    : [];
+  const stops = parseWTabs(pPr);
   return {
     heading,
     isList: !!numPr,
@@ -1101,6 +1104,8 @@ function readStyles(stylesXml: Uint8Array | undefined): {
         }
         if (any) out["padding"] = "2px 6px";
       }
+      const tabs = parseWTabs(pPr);
+      if (tabs.length) out["--rdoc-tabstops"] = JSON.stringify(tabs);
     }
     const shd = rPr?.getElementsByTagName("w:shd")[0]?.getAttribute("w:fill");
     if (shd && shd !== "auto" && /^[0-9a-f]{6}$/i.test(shd)) out["background-color"] = `#${shd}`;

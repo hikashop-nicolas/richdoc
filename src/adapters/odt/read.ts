@@ -455,6 +455,13 @@ function readOdtStyles(stylesXml: Uint8Array | undefined): {
         if (bc) { out[`border-${side}`] = bc; anyB = true; }
       }
       if (anyB) out["padding"] = "2px 6px";
+      const tabsEl = pp?.getElementsByTagName("style:tab-stops")[0];
+      if (tabsEl) {
+        const stops = Array.from(tabsEl.getElementsByTagName("style:tab-stop"))
+          .map((tb) => ({ pos: Math.round(lenToPx(tb.getAttribute("style:position")) ?? 0), val: ODT_TAB_TYPE[tb.getAttribute("style:type") ?? "left"] ?? "left", leader: tb.getAttribute("style:leader-style") && tb.getAttribute("style:leader-style") !== "none" ? "dot" : undefined }))
+          .filter((s) => s.pos > 0);
+        if (stops.length) out["--rdoc-tabstops"] = JSON.stringify(stops);
+      }
     }
     const bg = tp?.getAttribute("fo:background-color");
     if (bg && /^#[0-9a-f]{6}$/i.test(bg)) out["background-color"] = bg;

@@ -191,6 +191,8 @@ export function setupStyles(deps: StylesDeps) {
     const bs = blockBorders(b);
     for (const x of bs) css[`border-${x.side}`] = `${x.px}px ${x.style} #${x.hex.toLowerCase()}`;
     if (bs.length) css["padding"] = "2px 6px";
+    const tabs = b.getAttribute("data-rdoc-tabstops");
+    if (tabs) css["--rdoc-tabstops"] = tabs;
     return css;
   };
   // Capture the selection's run formatting (toggles via execCommand state, the rest computed).
@@ -405,7 +407,7 @@ export function setupStyles(deps: StylesDeps) {
     const firstB = bsides.length ? parseCssBorder(pre[`border-${bsides[0]}`]) : null;
     dBorderColor.value = firstB ? `#${firstB.hex.toLowerCase()}` : "#000000";
     dlgPassthrough = {};
-    for (const p of ["margin-left", "margin-top", "margin-bottom", "line-height"]) if (pre[p]) dlgPassthrough[p] = pre[p]!;
+    for (const p of ["margin-left", "margin-top", "margin-bottom", "line-height", "--rdoc-tabstops"]) if (pre[p]) dlgPassthrough[p] = pre[p]!;
   };
   const openStyleDialog = (kind: "paragraph" | "character"): void => {
     restoreSel(); // the <select> click may have dropped the editor selection
@@ -470,6 +472,7 @@ export function setupStyles(deps: StylesDeps) {
         b.setAttribute("data-rdoc-style", id);
         // captured direct formatting now lives in the style; clear it so it is not written twice
         for (const p of ["textAlign", "marginLeft", "lineHeight", "marginTop", "marginBottom", "backgroundColor", "borderTop", "borderRight", "borderBottom", "borderLeft", "padding"] as const) b.style[p] = "";
+        b.removeAttribute("data-rdoc-tabstops"); // tab stops now live in the style
       }
       mark();
     } else {
