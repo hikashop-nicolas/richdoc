@@ -22,6 +22,7 @@ fileInput.addEventListener("change", async () => {
   const fmt = sniffFormat(bytes);
   editor = createEditor(mount, bytes, {
     author: "Demo User",
+    fileName: f.name,
     onChange: () => { info.textContent = `${fmt} — ${f.name} — edited`; },
   });
   info.textContent = `${fmt} — ${f.name} (${bytes.length} bytes)`;

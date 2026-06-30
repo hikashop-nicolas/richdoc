@@ -216,6 +216,10 @@ const dict: Dict = {
   findNone: "Aucun résultat",
   insertEquation: "Insérer une équation",
   insertSymbol: "Insérer un caractère spécial",
+  fieldDate: "Date",
+  fieldTime: "Heure",
+  fieldAuthor: "Auteur",
+  fieldFileName: "Nom du fichier",
 };
 
 export default dict;

@@ -404,6 +404,13 @@ function htmlInlineToOdf(node: Node, parent: Element, f: Fmt, ctx: OdfCtx): void
         e.setAttributeNS(NS.style, "style:num-format", "1");
         e.appendChild(ctx.doc.createTextNode(el.textContent || "1"));
         parent.appendChild(e);
+      } else if (k === "DATE" || k === "TIME" || k === "AUTHOR" || k === "FILENAME") {
+        // Information fields: the cached snapshot is the element's text content.
+        const tag = k === "DATE" ? "text:date" : k === "TIME" ? "text:time" : k === "AUTHOR" ? "text:author-name" : "text:file-name";
+        const e = ctx.doc.createElementNS(NS.text, tag);
+        if (k === "FILENAME") e.setAttributeNS(NS.text, "text:display", "name-and-extension");
+        e.appendChild(ctx.doc.createTextNode(el.textContent || ""));
+        parent.appendChild(e);
       }
       continue;
     }

@@ -1360,6 +1360,19 @@ describe("list fidelity: nesting and ordered/bullet", () => {
     expect(xml).toMatch(/w:font="Wingdings 3"/);
   });
 
+  it("writes inserted info fields (date / author / file name) as w:fldSimple", () => {
+    const body = "<p>" +
+      '<span class="docx-field" data-field="DATE" contenteditable="false">6/30/2026</span> ' +
+      '<span class="docx-field" data-field="AUTHOR" contenteditable="false">Jane</span> ' +
+      '<span class="docx-field" data-field="FILENAME" contenteditable="false">report.docx</span>' +
+      "</p>";
+    const xml = strFromU8(unzipSync(htmlToDocx(body, makeDocx()))["word/document.xml"]!);
+    expect(xml).toMatch(/<w:fldSimple[^>]*w:instr=" DATE "/);
+    expect(xml).toMatch(/<w:fldSimple[^>]*w:instr=" AUTHOR "/);
+    expect(xml).toMatch(/<w:fldSimple[^>]*w:instr=" FILENAME "/);
+    expect(xml).toContain("Jane"); // the cached snapshot survives
+  });
+
   it("round-trips an internal hyperlink as a w:hyperlink w:anchor", () => {
     const out = htmlToDocx('<p>See <a href="#intro">the intro</a></p>', makeDocx());
     const xml = strFromU8(unzipSync(out)["word/document.xml"]!);

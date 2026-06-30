@@ -32,6 +32,9 @@ A full word-processor surface in the browser, the same for both formats unless n
   page, like Word).
 - **Headers & footers:** default plus first-page and even/odd variants, per section,
   with live page-number, page-count and table-of-contents fields.
+- **Fields:** insert page number / count / "X of Y", a table of contents, and date / time /
+  author / file-name fields (the page fields recompute on reflow; date/author/etc. are snapshots).
+  All round-trip (docx `w:fldSimple`, odt `text:date` / `text:author-name` / ...).
 - **Vertical writing:** vertical (tategaki) and RTL layout, paginated, including
   multi-column vertical text (stacked bands) and a vertical ruler.
 - **Images:** inline and floating / anchored with text wrap (square, tight,

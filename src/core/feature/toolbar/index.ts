@@ -606,6 +606,10 @@ export function setupToolbar(deps: ToolbarDeps) {
     return s;
   };
   const insertField = (instr: string) => insertAtCaret(fieldSpan(instr, "1"));
+  // Information fields: a fixed snapshot value at insert time (date / time / author / file name).
+  // They round-trip as real fields (docx w:fldSimple, odt text:date/time/author-name/file-name).
+  const fieldNow = (): Date => (options.now ? new Date(options.now) : new Date());
+  const insertInfoField = (key: string, text: string) => insertAtCaret(fieldSpan(key, text));
   const insertPageXofY = () => {
     const frag = document.createDocumentFragment();
     frag.append(fieldSpan("PAGE", "1"), document.createTextNode(" / "), fieldSpan("NUMPAGES", "1"));
@@ -643,6 +647,10 @@ export function setupToolbar(deps: ToolbarDeps) {
     { label: t("fieldPageNumber"), fn: () => insertField("PAGE") },
     { label: t("fieldPageCount"), fn: () => insertField("NUMPAGES") },
     { label: t("fieldPageXofY"), fn: insertPageXofY },
+    { label: t("fieldDate"), fn: () => insertInfoField("DATE", fieldNow().toLocaleDateString()) },
+    { label: t("fieldTime"), fn: () => insertInfoField("TIME", fieldNow().toLocaleTimeString()) },
+    { label: t("fieldAuthor"), fn: () => insertInfoField("AUTHOR", options.author || t("fieldAuthor")) },
+    { label: t("fieldFileName"), fn: () => insertInfoField("FILENAME", options.fileName || t("fieldFileName")) },
     { label: t("fieldToc"), fn: insertTOC },
   ]) {
     const b = document.createElement("button");

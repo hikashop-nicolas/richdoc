@@ -42,9 +42,10 @@ they are realistic to do, just not yet built.
   Symbol, Webdings and Wingdings 2/3 map to Unicode and Wingdings renders via the bundled open
   MaterialDings font, so none needs the proprietary font installed; any other (rare, custom) symbol
   font still falls back to the named font and displays only where it is installed.
-- Complex fields - PAGE / NUMPAGES / TOC and the cross-reference / caption fields
-  (REF / PAGEREF / SEQ) are authored; date, file name, author, etc. are preserved but not
-  insertable.
+- Complex fields - PAGE / NUMPAGES / TOC, the cross-reference / caption fields
+  (REF / PAGEREF / SEQ), and the date / time / author / file-name info fields are authored;
+  other, less-common fields (document title / subject, ASK / input, ...) are preserved but
+  not insertable.
 - Page borders and page-number restart - preserved on the trailing section, not
   authorable.
 

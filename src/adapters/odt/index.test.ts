@@ -1091,3 +1091,20 @@ describe("odt equations (draw:object formula)", () => {
     expect(strFromU8(files["Formula_rdoc0/content.xml"])).toContain("<mi>z</mi>");
   });
 });
+
+describe("odt info fields (date / author / file name)", () => {
+  it("writes inserted info fields as odt text fields", () => {
+    const body = "<p>" +
+      '<span class="docx-field" data-field="DATE" contenteditable="false">30/06/2026</span>' +
+      '<span class="docx-field" data-field="TIME" contenteditable="false">12:00</span>' +
+      '<span class="docx-field" data-field="AUTHOR" contenteditable="false">Jane</span>' +
+      '<span class="docx-field" data-field="FILENAME" contenteditable="false">report.odt</span>' +
+      "</p>";
+    const xml = strFromU8(unzipSync(htmlToOdt(body, makeOdt()))["content.xml"]);
+    expect(xml).toContain("<text:date");
+    expect(xml).toContain("<text:time");
+    expect(xml).toContain("<text:author-name");
+    expect(xml).toMatch(/<text:file-name[^>]*text:display="name-and-extension"/);
+    expect(xml).toContain("Jane"); // the cached snapshot survives
+  });
+});

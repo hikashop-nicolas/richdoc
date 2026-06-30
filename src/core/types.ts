@@ -211,6 +211,8 @@ export interface EditorOptions {
   author?: string;
   /** ISO date string for added comments (injected so the build stays deterministic). */
   now?: string;
+  /** Document file name, shown by an inserted "file name" field. */
+  fileName?: string;
   /** Page size used only when the document carries no geometry of its own. Default "a4". */
   defaultPageSize?: PageSizeName;
   /** Paginated view (page cards + reflow) vs a single continuous page. Default true. */
