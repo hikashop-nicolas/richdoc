@@ -37,8 +37,10 @@ regenerated from the HTML.
 These round-trip untouched today. Adding an insert/edit UI would make them authorable;
 they are realistic to do, just not yet built.
 
-- Legacy symbol-font glyphs (`w:sym`, a font + char code) are preserved as passthrough but not
-  authored; the special-character picker inserts plain Unicode text instead (the modern equivalent).
+- Legacy symbol-font glyphs (`w:sym`): now rendered (the Symbol font mapped to Unicode, other fonts
+  shown read-only in the named font) and round-tripped verbatim, but not authored as `w:sym` from the
+  UI; the special-character picker inserts plain Unicode instead (the modern equivalent). Non-Symbol
+  fonts (Wingdings, ...) only display correctly where that font is installed.
 - Complex fields - PAGE / NUMPAGES / TOC and the cross-reference / caption fields
   (REF / PAGEREF / SEQ) are authored; date, file name, author, etc. are preserved but not
   insertable.

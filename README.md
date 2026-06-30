@@ -52,7 +52,8 @@ A full word-processor surface in the browser, the same for both formats unless n
 - **Footnotes & endnotes:** insert, edit and delete, placed per page (covering
   multi-column, vertical and per-section layouts).
 - **Special characters:** a picker inserts common symbols, arrows, Greek letters, currency and
-  accented Latin as plain text (so they round-trip on both formats).
+  accented Latin as plain text (so they round-trip on both formats). Legacy Word symbol-font glyphs
+  (`w:sym`) are rendered too (the Symbol font mapped to Unicode) and preserved.
 - **Find & replace** with case, whole-word and regex options.
 - **Passthrough preservation:** anything not modelled is kept byte-for-byte and
   re-emitted on save, so editing never drops unsupported content.

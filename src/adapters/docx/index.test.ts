@@ -1308,6 +1308,32 @@ describe("list fidelity: nesting and ordered/bullet", () => {
     expect(docxToHtml(out)).toMatch(/<mi mathvariant="normal">d<\/mi>/);
   });
 
+  it("renders a Symbol-font w:sym as Unicode and rewrites it verbatim", () => {
+    const doc = `<?xml version="1.0"?>
+<w:document xmlns:w="http://schemas.openxmlformats.org/wordprocessingml/2006/main">
+ <w:body><w:p><w:r><w:sym w:font="Symbol" w:char="F061"/></w:r></w:p></w:body>
+</w:document>`;
+    const html = docxToHtml(makeDocx(doc));
+    expect(html).toContain('class="docx-sym"');
+    expect(html).toContain("α"); // Symbol F061 -> Greek alpha
+    expect(html).toContain("data-docx-xml"); // the original run is stashed
+    // an untouched symbol rewrites its w:sym verbatim
+    const out = htmlToDocx(html, makeDocx());
+    const xml = strFromU8(unzipSync(out)["word/document.xml"]!);
+    expect(xml).toMatch(/<w:sym[^>]*w:char="F061"/);
+    expect(xml).toMatch(/w:font="Symbol"/);
+  });
+
+  it("renders a non-Symbol w:sym with its font applied (best effort)", () => {
+    const doc = `<?xml version="1.0"?>
+<w:document xmlns:w="http://schemas.openxmlformats.org/wordprocessingml/2006/main">
+ <w:body><w:p><w:r><w:sym w:font="Wingdings" w:char="F04A"/></w:r></w:p></w:body>
+</w:document>`;
+    const html = docxToHtml(makeDocx(doc));
+    expect(html).toContain('class="docx-sym"');
+    expect(html).toContain("font-family:'Wingdings'");
+  });
+
   it("round-trips an internal hyperlink as a w:hyperlink w:anchor", () => {
     const out = htmlToDocx('<p>See <a href="#intro">the intro</a></p>', makeDocx());
     const xml = strFromU8(unzipSync(out)["word/document.xml"]!);
