@@ -61,7 +61,8 @@ conversion lives in the docx adapter, not the engine.
 - Editing an imported odt equation orphans its original Object sub-document (unreferenced, harmless).
 - OMML constructs beyond the covered set (boxes m:box, group-chars m:groupChr, equation arrays
   m:eqArr, box borders) stay verbatim passthrough.
-- Matrix delimiters: a pmatrix/bmatrix recovers as a plain matrix wrapped in literal brackets (the
-  auto-sizing fence is not reconstructed), and authored matrices carry no per-column alignment.
+- Delimited matrices (pmatrix / bmatrix / vmatrix / Vmatrix / Bmatrix / cases) round-trip via an
+  OMML m:d wrapping the m:m, and recovery names the environment from the bracket pair. Per-column
+  alignment is not preserved (matrices write centered; cases recovers but is not left-aligned).
 - MathML -> LaTeX recovery (`mathml-latex.ts`) covers the supported set; constructs outside it fall
   back to text content, so editing a very exotic imported equation may lose detail.

@@ -65,6 +65,20 @@ describe("mathmlToLatex", () => {
     expect(recover('<menclose notation="top"><mrow><mi>A</mi><mi>B</mi></mrow></menclose>')).toBe("\\overline{AB}");
   });
 
+  it("recovers delimited matrices as their named environment", () => {
+    const tbl = "<mtable><mtr><mtd><mi>a</mi></mtd><mtd><mi>b</mi></mtd></mtr><mtr><mtd><mi>c</mi></mtd><mtd><mi>d</mi></mtd></mtr></mtable>";
+    expect(recover(`<mrow><mo>(</mo>${tbl}<mo>)</mo></mrow>`)).toBe("\\begin{pmatrix}a & b \\\\ c & d\\end{pmatrix}");
+    expect(recover(`<mrow><mo>[</mo>${tbl}<mo>]</mo></mrow>`)).toBe("\\begin{bmatrix}a & b \\\\ c & d\\end{bmatrix}");
+    expect(recover(`<mrow><mo>|</mo>${tbl}<mo>|</mo></mrow>`)).toBe("\\begin{vmatrix}a & b \\\\ c & d\\end{vmatrix}");
+  });
+
+  it("recovers a cases block (open brace, empty close)", () => {
+    const tbl =
+      "<mtable><mtr><mtd><mn>1</mn></mtd><mtd><mrow><mi>x</mi><mo>&gt;</mo><mn>0</mn></mrow></mtd></mtr>" +
+      "<mtr><mtd><mn>0</mn></mtd><mtd><mrow><mi>x</mi><mo>&#8804;</mo><mn>0</mn></mrow></mtd></mtr></mtable>";
+    expect(recover(`<mrow><mo>{</mo>${tbl}<mo></mo></mrow>`)).toBe("\\begin{cases}1 & x>0 \\\\ 0 & x\\le 0\\end{cases}");
+  });
+
   it("falls back to text for unknown constructs and empty math", () => {
     expect(recover("")).toBe("");
     expect(recover("<munknown><mi>q</mi></munknown>")).toBe("q");

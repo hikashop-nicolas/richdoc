@@ -40,6 +40,21 @@ const naryOmml = (chr: string, sub: Element | null, sup: Element | null, rest: C
     `${sub ? "" : '<m:subHide m:val="1"/>'}${sup ? "" : '<m:supHide m:val="1"/>'}</m:naryPr>`;
   return `<m:nary>${pr}<m:sub>${mmlSlot(sub)}</m:sub><m:sup>${mmlSlot(sup)}</m:sup><m:e>${mmlSeq(rest)}</m:e></m:nary>`;
 };
+// An mtable -> an OMML matrix (m:m). The column count comes from the widest row.
+const matrixOmml = (table: Element): string => {
+  const rows = elemChildren(table).filter((c) => ln(c) === "mtr");
+  const cols = Math.max(0, ...rows.map((r) => elemChildren(r).filter((c) => ln(c) === "mtd").length));
+  const mr = rows.map((r) => `<m:mr>${elemChildren(r).filter((c) => ln(c) === "mtd").map((c) => `<m:e>${mmlSeq(Array.from(c.childNodes))}</m:e>`).join("")}</m:mr>`).join("");
+  return `<m:m><m:mPr><m:mcs><m:mc><m:mcPr><m:count m:val="${cols}"/><m:mcJc m:val="center"/></m:mcPr></m:mc></m:mcs></m:mPr>${mr}</m:m>`;
+};
+// A delimited matrix: an mrow of exactly [open mo, mtable, close mo] (what temml emits for
+// pmatrix / bmatrix / vmatrix / cases). Returns the brackets + table, or null if it is a plain mrow.
+const fencedMatrix = (el: Element): { open: string; close: string; table: Element } | null => {
+  const k = elemChildren(el);
+  if (k.length === 3 && ln(k[0]!) === "mo" && ln(k[1]!) === "mtable" && ln(k[2]!) === "mo")
+    return { open: (k[0]!.textContent ?? "").trim(), close: (k[2]!.textContent ?? "").trim(), table: k[1]! };
+  return null;
+};
 
 function mmlSeq(nodes: ChildNode[]): string {
   let out = "";
@@ -51,7 +66,12 @@ function mmlSeq(nodes: ChildNode[]): string {
     const kids = elemChildren(el);
     switch (ln(el)) {
       case "mi": case "mn": case "mo": case "mtext": case "ms": out += mRun(el.textContent ?? ""); break;
-      case "mrow": case "mstyle": case "mpadded": out += mmlSeq(Array.from(el.childNodes)); break;
+      case "mrow": case "mstyle": case "mpadded": {
+        const fm = fencedMatrix(el); // pmatrix / bmatrix / cases: brackets around a matrix
+        if (fm) out += `<m:d><m:dPr><m:begChr m:val="${escAttr(fm.open)}"/><m:endChr m:val="${escAttr(fm.close)}"/></m:dPr><m:e>${matrixOmml(fm.table)}</m:e></m:d>`;
+        else out += mmlSeq(Array.from(el.childNodes));
+        break;
+      }
       case "semantics": out += mmlSeq(Array.from((kids[0] ?? el).childNodes)); break; // presentation child
       case "mfrac": out += `<m:f><m:num>${mmlSlot(kids[0] ?? null)}</m:num><m:den>${mmlSlot(kids[1] ?? null)}</m:den></m:f>`; break;
       case "msqrt": out += `<m:rad><m:radPr><m:degHide m:val="1"/></m:radPr><m:deg/><m:e>${mmlSeq(Array.from(el.childNodes))}</m:e></m:rad>`; break;
@@ -81,14 +101,7 @@ function mmlSeq(nodes: ChildNode[]): string {
         out += `<m:d><m:dPr><m:begChr m:val="${escAttr(open)}"/><m:endChr m:val="${escAttr(close)}"/></m:dPr><m:e>${mmlSeq(Array.from(el.childNodes))}</m:e></m:d>`;
         break;
       }
-      case "mtable": {
-        const rows = kids.filter((c) => ln(c) === "mtr");
-        const cols = Math.max(0, ...rows.map((r) => elemChildren(r).filter((c) => ln(c) === "mtd").length));
-        const mr = rows.map((r) => `<m:mr>${elemChildren(r).filter((c) => ln(c) === "mtd").map((c) => `<m:e>${mmlSeq(Array.from(c.childNodes))}</m:e>`).join("")}</m:mr>`).join("");
-        const mcs = `<m:mcs><m:mc><m:mcPr><m:count m:val="${cols}"/><m:mcJc m:val="center"/></m:mcPr></m:mc></m:mcs>`;
-        out += `<m:m><m:mPr>${mcs}</m:mPr>${mr}</m:m>`;
-        break;
-      }
+      case "mtable": out += matrixOmml(el); break;
       case "menclose": { // overline / underline enclosure -> a bar
         const notation = el.getAttribute("notation") ?? "";
         const pos = notation.includes("bottom") || notation === "underline" ? "bot" : "top";
@@ -157,8 +170,9 @@ function ommlSeq(els: Element[]): string {
         const pr = child(el, "dPr");
         const beg = (pr && child(pr, "begChr")?.getAttribute("m:val")) ?? "(";
         const end = (pr && child(pr, "endChr")?.getAttribute("m:val")) ?? ")";
+        const delim = (c: string): string => `<mo fence="true" stretchy="true">${escXml(c)}</mo>`;
         const body = elemChildren(el).filter((c) => ln(c) === "e").map((e) => ommlSlot(e)).join(`<mo>,</mo>`);
-        out += `<mrow><mo>${escXml(beg)}</mo>${body}<mo>${escXml(end)}</mo></mrow>`;
+        out += `<mrow>${delim(beg)}${body}${delim(end)}</mrow>`;
         break;
       }
       case "func": out += `<mrow>${ommlSlot(child(el, "fName"))}${ommlSlot(child(el, "e"))}</mrow>`; break;

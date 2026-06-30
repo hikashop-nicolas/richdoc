@@ -35,6 +35,31 @@ const tokenLatex = (raw: string): string => {
 
 const kidsOf = (el: Element): Element[] => Array.from(el.children);
 
+// Bracket pair -> the LaTeX matrix environment temml builds it from (cases has an empty close).
+const matrixEnv = (open: string, close: string): string | null => {
+  if (open === "(" && close === ")") return "pmatrix";
+  if (open === "[" && close === "]") return "bmatrix";
+  if (open === "|" && close === "|") return "vmatrix";
+  if (open === "‖" && close === "‖") return "Vmatrix";
+  if (open === "{") return close === "}" ? "Bmatrix" : "cases";
+  return null;
+};
+// The body of an mtable as LaTeX rows (cells joined by &, rows by \\).
+const tableBody = (table: Element): string =>
+  kidsOf(table)
+    .filter((r) => r.localName === "mtr")
+    .map((r) => kidsOf(r).filter((c) => c.localName === "mtd").map(nodeLatex).join(" & "))
+    .join(" \\\\ ");
+// An mrow of exactly [open mo, mtable, close mo] -> the matrix environment, or null for a plain mrow.
+const fencedMatrixLatex = (el: Element): string | null => {
+  const k = kidsOf(el);
+  if (k.length !== 3 || k[0]!.localName !== "mo" || k[1]!.localName !== "mtable" || k[2]!.localName !== "mo") return null;
+  const open = (k[0]!.textContent ?? "").trim();
+  const close = (k[2]!.textContent ?? "").trim();
+  const env = matrixEnv(open, close);
+  return env ? `\\begin{${env}}${tableBody(k[1]!)}\\end{${env}}` : `${open}\\begin{matrix}${tableBody(k[1]!)}\\end{matrix}${close}`;
+};
+
 // An accent glyph (the mo over a base) -> its LaTeX command.
 const ACCENT: Record<string, string> = {
   "^": "\\hat", "ˆ": "\\hat", "~": "\\tilde", "˜": "\\tilde", "‾": "\\bar",
@@ -57,8 +82,9 @@ const base = (el: Element | undefined): string => {
 function nodeLatex(el: Element): string {
   const k = kidsOf(el);
   switch (el.localName) {
-    case "math":
     case "mrow":
+      return fencedMatrixLatex(el) ?? k.map(nodeLatex).join("");
+    case "math":
     case "mstyle":
     case "mpadded":
       return k.map(nodeLatex).join("");
@@ -96,10 +122,7 @@ function nodeLatex(el: Element): string {
       return `${cmd}{${k.map(nodeLatex).join("")}}`;
     }
     case "mtable":
-      return `\\begin{matrix}${k
-        .filter((r) => r.localName === "mtr")
-        .map((r) => kidsOf(r).filter((c) => c.localName === "mtd").map(nodeLatex).join(" & "))
-        .join(" \\\\ ")}\\end{matrix}`;
+      return `\\begin{matrix}${tableBody(el)}\\end{matrix}`;
     case "munderover":
       return `${base(k[0])}_{${arg(k[1])}}^{${arg(k[2])}}`;
     case "msqrt":

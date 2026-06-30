@@ -1239,6 +1239,24 @@ describe("list fidelity: nesting and ordered/bullet", () => {
     expect(html).toContain("<mtd>");
   });
 
+  it("writes a delimited matrix (pmatrix) as an OMML m:d around m:m", () => {
+    const body = '<p><span class="docx-eq" data-rdoc-eq contenteditable="false">' +
+      '<math xmlns="http://www.w3.org/1998/Math/MathML"><mrow>' +
+      '<mo fence="true" stretchy="true">(</mo>' +
+      "<mtable><mtr><mtd><mi>a</mi></mtd><mtd><mi>b</mi></mtd></mtr></mtable>" +
+      '<mo fence="true" stretchy="true">)</mo>' +
+      "</mrow></math></span></p>";
+    const out = htmlToDocx(body, makeDocx());
+    const xml = strFromU8(unzipSync(out)["word/document.xml"]!);
+    expect(xml).toMatch(/<m:d>/);
+    expect(xml).toMatch(/<m:begChr m:val="\("/);
+    expect(xml).toMatch(/<m:m>/); // the matrix sits inside the delimiter
+    // re-reads as a bracketed matrix
+    const html = docxToHtml(out);
+    expect(html).toContain("<mtable>");
+    expect(html).toMatch(/<mo[^>]*>\(<\/mo>/);
+  });
+
   it("round-trips an accent (hat) as an OMML m:acc", () => {
     const body = '<p><span class="docx-eq" data-rdoc-eq contenteditable="false">' +
       '<math xmlns="http://www.w3.org/1998/Math/MathML"><mover accent="true"><mi>x</mi><mo>^</mo></mover></math></span></p>';
