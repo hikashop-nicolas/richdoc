@@ -679,7 +679,7 @@ describe("shared engine mount", () => {
     const ed = createDocxEditor(host, docx);
     (host.querySelector(".docxedit-pagesetup-btn:not(.docxedit-sectionbreak-btn)") as HTMLElement).click();
     const sels = [...host.querySelectorAll(".docxedit-pagesetup select")] as HTMLSelectElement[];
-    sels[sels.length - 1]!.value = "vertical"; // the direction select
+    sels.find((s) => [...s.options].some((o) => o.value === "vertical"))!.value = "vertical"; // the direction select
     (host.querySelector(".docxedit-pagesetup .docxedit-dialog-primary") as HTMLElement).click();
     const xml = strFromU8(unzipSync(await ed.getBytes())["word/document.xml"]!);
     expect(xml).toContain('w:textDirection');

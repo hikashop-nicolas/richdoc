@@ -41,8 +41,8 @@ they are realistic to do, just not yet built.
   (REF / PAGEREF / SEQ), and the date / time / author / file-name info fields are authored;
   other, less-common fields (document title / subject, ASK / input, ...) are preserved but
   not insertable.
-- Page borders and page-number restart - preserved on the trailing section, not
-  authorable.
+- Page-number restart / format, line numbering and page vertical alignment - preserved on
+  the section, not yet authorable. (Page borders are now authorable through Page setup.)
 
 ---
 

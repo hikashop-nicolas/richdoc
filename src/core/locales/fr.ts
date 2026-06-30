@@ -224,6 +224,7 @@ const dict: Dict = {
   paraBorder: "Bordure du paragraphe",
   borderTopBottom: "Haut et bas",
   borderLeftRight: "Gauche et droite",
+  pageBorder: "Bordure de page",
 };
 
 export default dict;

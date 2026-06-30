@@ -3,7 +3,7 @@
 import { strFromU8, unzipSync } from "fflate";
 import { t } from "../../core/i18n";
 import { bytesToBase64, imageLayoutAttrs } from "../../core/util";
-import type { CommentEntry, CommentThread, PageGeometry } from "../../core/types";
+import type { CommentEntry, CommentThread, PageBorder, PageGeometry } from "../../core/types";
 import { W, R, XMLNS, NS_DECLS, IMG_MIME, escapeHtml, escapeAttr, HL_CSS, JC_TO_ALIGN } from "./shared";
 import { ommlToMathml } from "./omml";
 import { ensureDingsFont } from "./materialdings";
@@ -1026,7 +1026,21 @@ function parsePageGeometry(sectPr: Element | undefined, evenOdd = false): PageGe
   // Different first page: w:sectPr/w:titlePg (a present, non-false element).
   const tp = sectPr.getElementsByTagName("w:titlePg")[0];
   const titlePage = !!tp && (tp.getAttributeNS(W, "val") ?? tp.getAttribute("w:val") ?? "1") !== "0";
-  return { widthPx: Math.round(w), heightPx: Math.round(h), margin: { top: m("top"), right: m("right"), bottom: m("bottom"), left: m("left") }, vertical, rtl, columns, columnGapPx: columns ? Math.round(colGap ?? 36) : undefined, titlePage: titlePage || undefined, evenOdd: evenOdd || undefined };
+  // Page border: w:pgBorders, read as a uniform box from the top side (w:sz is eighths of a point).
+  const pgB = sectPr.getElementsByTagName("w:pgBorders")[0];
+  const pbTop = pgB?.getElementsByTagName("w:top")[0];
+  let pageBorder: PageBorder | undefined;
+  if (pbTop) {
+    const val = pbTop.getAttributeNS(W, "val") ?? pbTop.getAttribute("w:val") ?? "single";
+    if (val !== "none" && val !== "nil") {
+      const sz = Number(pbTop.getAttributeNS(W, "sz") ?? pbTop.getAttribute("w:sz")) || 4;
+      const col = pbTop.getAttributeNS(W, "color") ?? pbTop.getAttribute("w:color") ?? "auto";
+      const sp = Number(pbTop.getAttributeNS(W, "space") ?? pbTop.getAttribute("w:space"));
+      const style = val === "double" ? "double" : val === "dashed" ? "dashed" : val === "dotted" ? "dotted" : "solid";
+      pageBorder = { style, widthPx: Math.max(1, Math.round(sz / 6)), color: /^[0-9a-fA-F]{6}$/.test(col) ? col.toUpperCase() : "000000", spacePt: Number.isFinite(sp) ? sp : undefined };
+    }
+  }
+  return { widthPx: Math.round(w), heightPx: Math.round(h), margin: { top: m("top"), right: m("right"), bottom: m("bottom"), left: m("left") }, vertical, rtl, columns, columnGapPx: columns ? Math.round(colGap ?? 36) : undefined, titlePage: titlePage || undefined, evenOdd: evenOdd || undefined, pageBorder };
 }
 
 /** The archive key for a relationship target relative to word/ (e.g. "header1.xml"). */

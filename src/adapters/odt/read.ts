@@ -3,7 +3,7 @@
 import { strFromU8, unzipSync } from "fflate";
 import { bytesToBase64, imageLayoutAttrs } from "../../core/util";
 import { t } from "../../core/i18n";
-import type { CommentThread, PageGeometry } from "../../core/types";
+import type { CommentThread, PageBorder, PageGeometry } from "../../core/types";
 import { ODF_ALIGN, escapeHtml, escapeAttr, inlinePass, blockPass, passthroughAttr, FMT0, IMG_MIME } from "./shared";
 import type { Fmt, PFmt } from "./shared";
 import { collectGraphicStyles, readOdtLayout } from "./image-layout";
@@ -27,6 +27,16 @@ function lenToPx(v: string | null | undefined): number | undefined {
   if (!v) return undefined;
   const m = /^([\d.]+)(cm|mm|in|pt|px)$/.exec(v.trim());
   return m ? parseFloat(m[1]!) * PX_PER[m[2] as keyof typeof PX_PER] : undefined;
+}
+
+/** Read a uniform page border from a page-layout-properties' fo:border (or fo:border-top). */
+function parseOdtPageBorder(props: Element, toPx: (v: string | null) => number | undefined): PageBorder | undefined {
+  const v = (props.getAttribute("fo:border") ?? props.getAttribute("fo:border-top") ?? "").trim();
+  if (!v || /(^|\s)none(\s|$)/.test(v)) return undefined;
+  const wm = /^([\d.]+(?:cm|mm|in|pt|px))/.exec(v);
+  const style = /\b(double|dashed|dotted)\b/.exec(v)?.[1] ?? "solid";
+  const color = /#([0-9a-fA-F]{6})/.exec(v)?.[1]?.toUpperCase() ?? "000000";
+  return { style, widthPx: Math.max(1, Math.round((wm && toPx(wm[1]!)) || 1)), color };
 }
 
 /** Read context: the archive (for image data), the resolved style maps, and comment state. */
@@ -81,7 +91,7 @@ function geomFromLayoutProps(props: Element, lenToPx: (v: string | null) => numb
   const cols = Number.isFinite(numCols) && numCols > 1 ? numCols : undefined;
   const gap = colsEl?.getElementsByTagName("style:column-sep")[0]?.getAttribute("style:width");
   const wm = props.getAttribute("style:writing-mode") ?? "";
-  return JSON.stringify({ w: Math.round(w), h: Math.round(h), mt: m("top"), mr: m("right"), mb: m("bottom"), ml: m("left"), cols, colGap: cols ? Math.round(lenToPx(gap) ?? 36) : undefined, vertical: wm.startsWith("tb") || undefined, rtl: wm.startsWith("rl") || undefined });
+  return JSON.stringify({ w: Math.round(w), h: Math.round(h), mt: m("top"), mr: m("right"), mb: m("bottom"), ml: m("left"), cols, colGap: cols ? Math.round(lenToPx(gap) ?? 36) : undefined, vertical: wm.startsWith("tb") || undefined, rtl: wm.startsWith("rl") || undefined, pageBorder: parseOdtPageBorder(props, lenToPx) });
 }
 
 /** Map master-page name -> its page-layout geometry (JSON), so a section that switches master
@@ -884,7 +894,8 @@ function parsePageGeometry(files: Record<string, Uint8Array>): PageGeometry | un
   const numCols = Number(colsEl?.getAttribute("fo:column-count"));
   const columns = Number.isFinite(numCols) && numCols > 1 ? numCols : undefined;
   const gapAttr = colsEl?.getElementsByTagName("style:column-sep")[0]?.getAttribute("style:width");
-  return { widthPx: Math.round(w), heightPx: Math.round(h), margin: { top: m("top"), right: m("right"), bottom: m("bottom"), left: m("left") }, vertical, rtl, columns, columnGapPx: columns ? Math.round(lenToPx(gapAttr) ?? 36) : undefined };
+  const pageBorder = parseOdtPageBorder(props, lenToPx);
+  return { widthPx: Math.round(w), heightPx: Math.round(h), margin: { top: m("top"), right: m("right"), bottom: m("bottom"), left: m("left") }, vertical, rtl, columns, columnGapPx: columns ? Math.round(lenToPx(gapAttr) ?? 36) : undefined, pageBorder };
 }
 
 export function odtToParts(bytes: Uint8Array): { body: string; comments: CommentThread[]; header: string; footer: string; headerEven?: { html: string; path?: string }; footerEven?: { html: string; path?: string }; headerFirst?: { html: string; path?: string }; footerFirst?: { html: string; path?: string }; sectionBands?: Record<string, { html: string; path: string }>; notes?: { id: string; kind: "footnote" | "endnote"; html: string }[]; page?: PageGeometry; paragraphStyles?: { id: string; name: string }[]; characterStyles?: { id: string; name: string }[]; styleDefs?: { id: string; kind: "paragraph" | "character"; css: Record<string, string> }[]; styleCss?: string; noteCss?: string } {

@@ -715,6 +715,29 @@ describe("odt page geometry (page-layout)", () => {
     expect(s).not.toContain("style:rel-width"); // stale per-column widths are dropped
     expect(s).not.toContain("style:column-sep"); // and the separator on a rebuilt layout
   });
+
+  it("reads a page border from fo:border on the page layout", () => {
+    const pb = odtToParts(odtWith('fo:page-width="21cm" fo:page-height="29.7cm" fo:border="0.053cm double #ff0000"')).page!.pageBorder!;
+    expect(pb.style).toBe("double");
+    expect(pb.color).toBe("FF0000");
+    expect(pb.widthPx).toBe(2); // 0.053cm = ~2px
+  });
+
+  it("writes a page border as fo:border on the page layout", () => {
+    const out = htmlToOdt("<p>x</p>", odtWith('fo:page-width="21cm" fo:page-height="29.7cm"'), {
+      page: { widthPx: 794, heightPx: 1123, margin: { top: 96, right: 96, bottom: 96, left: 96 }, pageBorder: { style: "solid", widthPx: 2, color: "0000FF" } },
+    });
+    const s = strFromU8(unzipSync(out)["styles.xml"]);
+    expect(s).toMatch(/fo:border="[\d.]+cm solid #0000ff"/);
+  });
+
+  it("removes the page border when the geometry has none", () => {
+    const out = htmlToOdt("<p>x</p>", odtWith('fo:page-width="21cm" fo:page-height="29.7cm" fo:border="0.05cm solid #000000"'), {
+      page: { widthPx: 794, heightPx: 1123, margin: { top: 96, right: 96, bottom: 96, left: 96 } },
+    });
+    const s = strFromU8(unzipSync(out)["styles.xml"]);
+    expect(s).not.toContain("fo:border");
+  });
 });
 
 describe("odt editable tables (cell content round-trip)", () => {

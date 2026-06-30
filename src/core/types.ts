@@ -45,10 +45,20 @@ export interface ImageLayout {
 export type PageSizeName = "a4" | "letter";
 
 /** Physical page size and margins, in CSS pixels at 96 dpi. A view concern only. */
+/** A uniform page border (same on all four sides), drawn inset from the page edge. */
+export interface PageBorder {
+  style: string; // CSS border-style: solid | double | dashed | dotted
+  widthPx: number;
+  color: string; // 6-hex, no leading #
+  spacePt?: number; // offset from the page edge in points (docx w:space), kept for round-trip
+}
+
 export interface PageGeometry {
   widthPx: number;
   heightPx: number;
   margin: { top: number; right: number; bottom: number; left: number };
+  /** A border drawn around the whole page (docx w:pgBorders, odt page-layout fo:border). */
+  pageBorder?: PageBorder;
   /** Top-to-bottom, right-to-left text (Japanese tategaki) when true. */
   vertical?: boolean;
   /** Horizontal right-to-left text (Arabic/Hebrew) when true. Ignored if `vertical`. */
@@ -179,6 +189,7 @@ export interface SecGeom {
   colGap?: number;
   vertical?: boolean; // tategaki (vertical-rl) writing for this section
   rtl?: boolean; // horizontal right-to-left
+  pageBorder?: PageBorder; // a border around the page, per-section
 }
 
 /** A footnote / endnote body. The inline reference in the body HTML carries the matching id. */

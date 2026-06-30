@@ -88,6 +88,11 @@ export function createRichEditor(container: HTMLElement, adapter: Adapter, optio
     // (fixed-height page, columns advancing right-to-left) or horizontal RTL.
     page.classList.toggle("is-vertical", isVertical());
     page.classList.toggle("is-rtl", !isVertical() && caps.verticalText && !!geometry.rtl);
+    // Page border, drawn inset on every card via a CSS pseudo-element keyed off this variable.
+    const pb = geometry.pageBorder;
+    page.classList.toggle("has-pageborder", !!pb);
+    if (pb) page.style.setProperty("--rdoc-pageborder", `${pb.widthPx}px ${pb.style} #${pb.color}`);
+    else page.style.removeProperty("--rdoc-pageborder");
   };
   // Vertical (Japanese tategaki): fixed-height page, columns top-to-bottom advancing right to
   // left, so the page grows along x and page cards advance right-to-left (see repaginateVertical).
@@ -270,6 +275,7 @@ export function createRichEditor(container: HTMLElement, adapter: Adapter, optio
       geometry.columnGapPx = geometry.columns ? (g.colGap ?? 36) : undefined;
       geometry.vertical = g.vertical;
       geometry.rtl = g.rtl;
+      geometry.pageBorder = g.pageBorder;
       geometryDirty = true;
       applyGeometry();
       return;
@@ -967,13 +973,13 @@ export function createRichEditor(container: HTMLElement, adapter: Adapter, optio
   // (N+1)th column for several), and the boxes are centred + stacked. The caret is preserved as
   // a (block, char-offset) pair across the reparent, like the column reflow.
   const SECPAGE = "docxedit-secpage";
-  const docGeom = (): SecGeom => ({ w: geometry.widthPx, h: geometry.heightPx, mt: geometry.margin.top, mr: geometry.margin.right, mb: geometry.margin.bottom, ml: geometry.margin.left, cols: geometry.columns, colGap: geometry.columnGapPx, vertical: geometry.vertical, rtl: geometry.rtl });
+  const docGeom = (): SecGeom => ({ w: geometry.widthPx, h: geometry.heightPx, mt: geometry.margin.top, mr: geometry.margin.right, mb: geometry.margin.bottom, ml: geometry.margin.left, cols: geometry.columns, colGap: geometry.columnGapPx, vertical: geometry.vertical, rtl: geometry.rtl, pageBorder: geometry.pageBorder });
   // Resolve a section's geometry from its (possibly partial) JSON: size + margins fall back to the
   // document, but section-specific fields (columns, direction) are taken only from the section, so
   // a section that omits them does NOT inherit the document's columns / writing direction.
   const mergeSecGeom = (j: Partial<SecGeom>): SecGeom => {
     const d = docGeom();
-    return { w: j.w ?? d.w, h: j.h ?? d.h, mt: j.mt ?? d.mt, mr: j.mr ?? d.mr, mb: j.mb ?? d.mb, ml: j.ml ?? d.ml, cols: j.cols, colGap: j.colGap, vertical: j.vertical, rtl: j.rtl };
+    return { w: j.w ?? d.w, h: j.h ?? d.h, mt: j.mt ?? d.mt, mr: j.mr ?? d.mr, mb: j.mb ?? d.mb, ml: j.ml ?? d.ml, cols: j.cols, colGap: j.colGap, vertical: j.vertical, rtl: j.rtl, pageBorder: j.pageBorder };
   };
   const repaginateSections = () => {
     const blocks: HTMLElement[] = [];

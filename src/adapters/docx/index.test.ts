@@ -773,6 +773,51 @@ describe("page geometry (w:sectPr)", () => {
 </w:body></w:document>`;
     expect(docxToParts(makeDocx(doc)).page).toBeUndefined();
   });
+
+  it("reads a page border from w:pgBorders (top side, sz eighths -> px)", () => {
+    const doc = `<?xml version="1.0"?>
+<w:document xmlns:w="http://schemas.openxmlformats.org/wordprocessingml/2006/main"><w:body>
+  <w:p><w:r><w:t>Hi</w:t></w:r></w:p>
+  <w:sectPr><w:pgSz w:w="11906" w:h="16838"/><w:pgBorders w:offsetFrom="page"><w:top w:val="double" w:sz="12" w:space="24" w:color="FF0000"/><w:left w:val="double" w:sz="12" w:space="24" w:color="FF0000"/><w:bottom w:val="double" w:sz="12" w:space="24" w:color="FF0000"/><w:right w:val="double" w:sz="12" w:space="24" w:color="FF0000"/></w:pgBorders></w:sectPr>
+</w:body></w:document>`;
+    const pb = docxToParts(makeDocx(doc)).page!.pageBorder!;
+    expect(pb.style).toBe("double");
+    expect(pb.widthPx).toBe(2); // sz 12 eighths = 1.5pt = 2px
+    expect(pb.color).toBe("FF0000");
+    expect(pb.spacePt).toBe(24);
+  });
+});
+
+describe("page border write-back (w:pgBorders)", () => {
+  const withBorder = `<?xml version="1.0"?>
+<w:document xmlns:w="http://schemas.openxmlformats.org/wordprocessingml/2006/main"><w:body>
+  <w:p><w:r><w:t>Hi</w:t></w:r></w:p>
+  <w:sectPr><w:pgSz w:w="11906" w:h="16838"/><w:pgBorders w:offsetFrom="page"><w:top w:val="single" w:sz="6" w:space="24" w:color="000000"/></w:pgBorders></w:sectPr>
+</w:body></w:document>`;
+
+  it("writes a page border into w:pgBorders, after w:pgMar and before w:cols", () => {
+    const out = htmlToDocx("<p>x</p>", makeDocx(), undefined, {
+      pageGeometry: { widthPx: 794, heightPx: 1123, margin: { top: 96, right: 96, bottom: 96, left: 96 }, pageBorder: { style: "solid", widthPx: 2, color: "0000FF", spacePt: 20 } },
+    });
+    const xml = strFromU8(unzipSync(out)["word/document.xml"]);
+    expect(xml).toContain("<w:pgBorders");
+    const top = /<w:top\b[^>]*\/>/.exec(xml)?.[0] ?? "";
+    expect(top).toContain('w:val="single"');
+    expect(top).toContain('w:sz="12"'); // 2px -> 12 eighths of a point
+    expect(top).toContain('w:space="20"');
+    expect(top).toContain('w:color="0000FF"');
+    expect(xml).toMatch(/<w:right\b/); // all four sides emitted
+    expect(xml.indexOf("w:pgMar")).toBeLessThan(xml.indexOf("w:pgBorders")); // schema order
+    expect(xml.indexOf("w:pgBorders")).toBeLessThan(xml.indexOf("w:cols"));
+  });
+
+  it("removes the page border when the geometry has none", () => {
+    const out = htmlToDocx("<p>x</p>", makeDocx(withBorder), undefined, {
+      pageGeometry: { widthPx: 794, heightPx: 1123, margin: { top: 96, right: 96, bottom: 96, left: 96 } },
+    });
+    const xml = strFromU8(unzipSync(out)["word/document.xml"]);
+    expect(xml).not.toContain("w:pgBorders");
+  });
 });
 
 describe("page margin write-back (w:pgMar)", () => {

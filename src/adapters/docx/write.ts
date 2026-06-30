@@ -3,7 +3,7 @@
 // read half lives in ./read.
 import { strFromU8, strToU8, unzipSync, zipSync } from "fflate";
 import { toHex6, fontSizeToHalfPt, firstFontFamily, imageLayoutFromEl, blockBorders, parseCssBorder } from "../../core/util";
-import type { ImageLayout, NewStyle, Note, PageGeometry } from "../../core/types";
+import type { ImageLayout, NewStyle, Note, PageBorder, PageGeometry } from "../../core/types";
 import { W, R, PKG, REL_HYPERLINK, NS_DECLS, FMT0, HL_BY_HEX, JC_BY_ALIGN } from "./shared";
 import type { Fmt } from "./shared";
 import { EMU_PER_PX, makeContainer } from "./image-layout";
@@ -1532,12 +1532,21 @@ function applyDeletedComments(files: Record<string, Uint8Array>, ids: string[]):
  */
 /** Set a w:sectPr's page size, orientation, margins and columns (px -> twips), in place. Used for
     both the body-level section (Page setup) and an in-paragraph section break (per-section setup). */
-function setSectPrGeom(doc: Document, sectPr: Element, g: { w: number; h: number; mt: number; mr: number; mb: number; ml: number; cols?: number; colGap?: number; vertical?: boolean; rtl?: boolean }): void {
+function setSectPrGeom(doc: Document, sectPr: Element, g: { w: number; h: number; mt: number; mr: number; mb: number; ml: number; cols?: number; colGap?: number; vertical?: boolean; rtl?: boolean; pageBorder?: PageBorder }): void {
   const tw = (px: number): string => String(Math.round(px * 15));
   const child = (tag: string): Element => {
     let e = sectPr.getElementsByTagName(tag)[0];
     if (!e) { e = doc.createElementNS(W, tag); sectPr.appendChild(e); }
     return e;
+  };
+  // Insert a new child in its CT_SectPr schema position (header/footer refs always lead).
+  const insertOrdered = (el: Element): void => {
+    const rank = SECTPR_ORDER.indexOf(el.tagName);
+    for (const c of Array.from(sectPr.children)) {
+      if (c.tagName === "w:headerReference" || c.tagName === "w:footerReference") continue;
+      if (SECTPR_ORDER.indexOf(c.tagName) > rank) { sectPr.insertBefore(el, c); return; }
+    }
+    sectPr.appendChild(el);
   };
   const dropTag = (tag: string) => { for (const e of Array.from(sectPr.getElementsByTagName(tag))) e.parentNode!.removeChild(e); };
   // Page size + orientation (Word marks landscape explicitly when width > height).
@@ -1569,12 +1578,34 @@ function setSectPrGeom(doc: Document, sectPr: Element, g: { w: number; h: number
     cols.setAttributeNS(W, "w:equalWidth", "1");
     if (sepAttr === "1" || sepAttr === "true") cols.setAttributeNS(W, "w:sep", "1");
   }
+  // Page border (w:pgBorders): one uniform box on all four sides, inset from the page edge; remove
+  // when cleared. px -> eighths of a point for w:sz; w:space is the edge offset in points (0..31).
+  dropTag("w:pgBorders");
+  if (g.pageBorder) {
+    const pb = g.pageBorder;
+    const pgBorders = doc.createElementNS(W, "w:pgBorders");
+    pgBorders.setAttributeNS(W, "w:offsetFrom", "page");
+    const sz = String(Math.max(2, Math.round(pb.widthPx * 6)));
+    const space = String(Math.min(31, Math.max(0, Math.round(pb.spacePt ?? 24))));
+    for (const side of ["top", "left", "bottom", "right"]) {
+      const e = doc.createElementNS(W, `w:${side}`);
+      e.setAttributeNS(W, "w:val", DOCX_BORDER_VAL[pb.style] ?? "single");
+      e.setAttributeNS(W, "w:sz", sz);
+      e.setAttributeNS(W, "w:space", space);
+      e.setAttributeNS(W, "w:color", pb.color);
+      pgBorders.appendChild(e);
+    }
+    insertOrdered(pgBorders);
+  }
   // Writing direction: vertical tategaki (w:textDirection tbRl) / horizontal RTL (w:bidi).
   dropTag("w:textDirection");
   dropTag("w:bidi");
   if (g.vertical) child("w:textDirection").setAttributeNS(W, "w:val", "tbRl");
   else if (g.rtl) child("w:bidi");
 }
+
+/** CT_SectPr child order (after the leading header/footer references), for schema-correct insertion. */
+const SECTPR_ORDER = ["w:footnotePr", "w:endnotePr", "w:type", "w:pgSz", "w:pgMar", "w:paperSrc", "w:pgBorders", "w:lnNumType", "w:pgNumType", "w:cols", "w:formProt", "w:vAlign", "w:noEndnote", "w:titlePg", "w:textDirection", "w:bidi", "w:rtlGutter", "w:docGrid", "w:printerSettings", "w:sectPrChange"];
 
 /** Mint a fresh header/footer part (word/<kind>N.xml) from HTML + a content-type override + a
     relationship in document.xml.rels (via ctx), returning the new relationship id. */
@@ -1632,7 +1663,7 @@ function applyHFRef(ctx: DocxCtx, sectPr: Element, role: "header" | "footer", ke
     refs, page borders, etc. survive) or a fresh next-page break otherwise. headerKey/footerKey
     carry the section's header/footer link state. */
 function buildSectPr(ctx: DocxCtx, geomJson: string, stashedXml: string | null, headerKey: string | null, footerKey: string | null): Element | null {
-  let g: { w: number; h: number; mt: number; mr: number; mb: number; ml: number; cols?: number; colGap?: number };
+  let g: { w: number; h: number; mt: number; mr: number; mb: number; ml: number; cols?: number; colGap?: number; vertical?: boolean; rtl?: boolean; pageBorder?: PageBorder };
   try { g = JSON.parse(geomJson); } catch { return null; }
   let sectPr = stashedXml ? importPassthrough(ctx, stashedXml) : null;
   if (!sectPr || sectPr.tagName !== "w:sectPr") {
@@ -1656,7 +1687,7 @@ function applyPageMargins(files: Record<string, Uint8Array>, geometry: PageGeome
   const doc = new DOMParser().parseFromString(strFromU8(raw), "application/xml");
   const sectPr = Array.from(doc.getElementsByTagName("w:sectPr")).pop();
   if (!sectPr) return;
-  setSectPrGeom(doc, sectPr, { w: geometry.widthPx, h: geometry.heightPx, mt: geometry.margin.top, mr: geometry.margin.right, mb: geometry.margin.bottom, ml: geometry.margin.left, cols: geometry.columns, colGap: geometry.columnGapPx, vertical: geometry.vertical, rtl: geometry.rtl });
+  setSectPrGeom(doc, sectPr, { w: geometry.widthPx, h: geometry.heightPx, mt: geometry.margin.top, mr: geometry.margin.right, mb: geometry.margin.bottom, ml: geometry.margin.left, cols: geometry.columns, colGap: geometry.columnGapPx, vertical: geometry.vertical, rtl: geometry.rtl, pageBorder: geometry.pageBorder });
   files["word/document.xml"] = strToU8(new XMLSerializer().serializeToString(doc));
 }
 

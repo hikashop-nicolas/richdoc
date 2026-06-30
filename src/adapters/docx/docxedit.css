@@ -293,6 +293,8 @@
 .docxedit-page.is-paginated:focus-within { box-shadow: none; }
 .docxedit-pagelayer { position: absolute; inset: 0; z-index: 0; pointer-events: none; }
 .docxedit-pagecard { position: absolute; left: 0; width: 100%; background: #fff; box-sizing: border-box; box-shadow: 0 2px 12px rgba(0, 0, 0, .45); }
+/* Page border: an inset box drawn on every card, off the document's page geometry. */
+.docxedit-page.has-pageborder .docxedit-pagecard::after { content: ""; position: absolute; inset: 24px; border: var(--rdoc-pageborder); pointer-events: none; }
 .docxedit-page.is-paginated .docxedit-doc { position: relative; z-index: 1; min-height: 0; }
 .docxedit-pagespacer { width: 100%; flex: none; user-select: none; }
 .docxedit-pagetop { margin-block-start: 0 !important; } /* logical: margin-top, or margin-right in vertical-rl */

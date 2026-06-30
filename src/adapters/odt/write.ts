@@ -4,7 +4,7 @@
 import { strFromU8, strToU8, unzipSync, zipSync } from "fflate";
 import { firstFontFamily, fontSizeToHalfPt, toHex6, imageLayoutFromEl, blockBorders, parseCssBorder } from "../../core/util";
 import type { BlockBorderSide } from "../../core/util";
-import type { NewStyle, Note, PageGeometry } from "../../core/types";
+import type { NewStyle, Note, PageBorder, PageGeometry } from "../../core/types";
 import { NS, fmtKey, FMT0, ODF_ALIGN, importPassthrough, IMG_MIME } from "./shared";
 import type { Fmt } from "./shared";
 import { applyFrameLayout } from "./image-layout";
@@ -987,7 +987,7 @@ function buildTrackedChanges(ctx: OdfCtx): Element | null {
 
 /** Set a page-layout-properties element's size, orientation, margins and columns (px -> cm), in
     place. Shared by the document Page setup and per-section master pages. */
-function setPageLayoutGeom(doc: Document, props: Element, g: { w: number; h: number; mt: number; mr: number; mb: number; ml: number; cols?: number; colGap?: number; vertical?: boolean; rtl?: boolean }): void {
+function setPageLayoutGeom(doc: Document, props: Element, g: { w: number; h: number; mt: number; mr: number; mb: number; ml: number; cols?: number; colGap?: number; vertical?: boolean; rtl?: boolean; pageBorder?: PageBorder }): void {
   // Size + orientation (page-width/height are stored already swapped for landscape).
   props.setAttributeNS(NS.fo, "fo:page-width", pxToCm(g.w));
   props.setAttributeNS(NS.fo, "fo:page-height", pxToCm(g.h));
@@ -1018,6 +1018,12 @@ function setPageLayoutGeom(doc: Document, props: Element, g: { w: number; h: num
       colsEl.setAttributeNS(NS.fo, "fo:column-gap", pxToCm(g.colGap ?? 36));
       props.appendChild(colsEl);
     }
+  }
+  // Page border: a uniform fo:border on the page layout; clear any per-side variants too.
+  for (const a of ["fo:border", "fo:border-top", "fo:border-right", "fo:border-bottom", "fo:border-left"]) props.removeAttributeNS(NS.fo, a.slice(3));
+  if (g.pageBorder) {
+    const pb = g.pageBorder;
+    props.setAttributeNS(NS.fo, "fo:border", `${pxToCm(pb.widthPx)} ${pb.style} #${pb.color.toLowerCase()}`);
   }
 }
 
@@ -1051,7 +1057,7 @@ function applyPageMargins(files: Record<string, Uint8Array>, geometry: PageGeome
     props = doc.createElementNS(NS.style, "style:page-layout-properties");
     pl.insertBefore(props, pl.firstChild);
   }
-  setPageLayoutGeom(doc, props, { w: geometry.widthPx, h: geometry.heightPx, mt: geometry.margin.top, mr: geometry.margin.right, mb: geometry.margin.bottom, ml: geometry.margin.left, cols: geometry.columns, colGap: geometry.columnGapPx, vertical: geometry.vertical, rtl: geometry.rtl });
+  setPageLayoutGeom(doc, props, { w: geometry.widthPx, h: geometry.heightPx, mt: geometry.margin.top, mr: geometry.margin.right, mb: geometry.margin.bottom, ml: geometry.margin.left, cols: geometry.columns, colGap: geometry.columnGapPx, vertical: geometry.vertical, rtl: geometry.rtl, pageBorder: geometry.pageBorder });
   files["styles.xml"] = strToU8(new XMLSerializer().serializeToString(doc));
 }
 
@@ -1071,7 +1077,7 @@ function applySectionMasters(files: Record<string, Uint8Array>, htmlDoc: Documen
   let touched = false;
   for (const el of secs) {
     const name = el.getAttribute("data-odt-masterpage")!;
-    let g: { w: number; h: number; mt: number; mr: number; mb: number; ml: number; cols?: number; colGap?: number };
+    let g: { w: number; h: number; mt: number; mr: number; mb: number; ml: number; cols?: number; colGap?: number; vertical?: boolean; rtl?: boolean; pageBorder?: PageBorder };
     try { g = JSON.parse(el.getAttribute("data-rdoc-secstart")!); } catch { continue; }
     let master = Array.from(doc.getElementsByTagName("style:master-page")).find((m) => m.getAttribute("style:name") === name);
     // Leave an untouched section's existing master byte-for-byte; only act on edited / inserted ones.
