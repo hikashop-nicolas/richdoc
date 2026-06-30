@@ -1324,14 +1324,28 @@ describe("list fidelity: nesting and ordered/bullet", () => {
     expect(xml).toMatch(/w:font="Symbol"/);
   });
 
-  it("renders a non-Symbol w:sym with its font applied (best effort)", () => {
+  it("renders a Wingdings w:sym via the bundled MaterialDings font, rewriting it verbatim", () => {
     const doc = `<?xml version="1.0"?>
 <w:document xmlns:w="http://schemas.openxmlformats.org/wordprocessingml/2006/main">
  <w:body><w:p><w:r><w:sym w:font="Wingdings" w:char="F04A"/></w:r></w:p></w:body>
 </w:document>`;
     const html = docxToHtml(makeDocx(doc));
+    expect(html).toContain('class="docx-sym docx-dings"');
+    expect(html).toContain("font-family:'MaterialDings'");
+    expect(html).toContain("J"); // F04A -> low byte 0x4A, MaterialDings' classic codepoint
+    const out = htmlToDocx(html, makeDocx());
+    expect(strFromU8(unzipSync(out)["word/document.xml"]!)).toMatch(/<w:sym[^>]*w:font="Wingdings"/);
+  });
+
+  it("renders other symbol fonts (Webdings) with the named font as a best effort", () => {
+    const doc = `<?xml version="1.0"?>
+<w:document xmlns:w="http://schemas.openxmlformats.org/wordprocessingml/2006/main">
+ <w:body><w:p><w:r><w:sym w:font="Webdings" w:char="F061"/></w:r></w:p></w:body>
+</w:document>`;
+    const html = docxToHtml(makeDocx(doc));
     expect(html).toContain('class="docx-sym"');
-    expect(html).toContain("font-family:'Wingdings'");
+    expect(html).toContain("font-family:'Webdings'");
+    expect(html).not.toContain("docx-dings");
   });
 
   it("round-trips an internal hyperlink as a w:hyperlink w:anchor", () => {

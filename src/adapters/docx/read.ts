@@ -6,6 +6,7 @@ import { bytesToBase64, imageLayoutAttrs } from "../../core/util";
 import type { CommentEntry, CommentThread, PageGeometry } from "../../core/types";
 import { W, R, XMLNS, NS_DECLS, IMG_MIME, escapeHtml, escapeAttr, HL_CSS, JC_TO_ALIGN } from "./shared";
 import { ommlToMathml } from "./omml";
+import { ensureDingsFont } from "./materialdings";
 import type { Fmt } from "./shared";
 import { readLayout } from "./image-layout";
 
@@ -557,17 +558,24 @@ const SYMBOL_TO_UNICODE: Record<number, string> = {
   0xa3: "≤", 0xb3: "≥", 0xb9: "≠", 0xb1: "±", 0xa5: "∞", 0xb0: "°", 0xb4: "×", 0xb8: "÷",
   0xac: "←", 0xad: "↑", 0xae: "→", 0xaf: "↓", 0xab: "↔",
 };
-// A run carrying a w:sym (a symbol-font glyph): show the glyph (mapped to Unicode for the Symbol
-// font, else the raw char rendered in the named font) while stashing the whole run so it rewrites
-// verbatim. Without this the run is an empty passthrough span, i.e. invisible.
+// A run carrying a w:sym (a symbol-font glyph): show the glyph while stashing the whole run so it
+// rewrites verbatim. The Symbol font maps to portable Unicode; Wingdings renders via the bundled
+// MaterialDings open replacement (no proprietary font needed); other fonts are a best effort in the
+// named font. Without this the run is an empty passthrough span, i.e. invisible.
 function symHtml(run: Element, sym: Element): string {
   const font = sym.getAttributeNS(W, "font") ?? sym.getAttribute("w:font") ?? "";
   const raw = parseInt(sym.getAttributeNS(W, "char") ?? sym.getAttribute("w:char") ?? "", 16);
   if (!Number.isFinite(raw)) return inlinePassthrough(run);
+  const stash = passthroughAttr(run);
   const mapped = /^symbol$/i.test(font) ? SYMBOL_TO_UNICODE[raw & 0xff] : undefined;
-  const glyph = mapped ?? String.fromCharCode(raw);
-  const style = mapped ? "" : ` style="font-family:'${escapeAttr(font.replace(/'/g, ""))}'"`;
-  return `<span class="docx-sym" contenteditable="false"${passthroughAttr(run)}${style}>${escapeHtml(glyph)}</span>`;
+  if (mapped) return `<span class="docx-sym" contenteditable="false"${stash}>${escapeHtml(mapped)}</span>`;
+  if (/^wingdings$/i.test(font)) {
+    // MaterialDings maps at the classic low codepoints (0x21-0xFF), so use the low byte of the PUA char.
+    ensureDingsFont();
+    return `<span class="docx-sym docx-dings" contenteditable="false"${stash} style="font-family:'MaterialDings'">${escapeHtml(String.fromCharCode(raw & 0xff))}</span>`;
+  }
+  const style = ` style="font-family:'${escapeAttr(font.replace(/'/g, ""))}'"`;
+  return `<span class="docx-sym" contenteditable="false"${stash}${style}>${escapeHtml(String.fromCharCode(raw))}</span>`;
 }
 
 function inlineToHtml(p: Element, ctx: RenderCtx): string {

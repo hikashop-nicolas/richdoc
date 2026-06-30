@@ -53,7 +53,8 @@ A full word-processor surface in the browser, the same for both formats unless n
   multi-column, vertical and per-section layouts).
 - **Special characters:** a picker inserts common symbols, arrows, Greek letters, currency and
   accented Latin as plain text (so they round-trip on both formats). Legacy Word symbol-font glyphs
-  (`w:sym`) are rendered too (the Symbol font mapped to Unicode) and preserved.
+  (`w:sym`) are rendered too (the Symbol font mapped to Unicode, Wingdings via a bundled open font)
+  and preserved.
 - **Find & replace** with case, whole-word and regex options.
 - **Passthrough preservation:** anything not modelled is kept byte-for-byte and
   re-emitted on save, so editing never drops unsupported content.
@@ -136,3 +137,7 @@ node_modules/.bin/vite   # then open /demo/ to try it on a real file
 ## License
 
 MIT, see [LICENSE](LICENSE).
+
+The bundled MaterialDings webfont (used to render Wingdings `w:sym` glyphs without the proprietary
+font) is © 2018 Accusoft Corporation under the SIL Open Font License 1.1; see
+[src/adapters/docx/MaterialDings.LICENSE.md](src/adapters/docx/MaterialDings.LICENSE.md).

@@ -26,8 +26,8 @@
     "dist"
   ],
   "scripts": {
-    "build": "tsc -p tsconfig.json && cp src/adapters/docx/docxedit.css dist/adapters/docx/docxedit.css",
-    "prepare": "tsc -p tsconfig.json && cp src/adapters/docx/docxedit.css dist/adapters/docx/docxedit.css",
+    "build": "tsc -p tsconfig.json && cp src/adapters/docx/docxedit.css dist/adapters/docx/docxedit.css && cp src/adapters/docx/MaterialDings.LICENSE.md dist/adapters/docx/MaterialDings.LICENSE.md",
+    "prepare": "tsc -p tsconfig.json && cp src/adapters/docx/docxedit.css dist/adapters/docx/docxedit.css && cp src/adapters/docx/MaterialDings.LICENSE.md dist/adapters/docx/MaterialDings.LICENSE.md",
     "typecheck": "tsc -p tsconfig.json --noEmit",
     "test": "vitest run",
     "dev:demo": "vite --config vite.demo.config.ts",
