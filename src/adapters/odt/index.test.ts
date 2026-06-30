@@ -1129,6 +1129,13 @@ describe("odt paragraph shading", () => {
     expect(xml).toMatch(/fo:border-bottom="[^"]*solid #000000"/);
     expect(odtToHtml(out)).toContain("border-top:1px solid #000000"); // and reads back
   });
+
+  it("round-trips a border's width and line style", () => {
+    const out = htmlToOdt('<p style="border-top:3px dashed #ff0000;padding:2px 6px">hi</p>', makeOdt());
+    const xml = strFromU8(unzipSync(out)["content.xml"]);
+    expect(xml).toMatch(/fo:border-top="[^"]*dashed #ff0000"/i);
+    expect(odtToHtml(out)).toMatch(/border-top:3px dashed #ff0000/i);
+  });
 });
 
 describe("odt info fields (date / author / file name)", () => {

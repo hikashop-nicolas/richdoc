@@ -1425,6 +1425,15 @@ describe("list fidelity: nesting and ordered/bullet", () => {
     expect(docxToHtml(out)).toContain("border-bottom:1px solid #000000"); // and round-trips
   });
 
+  it("round-trips a paragraph border's width, line style and colour", () => {
+    const out = htmlToDocx('<p style="border-top:3px dashed #ff0000;padding:2px 6px">x</p>', makeDocx());
+    const xml = strFromU8(unzipSync(out)["word/document.xml"]!);
+    expect(xml).toMatch(/<w:top[^>]*w:val="dashed"/);
+    expect(xml).toMatch(/<w:top[^>]*w:sz="18"/); // 3px * 6 = 18 eighths of a point
+    expect(xml).toMatch(/<w:top[^>]*w:color="FF0000"/i);
+    expect(docxToHtml(out)).toMatch(/border-top:3px dashed #ff0000/i); // and round-trips
+  });
+
   it("round-trips an internal hyperlink as a w:hyperlink w:anchor", () => {
     const out = htmlToDocx('<p>See <a href="#intro">the intro</a></p>', makeDocx());
     const xml = strFromU8(unzipSync(out)["word/document.xml"]!);

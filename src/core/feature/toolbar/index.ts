@@ -441,19 +441,35 @@ export function setupToolbar(deps: ToolbarDeps) {
     paraShadeWrap.append(input, clear);
   }
 
-  // Paragraph border: a small menu of presets (box / top / bottom / both / none), applied as
-  // 1px solid black per side. Any colour from an imported border still round-trips; the picker
-  // authors black, the common case.
+  // Paragraph border: a menu with colour / line-style / width controls plus side presets
+  // (box / top / bottom / both / none). The chosen colour, style and width are applied to the
+  // selected sides; "none" clears every side.
   const BORDER_SIDES = ["top", "right", "bottom", "left"] as const;
   const borderMenu = document.createElement("div");
   borderMenu.className = "docxedit-menu";
   borderMenu.hidden = true;
+  const borderOpts = document.createElement("div");
+  borderOpts.className = "docxedit-border-opts";
+  const bColor = document.createElement("input");
+  bColor.type = "color";
+  bColor.value = "#000000";
+  bColor.title = t("borderColor");
+  bColor.addEventListener("mousedown", (e) => e.preventDefault());
+  const bStyle = document.createElement("select");
+  bStyle.title = t("borderStyle");
+  for (const [v, key] of [["solid", "bsSolid"], ["dashed", "bsDashed"], ["dotted", "bsDotted"], ["double", "bsDouble"]] as const) bStyle.add(new Option(t(key), v));
+  const bWidth = document.createElement("select");
+  bWidth.title = t("borderWidth");
+  for (const w of [1, 2, 3, 4]) bWidth.add(new Option(`${w} px`, String(w)));
+  borderOpts.append(bColor, bStyle, bWidth);
+  borderMenu.appendChild(borderOpts);
   const applyBorder = (sides: readonly ("top" | "right" | "bottom" | "left")[] | null): void => {
     getActiveEl().focus();
+    const spec = `${bWidth.value}px ${bStyle.value} ${bColor.value}`;
     for (const b of selectedBlocks()) {
       for (const s of BORDER_SIDES) b.style.removeProperty(`border-${s}`);
       if (sides) {
-        for (const s of sides) b.style.setProperty(`border-${s}`, "1px solid #000000");
+        for (const s of sides) b.style.setProperty(`border-${s}`, spec);
         b.style.padding = "2px 6px";
       } else {
         b.style.removeProperty("padding");

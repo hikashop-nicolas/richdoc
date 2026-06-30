@@ -312,7 +312,7 @@ export function setupStyles(deps: StylesDeps) {
   dFont.title = t("font");
   let dFontFilled = false; // populated lazily from FONTS
   bgRow.append(dFont, bgLabel);
-  // Paragraph border: a preset picker + colour (paragraph styles only; black 1px presets).
+  // Paragraph border (paragraph styles only): a side preset + colour, line style and width.
   const borderRow = document.createElement("div");
   borderRow.className = "docxedit-dialog-row";
   const dBorder = document.createElement("select");
@@ -323,7 +323,13 @@ export function setupStyles(deps: StylesDeps) {
   dBorderColor.type = "color";
   dBorderColor.value = "#000000";
   dBorderColor.title = t("borderColor");
-  borderRow.append(dBorder, dBorderColor);
+  const dBorderStyle = document.createElement("select");
+  dBorderStyle.title = t("borderStyle");
+  for (const [v, key] of [["solid", "bsSolid"], ["dashed", "bsDashed"], ["dotted", "bsDotted"], ["double", "bsDouble"]] as const) dBorderStyle.add(new Option(t(key), v));
+  const dBorderWidth = document.createElement("select");
+  dBorderWidth.title = t("borderWidth");
+  for (const w of [1, 2, 3, 4]) dBorderWidth.add(new Option(`${w} px`, String(w)));
+  borderRow.append(dBorder, dBorderColor, dBorderStyle, dBorderWidth);
   const dCreate = document.createElement("button");
   dCreate.type = "button";
   dCreate.className = "docxedit-menu-item docxedit-dialog-primary";
@@ -373,7 +379,8 @@ export function setupStyles(deps: StylesDeps) {
       const preset = dBorder.value;
       if (preset) {
         const sides = preset === "box" ? ["top", "right", "bottom", "left"] : preset === "topbottom" ? ["top", "bottom"] : [preset];
-        for (const s of sides) css[`border-${s}`] = `1px solid ${dBorderColor.value}`;
+        const spec = `${dBorderWidth.value}px ${dBorderStyle.value} ${dBorderColor.value}`;
+        for (const s of sides) css[`border-${s}`] = spec;
         css["padding"] = "2px 6px";
       }
     }
@@ -406,6 +413,8 @@ export function setupStyles(deps: StylesDeps) {
       : bsides.length === 1 && bsides[0] === "bottom" ? "bottom" : "";
     const firstB = bsides.length ? parseCssBorder(pre[`border-${bsides[0]}`]) : null;
     dBorderColor.value = firstB ? `#${firstB.hex.toLowerCase()}` : "#000000";
+    dBorderStyle.value = firstB && ["solid", "dashed", "dotted", "double"].includes(firstB.style) ? firstB.style : "solid";
+    dBorderWidth.value = String(firstB ? Math.min(4, Math.max(1, firstB.px)) : 1);
     dlgPassthrough = {};
     for (const p of ["margin-left", "margin-top", "margin-bottom", "line-height", "--rdoc-tabstops"]) if (pre[p]) dlgPassthrough[p] = pre[p]!;
   };
