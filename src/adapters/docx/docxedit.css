@@ -216,6 +216,12 @@
 .docxedit-eq-input:focus-visible { outline: 2px solid #6e7bff; outline-offset: -1px; }
 .docxedit-eq-preview { min-height: 44px; padding: 8px 10px; background: #fff; color: #000; border-radius: 6px; display: flex; align-items: center; justify-content: center; overflow-x: auto; }
 .docxedit-eq-preview math { font-size: 1.25em; }
+/* Special-character picker: a wrapping grid of glyph buttons. */
+.docxedit-dialog.docxedit-symbols { max-width: 392px; }
+.docxedit-symbol-grid { display: grid; grid-template-columns: repeat(10, 1fr); gap: 4px; max-height: 280px; overflow-y: auto; }
+.docxedit-symbol { height: 32px; border: 1px solid #4a4f57; border-radius: 6px; background: #1f2329; color: #e6e8ec; cursor: pointer; font-size: 16px; line-height: 1; padding: 0; }
+.docxedit-symbol:hover { background: #6e7bff; border-color: #6e7bff; color: #fff; }
+.docxedit-symbol:focus-visible { outline: 2px solid #6e7bff; outline-offset: 1px; }
 /* Symmetric margins keep the page centred; the right one holds the comments column. */
 .docxedit-canvas { display: flex; align-items: flex-start; gap: 18px; flex: 0 0 auto; }
 .docxedit-margin { flex: 0 1 250px; min-width: 0; }

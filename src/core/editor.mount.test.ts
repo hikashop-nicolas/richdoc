@@ -47,6 +47,32 @@ describe("shared engine mount", () => {
     ed.destroy();
   });
 
+  it("inserts a special character at the caret via the symbol picker", () => {
+    const host = document.createElement("div");
+    const ed = createDocxEditor(host, DOCX);
+    const docEl = host.querySelector(".docxedit-doc") as HTMLElement;
+    const p = (docEl.querySelector("p") ?? docEl) as HTMLElement;
+    p.focus();
+    const sel = window.getSelection()!;
+    const r = document.createRange();
+    r.selectNodeContents(p);
+    r.collapse(false); // caret at the end of "Hi"
+    sel.removeAllRanges();
+    sel.addRange(r);
+
+    const open = [...host.querySelectorAll("button")].find((b) => b.title === "Insert special character") as HTMLButtonElement;
+    expect(open).toBeTruthy();
+    open.click();
+    expect(host.querySelector(".docxedit-symbols")).toBeTruthy();
+    const arrow = [...host.querySelectorAll(".docxedit-symbol")].find((b) => b.textContent === "→") as HTMLButtonElement;
+    expect(arrow).toBeTruthy();
+    arrow.click();
+
+    expect(docEl.textContent).toContain("→");
+    expect(ed.isDirty()).toBe(true);
+    ed.destroy();
+  });
+
   it("mounts an odt editor on the same engine, with unsupported controls gated off", () => {
     const docxHost = document.createElement("div");
     const docxEd = createDocxEditor(docxHost, DOCX);

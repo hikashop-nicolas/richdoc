@@ -49,6 +49,10 @@ export const captionIcon =
 export const equationIcon =
   '<svg width="14" height="14" viewBox="0 0 16 16" fill="none" stroke="currentColor" stroke-width="1.3" stroke-linecap="round" stroke-linejoin="round" aria-hidden="true">' +
   '<path d="M1.5 9l1.8 0 1.7 4 2.8-10H14"/></svg>';
+// A special-character picker: the omega glyph (the conventional "insert symbol" mark).
+export const symbolIcon =
+  '<svg width="14" height="14" viewBox="0 0 16 16" aria-hidden="true">' +
+  '<text x="8" y="12.5" text-anchor="middle" font-size="13" font-family="serif" fill="currentColor">Ω</text></svg>';
 // A note (footnote or endnote): text lines with a small superscript mark.
 export const footnoteIcon =
   '<svg width="14" height="14" viewBox="0 0 16 16" fill="none" stroke="currentColor" stroke-width="1.3" stroke-linecap="round" aria-hidden="true">' +

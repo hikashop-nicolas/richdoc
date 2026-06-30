@@ -215,6 +215,7 @@ const dict: Dict = {
   findClose: "Fermer",
   findNone: "Aucun résultat",
   insertEquation: "Insérer une équation",
+  insertSymbol: "Insérer un caractère spécial",
 };
 
 export default dict;

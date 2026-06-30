@@ -37,7 +37,8 @@ regenerated from the HTML.
 These round-trip untouched today. Adding an insert/edit UI would make them authorable;
 they are realistic to do, just not yet built.
 
-- Symbols / special characters (`w:sym`) - no insert picker.
+- Legacy symbol-font glyphs (`w:sym`, a font + char code) are preserved as passthrough but not
+  authored; the special-character picker inserts plain Unicode text instead (the modern equivalent).
 - Complex fields - PAGE / NUMPAGES / TOC and the cross-reference / caption fields
   (REF / PAGEREF / SEQ) are authored; date, file name, author, etc. are preserved but not
   insertable.
