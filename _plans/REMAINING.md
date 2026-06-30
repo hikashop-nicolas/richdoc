@@ -57,7 +57,7 @@ context (a paragraph, or the document body) is regenerated from the edited HTML.
   variants, `w:titlePg`, and `w:evenAndOddHeaders` (minting settings.xml if absent); odt writes the
   even and first-page variants as `style:header-left` / `style:footer-left` and `style:header-first` /
   `style:footer-first` (ODF 1.3). An enabled-but-empty variant is still written (an empty element),
-  so a blank first/even page round-trips in both formats. Design in `_plans/HEADERS_PLAN.md`.
+  so a blank first/even page round-trips in both formats.
 - Inline images, hyperlinks.
 - **Furigana / ruby**: `w:ruby` (docx) / `text:ruby` (odt) read, rendered as a native HTML
   `<ruby>base<rt>reading</rt></ruby>` (the browser places the reading above in horizontal text and
@@ -98,7 +98,36 @@ context (a paragraph, or the document body) is regenerated from the edited HTML.
   per-master `style:header`/`style:footer`), falling back to the document default (Word's
   link-to-previous) when it has none. A corner chip on a non-main section's header/footer toggles
   that link: unlinking mints the section its own part (docx) / master header (odt), pre-filled
-  with the inherited content; relinking drops it. Design in `_plans/SECTIONS_PLAN.md`.
+  with the inherited content; relinking drops it.
+- **Equations / math**: insert, display, edit and round-trip on both formats. Authored as LaTeX in a
+  dialog (temml, lazy-loaded) with a live preview, stored as MathML and rendered natively by the
+  browser as 2D math; click an equation to edit it. docx round-trips OMML (`src/adapters/docx/omml.ts`):
+  fractions, scripts, radicals, n-ary sum/integral/product, delimiters, matrices, delimited matrices /
+  cases, accents, bars, over/under braces, and upright vs italic run styles (so functions and `\mathrm`
+  stay upright, not italicised); an unedited imported equation rewrites its original OMML verbatim. odt
+  embeds a formula object (`draw:frame` -> `draw:object` -> `Object/content.xml` MathML + manifest
+  entries), and an unedited one re-emits its original frame. An imported equation (no authored LaTeX)
+  recovers a best-effort LaTeX from its MathML (`src/core/feature/mathml-latex.ts`) so it stays
+  editable. Passed through (not modelled): equation arrays (`m:eqArr`) and boxes, per-column matrix
+  alignment, and a non-function multi-letter identifier (recovers as plain letters).
+- **Bookmarks, cross-references, captions, internal links, outline**: insert a bookmark over a
+  selection; cross-reference a bookmark / heading / caption as its text, page number, or above/below
+  direction, with the field text recomputed on reflow; figure / table / equation captions each with an
+  independent auto-numbered sequence; internal hyperlinks (Ctrl/Cmd-click to follow); and a collapsible
+  outline / navigation pane of H1-H3. docx maps to `bookmarkStart/End`, `REF` / `PAGEREF` / `SEQ`
+  fields and `w:hyperlink w:anchor`; odt to `text:bookmark(-start/-end)`, `text:bookmark-ref` and
+  `text:sequence`.
+- **Footnotes / endnotes**: insert (a popup adds a footnote or endnote at the caret, minting docx
+  footnotes.xml / endnotes.xml + its content-type / relationship when absent), edit (bodies are full
+  formatting hosts: the toolbar, floating bar and shortcuts apply and round-trip as run properties),
+  and delete (removing the reference mark drops the note from the view and the save). References render
+  as numbered superscripts; footnotes render at the bottom of their page and endnotes at the document
+  end, the space reserved by a two-pass measure-then-bucket pass that covers multi-column, vertical
+  (tategaki) and per-section layouts. The note area inherits the document's footnote-text style. Both
+  formats round-trip (docx footnotes.xml / endnotes.xml, odt inline `text:note`).
+- **Find & replace**: scoped to the editable body (skips fields, cross-refs and passthrough), with
+  case / whole-word / regex options; matches are shown via the CSS Custom Highlight API (no DOM
+  mutation) and replace goes through the native undo stack. Ctrl/Cmd-F opens it.
 
 ---
 
@@ -114,7 +143,7 @@ vertical + horizontal sections, a Page setup Direction control, vertical (tatega
 including the ruler, the floating toolbar, and **multi-column vertical text (N stacked bands)**,
 plus furigana. The only vertical edge left: a *mid-document section* that is BOTH vertical AND
 multi-column (the whole-document vertical-columns path handles the common case; a vertical
-section box with `w:cols` renders as a single vertical flow). See `_plans/SECTIONS_PLAN.md`.
+section box with `w:cols` renders as a single vertical flow).
 2. **Tab-stop positioning + authoring** is now done (see bucket A): custom stops render at their
    real positions with left / center / right / decimal alignment and dot leaders, and the ruler
    authors them. Only vertical (tategaki) tab alignment is deferred (kept on the default grid).
@@ -135,31 +164,10 @@ section box with `w:cols` renders as a single vertical flow). See `_plans/SECTIO
 These round-trip untouched today. Adding an insert/edit UI would make them
 authorable; they are realistic to do, just not yet built.
 
-- Footnotes / endnotes: references render as numbered superscripts; footnotes render at the
-  bottom of their page (above the footer, with a separator rule; the body reserves the space via
-  the paginator), endnotes in a notes area at the document end. Bodies are full editing hosts:
-  text in them is formattable with the toolbar, the floating bar and the keyboard shortcuts
-  (bold/italic/colour/font), the toolbar reflects their formatting state, and it round-trips as
-  run properties. The note area inherits the document's footnote-text style (docx "FootnoteText",
-  odt "Footnote": font family / size / line-height / colour), falling back to a built-in size when
-  the document defines none. An "Insert note" control opens a small popup to add one: the note text
-  plus a footnote / endnote choice (footnote default), inserted at the caret (minting docx
-  footnotes.xml / endnotes.xml + its content-type/relationship when the document has none); deleting
-  its reference mark removes it
-  (Backspace just after the mark or Delete just before it, since the mark is an atomic non-selectable
-  superscript), dropping the body from the view and the save. Everything round-trips (docx
-  footnotes.xml / endnotes.xml; odt inline `text:note`). Per-page placement covers every paginated
-  layout, reserving the space via a shared two-pass measure-then-bucket pass: horizontal layouts put
-  the area at the page bottom (full content width, below all columns in multi-column); vertical
-  (tategaki) layouts put a band down the page's left edge (the end of the right-to-left flow), with
-  the separator on the body side and the notes set vertical-rl; section documents place each note in
-  its own section box, at that box's bottom (horizontal) or left band (vertical). Only the pageless
-  view (no page boundaries) keeps the doc-end area. Endnotes always use the doc-end area. See
-  `_plans/FOOTNOTES_PLAN.md`.
 - Symbols / special characters (`w:sym`) - no insert picker.
-- Bookmarks (`w:bookmarkStart/End`) and cross-references - no insert UI.
-- Complex fields - only PAGE / NUMPAGES / TOC are authored; date, file name,
-  author, etc. are preserved but not insertable.
+- Complex fields - PAGE / NUMPAGES / TOC and the cross-reference / caption fields
+  (REF / PAGEREF / SEQ) are authored; date, file name, author, etc. are preserved
+  but not insertable.
 - Page borders, page-number restart - preserved on the trailing section, not
   authorable.
 
@@ -175,8 +183,6 @@ which they do.
   images).
 - Embedded OLE objects.
 - Content controls / structured document tags (`w:sdt`) authoring.
-- Equations / math (OMML) authoring - would require an embedded equation editor
-  component (e.g. MathLive). Preserved as-is unless we decide to add one.
 - VML legacy markup (beyond image extraction).
 
 ---
@@ -184,7 +190,8 @@ which they do.
 ## Notes
 
 - Single-section documents keep their full section properties (columns, borders,
-  page-number restart, etc.); per-section authoring (C1) is the real risk.
+  page-number restart, etc.); per-section authoring is implemented (bucket A) and
+  untouched sections still round-trip byte-for-byte.
 - First-page and even/odd header/footer variants are read, rendered and authored in both formats
   (see bucket A). Per-section header/footer parts are preserved + editable.
 - The odt adapter mirrors docx for floating images (`draw:frame` anchor-type +
