@@ -1007,3 +1007,87 @@ describe("odt bookmarks and cross-references", () => {
     expect(odtToHtml(out)).toContain('data-rdoc-caption="figure"');
   });
 });
+
+describe("odt equations (draw:object formula)", () => {
+  const ROOT =
+    'xmlns:office="urn:oasis:names:tc:opendocument:xmlns:office:1.0" ' +
+    'xmlns:text="urn:oasis:names:tc:opendocument:xmlns:text:1.0" ' +
+    'xmlns:draw="urn:oasis:names:tc:opendocument:xmlns:drawing:1.0" ' +
+    'xmlns:svg="urn:oasis:names:tc:opendocument:xmlns:svg-compatible:1.0" ' +
+    'xmlns:xlink="http://www.w3.org/1999/xlink"';
+  const MANIFEST =
+    '<?xml version="1.0"?><manifest:manifest xmlns:manifest="urn:oasis:names:tc:opendocument:xmlns:manifest:1.0">' +
+    '<manifest:file-entry manifest:full-path="/" manifest:media-type="application/vnd.oasis.opendocument.text"/>' +
+    '<manifest:file-entry manifest:full-path="Object 1/" manifest:media-type="application/vnd.oasis.opendocument.formula"/>' +
+    '<manifest:file-entry manifest:full-path="Object 1/content.xml" manifest:media-type="text/xml"/></manifest:manifest>';
+  const MATH =
+    '<?xml version="1.0" encoding="UTF-8"?><math xmlns="http://www.w3.org/1998/Math/MathML">' +
+    "<semantics><mrow><mi>x</mi><mo>=</mo><mi>y</mi></mrow><annotation encoding=\"StarMath 5.0\">x = y</annotation></semantics></math>";
+  const FRAME =
+    '<draw:frame draw:name="Formula1" text:anchor-type="as-char" svg:width="1cm" svg:height="0.5cm">' +
+    '<draw:object xlink:href="./Object 1" xlink:show="embed" xlink:actuate="onLoad"/></draw:frame>';
+
+  function makeMathOdt(content: string): Uint8Array {
+    return zipSync({
+      mimetype: [strToU8("application/vnd.oasis.opendocument.text"), { level: 0 }],
+      "content.xml": strToU8(content),
+      "META-INF/manifest.xml": strToU8(MANIFEST),
+      "Object 1/content.xml": strToU8(MATH),
+    });
+  }
+  const wrap = (inner: string): string =>
+    `<?xml version="1.0"?><office:document-content ${ROOT}><office:body><office:text>${inner}</office:text></office:body></office:document-content>`;
+
+  it("reads an embedded formula frame as an equation span carrying MathML", () => {
+    const html = odtToHtml(makeMathOdt(wrap(`<text:p>See ${FRAME} ok</text:p>`)));
+    expect(html).toContain('class="docx-eq"');
+    expect(html).toContain("<math");
+    expect(html).toContain("<mi>x</mi>");
+    expect(html).toContain("<mo>=</mo>");
+  });
+
+  it("re-emits an untouched equation verbatim, reusing its Object sub-document", () => {
+    const odt = makeMathOdt(wrap(`<text:p>See ${FRAME} ok</text:p>`));
+    const html = odtToHtml(odt);
+    const out = htmlToOdt(html.replace(" ok", " OK"), odt); // edit only the surrounding text
+    const files = unzipSync(out);
+    const xml = strFromU8(files["content.xml"]);
+    expect(xml).toContain('xlink:href="./Object 1"'); // original object still referenced
+    expect(xml).toContain("OK");
+    expect(strFromU8(files["Object 1/content.xml"])).toContain("<mi>x</mi>"); // sub-document preserved
+    expect(odtToHtml(out)).toContain('class="docx-eq"'); // and still reads back as an equation
+  });
+
+  it("writes a newly inserted equation as a fresh formula object + frame + manifest", () => {
+    const base = wrap("<text:p/>");
+    const body =
+      '<p>a <span class="docx-eq" data-rdoc-eq contenteditable="false">' +
+      '<math xmlns="http://www.w3.org/1998/Math/MathML"><mrow><mi>a</mi><mo>+</mo><mi>b</mi></mrow></math></span> b</p>';
+    const out = htmlToOdt(body, makeMathOdt(base));
+    const files = unzipSync(out);
+    const xml = strFromU8(files["content.xml"]);
+    expect(xml).toContain("draw:frame");
+    expect(xml).toContain('xlink:href="./Formula_rdoc0"');
+    expect(xml).toContain('text:anchor-type="as-char"');
+    const obj = strFromU8(files["Formula_rdoc0/content.xml"]);
+    expect(obj).toContain("http://www.w3.org/1998/Math/MathML");
+    expect(obj).toContain("<mi>a</mi>");
+    const manifest = strFromU8(files["META-INF/manifest.xml"]);
+    expect(manifest).toContain('manifest:full-path="Formula_rdoc0/"');
+    expect(manifest).toContain('manifest:full-path="Formula_rdoc0/content.xml"');
+    expect(manifest).toContain("application/vnd.oasis.opendocument.formula");
+    expect(odtToHtml(out)).toContain('class="docx-eq"'); // round-trips back to an equation
+  });
+
+  it("writes a fresh object when an imported equation is edited (no stash)", () => {
+    const odt = makeMathOdt(wrap(`<text:p>${FRAME}</text:p>`));
+    // simulate an edit: a docx-eq span with new MathML and no data-odt-xml (the editor drops it)
+    const body =
+      '<p><span class="docx-eq" data-rdoc-eq contenteditable="false">' +
+      '<math xmlns="http://www.w3.org/1998/Math/MathML"><mrow><mi>z</mi></mrow></math></span></p>';
+    const out = htmlToOdt(body, odt);
+    const files = unzipSync(out);
+    expect(strFromU8(files["content.xml"])).toContain('xlink:href="./Formula_rdoc0"');
+    expect(strFromU8(files["Formula_rdoc0/content.xml"])).toContain("<mi>z</mi>");
+  });
+});

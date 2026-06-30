@@ -1,10 +1,11 @@
 # Equation editor
 
-## Status: DONE (v1)
+## Status: DONE (v1, docx + odt)
 
-Insert (LaTeX dialog + live preview), display (native 2D MathML), click-to-edit, and docx OMML
-round-trip all work and were browser-verified with the quadratic formula (renders as a real fraction +
-radical; exports to m:f / m:rad; re-reads as an editable equation). odt stays passthrough (gated off).
+Insert (LaTeX dialog + live preview), display (native 2D MathML), click-to-edit, and round-trip on
+both formats all work and were browser-verified with the quadratic formula (renders as a real fraction
++ radical; re-reads as an editable equation). docx exports OMML (m:f / m:rad); odt embeds a formula
+sub-document (draw:frame -> draw:object -> Object/content.xml MathML) plus its manifest entries.
 
 **Build caveat:** esbuild's dependency pre-bundling mangles temml (it then errors on every command and
 the equation shows as raw LaTeX). The demo's Vite config excludes temml from pre-bundling
@@ -40,9 +41,14 @@ browser's native MathML rendering, no runtime dependency.
   delimiters m:d). Read: `m:oMath` -> MathML span, keeping the original OMML in `data-omml` so an
   un-edited equation rewrites verbatim (lossless). Write: a span with `data-omml` and no edit ->
   original OMML; otherwise MathML -> OMML. Constructs outside the common set stay passthrough.
-- **odt**: DEFERRED. ODF formulas are embedded objects (a MathML sub-document + manifest + draw:frame),
-  a separate heavier mechanism. Equations remain passthrough on odt and the insert button is gated off
-  (capability `equations`: docx true, odt false) until the embedded-object path is built.
+- **odt**: an embedded formula object. Read: a `draw:frame` whose `draw:object` resolves to an
+  `Object/content.xml` with a `math` root -> a MathML equation span, the whole frame stashed in
+  `data-odt-xml` so an untouched equation re-emits verbatim (its sub-document is preserved in the
+  rebuilt archive). Write: a new or edited equation writes a fresh `Formula_rdocN/content.xml`
+  (the span's MathML), references it from an as-char `draw:frame` + `draw:object`, and registers
+  both the directory and its content.xml in `META-INF/manifest.xml`. Capability `equations` is now
+  true on both adapters. Editing an imported equation leaves its old Object sub-document orphaned in
+  the archive (harmless, unreferenced); a future pass could reuse the original href instead.
 
 ## UI
 
@@ -52,7 +58,7 @@ conversion lives in the docx adapter, not the engine.
 
 ## Deferred / not done
 
-- odt embedded-object round-trip.
+- Editing an imported odt equation orphans its original Object sub-document (unreferenced, harmless).
 - OMML constructs beyond the common set (matrices, accents, bars, boxes) stay verbatim passthrough.
 - Recovering LaTeX from imported MathML (imported equations are edited by retyping).
 - Regex-like structural editing; matrices in the authoring UI rely on LaTeX.

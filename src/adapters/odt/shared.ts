@@ -13,6 +13,7 @@ export const NS = {
   manifest: "urn:oasis:names:tc:opendocument:xmlns:manifest:1.0",
   dc: "http://purl.org/dc/elements/1.1/",
   loext: "urn:org:documentfoundation:names:experimental:office:xmlns:loext:1.0",
+  math: "http://www.w3.org/1998/Math/MathML",
 } as const;
 
 export interface Fmt {

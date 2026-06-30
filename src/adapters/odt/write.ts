@@ -138,6 +138,7 @@ interface OdfCtx {
   created: Map<string, string>;
   files: Record<string, Uint8Array>; // the archive, so embedded images can be added
   pics: { path: string; mime: string }[]; // images added this run, for the manifest
+  objs: { dir: string }[]; // embedded formula objects added this run, for the manifest
   refMeta: Map<string, RefMeta>; // comment id -> metadata, gathered from the body refs
   rangedIds: Set<string>; // comment ids that wrap a text range (vs a point comment)
   done: Map<string, boolean>; // resolve state keyed by comment paraId
@@ -247,6 +248,55 @@ function addManifestEntries(files: Record<string, Uint8Array>, pics: { path: str
   files["META-INF/manifest.xml"] = strToU8(new XMLSerializer().serializeToString(doc));
 }
 
+/** Register newly embedded formula objects (the directory + its content.xml) in the manifest. */
+function addObjectManifestEntries(files: Record<string, Uint8Array>, objs: { dir: string }[]): void {
+  if (!objs.length || !files["META-INF/manifest.xml"]) return;
+  const doc = new DOMParser().parseFromString(strFromU8(files["META-INF/manifest.xml"]), "application/xml");
+  const root = doc.getElementsByTagName("manifest:manifest")[0] ?? doc.documentElement;
+  if (!root) return;
+  const have = new Set(Array.from(doc.getElementsByTagName("manifest:file-entry")).map((e) => e.getAttribute("manifest:full-path")));
+  const add = (full: string, media: string): void => {
+    if (have.has(full)) return;
+    const e = doc.createElementNS(NS.manifest, "manifest:file-entry");
+    e.setAttributeNS(NS.manifest, "manifest:full-path", full);
+    e.setAttributeNS(NS.manifest, "manifest:media-type", media);
+    root.appendChild(e);
+  };
+  for (const o of objs) {
+    add(`${o.dir}/`, "application/vnd.oasis.opendocument.formula");
+    add(`${o.dir}/content.xml`, "text/xml");
+  }
+  files["META-INF/manifest.xml"] = strToU8(new XMLSerializer().serializeToString(doc));
+}
+
+/** Serialize an equation span back to a draw:frame. An untouched imported equation (data-odt-xml
+ *  carrying its original frame) is re-emitted verbatim, reusing the Object sub-document already in
+ *  the archive; a new or edited one writes a fresh formula sub-document and references it. */
+function buildEquationFrame(span: HTMLElement, ctx: OdfCtx): Element | null {
+  const stash = span.getAttribute("data-odt-xml");
+  if (stash) {
+    const frame = importPassthrough(ctx.doc, stash);
+    if (frame) return frame;
+  }
+  const math = span.querySelector("math");
+  if (!math) return null;
+  const clone = math.cloneNode(true) as Element;
+  if (clone.namespaceURI !== NS.math) clone.setAttribute("xmlns", NS.math); // ensure the MathML namespace is declared
+  const dir = `Formula_rdoc${ctx.objs.length}`;
+  ctx.files[`${dir}/content.xml`] = strToU8(`<?xml version="1.0" encoding="UTF-8"?>\n${new XMLSerializer().serializeToString(clone)}`);
+  ctx.objs.push({ dir });
+  const frame = ctx.doc.createElementNS(NS.draw, "draw:frame");
+  frame.setAttributeNS(NS.draw, "draw:name", `Formula${ctx.objs.length}`);
+  frame.setAttributeNS(NS.text, "text:anchor-type", "as-char");
+  const obj = ctx.doc.createElementNS(NS.draw, "draw:object");
+  obj.setAttributeNS(NS.xlink, "xlink:href", `./${dir}`);
+  obj.setAttributeNS(NS.xlink, "xlink:type", "simple");
+  obj.setAttributeNS(NS.xlink, "xlink:show", "embed");
+  obj.setAttributeNS(NS.xlink, "xlink:actuate", "onLoad");
+  frame.appendChild(obj);
+  return frame;
+}
+
 /** Append the inline content of an HTML node to an ODF block element. */
 function htmlInlineToOdf(node: Node, parent: Element, f: Fmt, ctx: OdfCtx): void {
   for (const child of Array.from(node.childNodes)) {
@@ -275,6 +325,13 @@ function htmlInlineToOdf(node: Node, parent: Element, f: Fmt, ctx: OdfCtx): void
     // before the generic passthrough below, which would otherwise re-emit the frame verbatim.
     if (tag === "img") {
       const frame = buildImageFrame(el, ctx);
+      if (frame) parent.appendChild(frame);
+      continue;
+    }
+    // An equation -> a draw:frame wrapping an embedded formula object; must run before the generic
+    // passthrough so an edited equation rebuilds its MathML instead of re-emitting the old frame.
+    if (tag === "span" && el.classList.contains("docx-eq")) {
+      const frame = buildEquationFrame(el, ctx);
       if (frame) parent.appendChild(frame);
       continue;
     }
@@ -842,6 +899,7 @@ function applyHeaderFooter(files: Record<string, Uint8Array>, parts: { path: str
     created: new Map(),
     files,
     pics: [],
+    objs: [],
     refMeta: new Map(),
     rangedIds: new Set(),
     done: new Map(),
@@ -1121,7 +1179,7 @@ export function htmlToOdt(
   const rangedIds = new Set(
     Array.from(htmlDoc.querySelectorAll(".docx-comment[data-comment-id]")).map((s) => s.getAttribute("data-comment-id") ?? ""),
   );
-  const ctx: OdfCtx = { doc, auto: ensureAutoStyles(doc), created: new Map(), files, pics: [], refMeta, rangedIds, done: opts?.done ?? new Map(), changes: [], notesById: new Map((opts?.notes ?? []).map((n) => [n.id, n])) };
+  const ctx: OdfCtx = { doc, auto: ensureAutoStyles(doc), created: new Map(), files, pics: [], objs: [], refMeta, rangedIds, done: opts?.done ?? new Map(), changes: [], notesById: new Map((opts?.notes ?? []).map((n) => [n.id, n])) };
   for (const node of Array.from(htmlDoc.body.childNodes)) {
     const block = htmlBlockToOdf(node, ctx);
     if (block) body.appendChild(block);
@@ -1130,6 +1188,7 @@ export function htmlToOdt(
   const tc = buildTrackedChanges(ctx); // tracked-changes region goes first in office:text
   if (tc) body.insertBefore(tc, body.firstChild);
   addManifestEntries(files, ctx.pics); // register any images embedded above
+  addObjectManifestEntries(files, ctx.objs); // register any formula objects embedded above
   if (opts?.parts) applyHeaderFooter(files, opts.parts); // header/footer -> styles.xml
   reconcileSectionBands(files, htmlDoc); // drop a relinked section master's header/footer
   if (opts?.page) applyPageMargins(files, opts.page); // margins -> styles.xml page-layout

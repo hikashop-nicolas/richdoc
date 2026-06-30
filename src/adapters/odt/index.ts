@@ -87,7 +87,7 @@ export function createOdtAdapter(bytes: Uint8Array): Adapter {
       alignment: true,
       verticalText: true,
       fields: true,
-      equations: false, // odt formula objects deferred; math stays passthrough
+      equations: true, // embedded formula objects (draw:object -> MathML sub-document)
       sections: "leading",
     },
   };

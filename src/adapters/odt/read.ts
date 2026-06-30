@@ -234,6 +234,24 @@ function imageHtml(frame: Element, ctx: RCtx): string {
   return `<img src="data:${mime};base64,${bytesToBase64(bytes)}" alt="${escapeAttr(alt)}" contenteditable="false"${passthroughAttr(frame)}${dims}${lay}>`;
 }
 
+/** A draw:frame holding a draw:object that resolves to an embedded formula -> an equation span
+ *  carrying the MathML (the browser renders it natively). The whole frame is stashed (data-odt-xml)
+ *  so an untouched equation re-emits verbatim and its Object sub-document survives the save. Returns
+ *  null when the frame is not a formula, so the caller can fall back to image handling. */
+function frameMathHtml(frame: Element, ctx: RCtx): string | null {
+  const obj = frame.getElementsByTagName("draw:object")[0];
+  const href = (obj?.getAttribute("xlink:href") ?? "").replace(/^\.\//, "");
+  if (!href) return null;
+  const path = href.endsWith(".xml") ? href : `${href}/content.xml`;
+  const bytes = ctx.files[path];
+  if (!bytes) return null;
+  const mdoc = new DOMParser().parseFromString(strFromU8(bytes), "application/xml");
+  const root = mdoc.documentElement;
+  if (!root || root.localName !== "math") return null;
+  const mathml = new XMLSerializer().serializeToString(root);
+  return `<span class="docx-eq" data-rdoc-eq contenteditable="false"${passthroughAttr(frame)}>${mathml}</span>`;
+}
+
 /** Map text:style-name -> run formatting, read from the automatic/text styles. */
 function collectTextStyles(doc: Document): Map<string, Fmt> {
   const map = new Map<string, Fmt>();
@@ -545,7 +563,7 @@ function inlineToHtml(el: Element, ctx: RCtx): string {
         break;
       }
       case "draw:frame":
-        html += imageHtml(child, ctx);
+        html += frameMathHtml(child, ctx) ?? imageHtml(child, ctx);
         break;
       case "office:annotation": {
         const name = child.getAttribute("office:name") ?? `c${ctx.threads.length}`;
