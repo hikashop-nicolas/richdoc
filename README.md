@@ -10,6 +10,53 @@ back, preserving everything it does not model.
 No server, no upload: the file is read, edited and rebuilt entirely on the
 user's machine.
 
+## Features
+
+A full word-processor surface in the browser, the same for both formats unless noted.
+
+- **Text & paragraphs:** headings (H1-H3); nested ordered / unordered lists whose
+  numbering restarts, continues or starts at N; bold, italic, underline, strikethrough,
+  super/subscript; text colour, highlight, shading; font family and size; paragraph
+  alignment, indent, line spacing and space before/after.
+- **Named styles:** apply, author and edit paragraph and character styles, preserving
+  each style's other properties and its inheritance.
+- **Tables:** editable cells, cell borders (colour / style / width), column / row /
+  indent resize, merge, and in-cell formatting.
+- **Page layout:** page size, margins and orientation in a paginated page view, with
+  horizontal + vertical margin rulers that follow the caret's page, zoom, and a page
+  setup dialog.
+- **Sections:** mid-document section breaks with mixed per-section page size,
+  orientation, margins and columns; insert-section-break; per-section page setup; and
+  distinct per-section headers/footers with a link-to-previous toggle.
+- **Columns:** multi-column sections with true per-page balanced columns (reset per
+  page, like Word).
+- **Headers & footers:** default plus first-page and even/odd variants, per section,
+  with live page-number, page-count and table-of-contents fields.
+- **Vertical writing:** vertical (tategaki) and RTL layout, paginated, including
+  multi-column vertical text (stacked bands) and a vertical ruler.
+- **Images:** inline and floating / anchored with text wrap (square, tight,
+  top-and-bottom, behind, in front), alignment, alt text and wrap padding, driven by an
+  on-select toolbar.
+- **Furigana / ruby**, rendered natively (reading above in horizontal text, to the
+  right in vertical).
+- **Tabs & tab stops:** real tab characters plus custom tab stops with left / center /
+  right / decimal alignment and dot leaders, authored on the ruler.
+- **Comments** (with replies, reactions and resolve) and **track changes**
+  (insert / delete / formatting) with a suggesting mode.
+- **Bookmarks, cross-references and captions:** reference a bookmark, heading or
+  caption by text, page or direction (recomputed on reflow); figure / table / equation
+  captions with auto-numbered sequences; internal links; and a collapsible outline pane.
+- **Equations / math:** author in LaTeX with a live preview, displayed as native 2D
+  MathML and round-tripped (docx OMML, odt formula objects); imported equations stay
+  editable via best-effort LaTeX recovery.
+- **Footnotes & endnotes:** insert, edit and delete, placed per page (covering
+  multi-column, vertical and per-section layouts).
+- **Find & replace** with case, whole-word and regex options.
+- **Passthrough preservation:** anything not modelled is kept byte-for-byte and
+  re-emitted on save, so editing never drops unsupported content.
+
+What is *not* yet done is tracked in [`_plans/REMAINING.md`](_plans/REMAINING.md).
+
 ## Usage
 
 ```js
