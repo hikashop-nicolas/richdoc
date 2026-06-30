@@ -14,7 +14,7 @@ import { setupEquation } from "../equation";
 import { setupSymbols } from "../symbols";
 import {
   alignIcon, indentIcon, bulletIcon, numberIcon, linkIcon, pbIcon, imgIcon, cmtIcon,
-  supIcon, subIcon, lineSpacingIcon, tableIcon, fieldIcon, furiganaIcon, footnoteIcon, bookmarkIcon, xrefIcon, captionIcon, equationIcon, symbolIcon, caret, styleGroupSvg, insertGroupSvg,
+  supIcon, subIcon, lineSpacingIcon, tableIcon, fieldIcon, furiganaIcon, footnoteIcon, bookmarkIcon, xrefIcon, captionIcon, equationIcon, symbolIcon, borderIcon, caret, styleGroupSvg, insertGroupSvg,
 } from "./icons";
 import type { Adapter, Capabilities, CommentThread, EditorOptions, NewStyle, RichDoc } from "../../types";
 
@@ -440,6 +440,52 @@ export function setupToolbar(deps: ToolbarDeps) {
     const clear = btn("⌫", t("none"), () => paraShade(null), "docxedit-bg-clear");
     paraShadeWrap.append(input, clear);
   }
+
+  // Paragraph border: a small menu of presets (box / top / bottom / both / none), applied as
+  // 1px solid black per side. Any colour from an imported border still round-trips; the picker
+  // authors black, the common case.
+  const BORDER_SIDES = ["top", "right", "bottom", "left"] as const;
+  const borderMenu = document.createElement("div");
+  borderMenu.className = "docxedit-menu";
+  borderMenu.hidden = true;
+  const applyBorder = (sides: readonly ("top" | "right" | "bottom" | "left")[] | null): void => {
+    getActiveEl().focus();
+    for (const b of selectedBlocks()) {
+      for (const s of BORDER_SIDES) b.style.removeProperty(`border-${s}`);
+      if (sides) {
+        for (const s of sides) b.style.setProperty(`border-${s}`, "1px solid #000000");
+        b.style.padding = "2px 6px";
+      } else {
+        b.style.removeProperty("padding");
+      }
+    }
+    mark();
+    borderMenu.hidden = true;
+  };
+  for (const [label, sides] of [
+    [t("borderAll"), BORDER_SIDES],
+    [t("borderTop"), ["top"]],
+    [t("borderBottom"), ["bottom"]],
+    [t("borderTopBottom"), ["top", "bottom"]],
+    [t("borderNone"), null],
+  ] as const) {
+    const b = document.createElement("button");
+    b.type = "button";
+    b.className = "docxedit-menu-item";
+    b.textContent = label;
+    b.addEventListener("mousedown", (e) => e.preventDefault());
+    b.addEventListener("click", (e) => { e.stopPropagation(); applyBorder(sides); });
+    borderMenu.appendChild(b);
+  }
+  const borderBtn = iconBtn(borderIcon, t("paraBorder"), () => {});
+  borderBtn.addEventListener("click", (e) => {
+    e.stopPropagation();
+    const r = borderBtn.getBoundingClientRect();
+    const wr = wrap.getBoundingClientRect();
+    borderMenu.style.left = `${r.left - wr.left}px`;
+    borderMenu.style.top = `${r.bottom - wr.top + 2}px`;
+    borderMenu.hidden = !borderMenu.hidden;
+  });
 
   // Line spacing: an icon button (like the others) opening a small menu of presets.
   const lineSpacingMenu = document.createElement("div");
@@ -934,6 +980,7 @@ export function setupToolbar(deps: ToolbarDeps) {
     outdentBtn,
     indentBtn,
     lineSpacingBtn,
+    borderBtn,
     paraShadeWrap,
     insertGroup.has ? sep() : null,
     insertGroup.has ? insertGroup.slot : null,
@@ -968,10 +1015,11 @@ export function setupToolbar(deps: ToolbarDeps) {
     if (!lineSpacingMenu.hidden && !lineSpacingMenu.contains(e.target as Node) && !lineSpacingBtn.contains(e.target as Node)) lineSpacingMenu.hidden = true;
     if (!fieldsMenu.hidden && !fieldsMenu.contains(e.target as Node) && !fieldsBtn.contains(e.target as Node)) fieldsMenu.hidden = true;
     if (!listMenu.hidden && !listMenu.contains(e.target as Node) && !listNumBtn.contains(e.target as Node)) listMenu.hidden = true;
+    if (!borderMenu.hidden && !borderMenu.contains(e.target as Node) && !borderBtn.contains(e.target as Node)) borderMenu.hidden = true;
   };
   document.addEventListener("click", closeOverflow);
   toolbar.append(...toolbarItems, moreBtn);
-  wrap.append(overflow, styleGroup.menu, insertGroup.menu, tablePicker, lineSpacingMenu, fieldsMenu, listMenu);
+  wrap.append(overflow, styleGroup.menu, insertGroup.menu, tablePicker, lineSpacingMenu, fieldsMenu, listMenu, borderMenu);
 
   const fits = () => toolbar.scrollWidth <= toolbar.clientWidth + 1;
   const layoutToolbar = () => {

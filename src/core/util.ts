@@ -22,6 +22,22 @@ export function toHex6(c: string | undefined): string | undefined {
   return undefined;
 }
 
+/** A block's per-side CSS border, read for serialization. */
+export interface BlockBorderSide { side: "top" | "right" | "bottom" | "left"; px: number; style: string; hex: string }
+/** Per-side borders set on a block (the browser expands the border-<side> shorthand to these
+ *  longhands). Sides with no border are omitted; colour is normalized to 6-hex (default black). */
+export function blockBorders(el: HTMLElement): BlockBorderSide[] {
+  const out: BlockBorderSide[] = [];
+  for (const side of ["top", "right", "bottom", "left"] as const) {
+    const style = el.style.getPropertyValue(`border-${side}-style`);
+    if (!style || style === "none" || style === "hidden") continue;
+    const px = Math.max(1, Math.round(parseFloat(el.style.getPropertyValue(`border-${side}-width`)) || 1));
+    const hex = toHex6(el.style.getPropertyValue(`border-${side}-color`)) ?? "000000";
+    out.push({ side, px, style, hex });
+  }
+  return out;
+}
+
 /** CSS font-size (pt or px) to OOXML/ODF half-points. */
 export function fontSizeToHalfPt(v: string | undefined): number | undefined {
   if (!v) return undefined;

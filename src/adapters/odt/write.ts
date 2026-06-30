@@ -2,7 +2,8 @@
 // Pure HTML -> XML (body, styles, header/footer, comments, tracked changes, page margins);
 // the read half lives in ./read.
 import { strFromU8, strToU8, unzipSync, zipSync } from "fflate";
-import { firstFontFamily, fontSizeToHalfPt, toHex6, imageLayoutFromEl } from "../../core/util";
+import { firstFontFamily, fontSizeToHalfPt, toHex6, imageLayoutFromEl, blockBorders } from "../../core/util";
+import type { BlockBorderSide } from "../../core/util";
 import type { NewStyle, Note, PageGeometry } from "../../core/types";
 import { NS, fmtKey, FMT0, ODF_ALIGN, importPassthrough, IMG_MIME } from "./shared";
 import type { Fmt } from "./shared";
@@ -74,7 +75,7 @@ function styleFor(doc: Document, auto: Element, created: Map<string, string>, f:
 /** Create (once) a paragraph style for an alignment and return its name. The breakBefore /
     breakAfter / masterPage fields carry a section break (a new page, optionally with a
     different page master) so editing a paragraph does not drop it. */
-function paraStyleFor(doc: Document, auto: Element, created: Map<string, string>, p: { align?: string; indentPx?: number; lineHeight?: number; spaceBeforePx?: number; spaceAfterPx?: number; parent?: string; breakBefore?: string; breakAfter?: string; masterPage?: string; tabStops?: { pos: number; val?: string; leader?: string }[]; shading?: string }): string | null {
+function paraStyleFor(doc: Document, auto: Element, created: Map<string, string>, p: { align?: string; indentPx?: number; lineHeight?: number; spaceBeforePx?: number; spaceAfterPx?: number; parent?: string; breakBefore?: string; breakAfter?: string; masterPage?: string; tabStops?: { pos: number; val?: string; leader?: string }[]; shading?: string; borders?: BlockBorderSide[] }): string | null {
   const a = p.align ? ODF_ALIGN[p.align] : undefined;
   const align = a && a !== "left" ? a : undefined;
   const indentPx = p.indentPx && p.indentPx > 0 ? Math.round(p.indentPx) : undefined;
@@ -84,9 +85,10 @@ function paraStyleFor(doc: Document, auto: Element, created: Map<string, string>
   const { breakBefore, breakAfter, masterPage } = p;
   const tabStops = p.tabStops && p.tabStops.length ? p.tabStops : undefined;
   const shading = p.shading || undefined; // 6-hex (no #) paragraph shading
+  const borders = p.borders && p.borders.length ? p.borders : undefined;
   // With no direct formatting and no section break / tabs, the caller references the named style.
-  if (!align && !indentPx && !lineHeight && before === undefined && after === undefined && !breakBefore && !breakAfter && !masterPage && !tabStops && !shading) return null;
-  const key = `p_${align ?? ""}_${indentPx ?? ""}_${lineHeight ?? ""}_${before ?? ""}_${after ?? ""}_${p.parent ?? ""}_${breakBefore ?? ""}_${breakAfter ?? ""}_${masterPage ?? ""}_${tabStops ? JSON.stringify(tabStops) : ""}_${shading ?? ""}`;
+  if (!align && !indentPx && !lineHeight && before === undefined && after === undefined && !breakBefore && !breakAfter && !masterPage && !tabStops && !shading && !borders) return null;
+  const key = `p_${align ?? ""}_${indentPx ?? ""}_${lineHeight ?? ""}_${before ?? ""}_${after ?? ""}_${p.parent ?? ""}_${breakBefore ?? ""}_${breakAfter ?? ""}_${masterPage ?? ""}_${tabStops ? JSON.stringify(tabStops) : ""}_${shading ?? ""}_${borders ? borders.map((b) => `${b.side}${b.px}${b.style}${b.hex}`).join(",") : ""}`;
   const existing = created.get(key);
   if (existing) return existing;
   const name = `OT_p${created.size}`;
@@ -104,6 +106,7 @@ function paraStyleFor(doc: Document, auto: Element, created: Map<string, string>
   if (breakBefore) pp.setAttributeNS(NS.fo, "fo:break-before", breakBefore);
   if (breakAfter) pp.setAttributeNS(NS.fo, "fo:break-after", breakAfter);
   if (shading) pp.setAttributeNS(NS.fo, "fo:background-color", `#${shading}`);
+  for (const b of borders ?? []) pp.setAttributeNS(NS.fo, `fo:border-${b.side}`, `${pxToCm(b.px)} ${b.style} #${b.hex.toLowerCase()}`);
   if (tabStops) {
     const ts = doc.createElementNS(NS.style, "style:tab-stops");
     const ODT_TYPE: Record<string, string> = { left: "left", center: "center", right: "right", decimal: "char" };
@@ -841,6 +844,7 @@ function htmlBlockToOdf(node: Node, ctx: OdfCtx): Element | null {
       masterPage: el.getAttribute("data-odt-masterpage") || undefined,
       tabStops: parseTabStops(el.getAttribute("data-rdoc-tabstops")),
       shading: toHex6(el.style.backgroundColor) || undefined,
+      borders: blockBorders(el),
     });
     // direct formatting -> an automatic style (parented to the named one); otherwise the named style itself
     if (name) block.setAttributeNS(NS.text, "text:style-name", name);

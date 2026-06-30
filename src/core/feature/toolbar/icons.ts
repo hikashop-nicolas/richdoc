@@ -49,6 +49,10 @@ export const captionIcon =
 export const equationIcon =
   '<svg width="14" height="14" viewBox="0 0 16 16" fill="none" stroke="currentColor" stroke-width="1.3" stroke-linecap="round" stroke-linejoin="round" aria-hidden="true">' +
   '<path d="M1.5 9l1.8 0 1.7 4 2.8-10H14"/></svg>';
+// A paragraph border: a simple box outline.
+export const borderIcon =
+  '<svg width="14" height="14" viewBox="0 0 16 16" fill="none" stroke="currentColor" stroke-width="1.3" aria-hidden="true">' +
+  '<rect x="2.5" y="3.5" width="11" height="9" rx="0.5"/></svg>';
 // A special-character picker: the omega glyph (the conventional "insert symbol" mark).
 export const symbolIcon =
   '<svg width="14" height="14" viewBox="0 0 16 16" aria-hidden="true">' +

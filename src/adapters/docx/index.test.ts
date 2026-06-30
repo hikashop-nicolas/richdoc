@@ -1386,6 +1386,21 @@ describe("list fidelity: nesting and ordered/bullet", () => {
     expect(docxToHtml(out)).toContain("background-color:#ffeecc"); // and round-trips
   });
 
+  it("round-trips paragraph borders as a pPr w:pBdr", () => {
+    const doc = `<?xml version="1.0"?>
+<w:document xmlns:w="http://schemas.openxmlformats.org/wordprocessingml/2006/main">
+ <w:body><w:p><w:pPr><w:pBdr><w:top w:val="single" w:sz="6" w:color="000000"/><w:bottom w:val="single" w:sz="6" w:color="000000"/></w:pBdr></w:pPr><w:r><w:t>hi</w:t></w:r></w:p></w:body>
+</w:document>`;
+    expect(docxToHtml(makeDocx(doc))).toContain("border-top:1px solid #000000"); // read -> rendered
+
+    const out = htmlToDocx('<p style="border-top:1px solid #000000;border-bottom:1px solid #000000;padding:2px 6px">hi</p>', makeDocx());
+    const xml = strFromU8(unzipSync(out)["word/document.xml"]!);
+    expect(xml).toMatch(/<w:pBdr>/); // authored -> w:pBdr
+    expect(xml).toMatch(/<w:top[^>]*w:val="single"/);
+    expect(xml).toMatch(/<w:bottom[^>]*w:val="single"/);
+    expect(docxToHtml(out)).toContain("border-bottom:1px solid #000000"); // and round-trips
+  });
+
   it("round-trips an internal hyperlink as a w:hyperlink w:anchor", () => {
     const out = htmlToDocx('<p>See <a href="#intro">the intro</a></p>', makeDocx());
     const xml = strFromU8(unzipSync(out)["word/document.xml"]!);

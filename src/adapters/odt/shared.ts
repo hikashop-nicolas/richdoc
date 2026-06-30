@@ -40,6 +40,7 @@ export interface PFmt {
   spaceBeforePx?: number; // fo:margin-top, in px
   spaceAfterPx?: number; // fo:margin-bottom, in px
   shading?: string; // fo:background-color (paragraph shading), as CSS "#rrggbb"
+  border?: string; // fo:border(-side) as a CSS declaration block ("border-top:1px solid #000;...")
 }
 export const ODF_ALIGN: Record<string, string> = { start: "left", left: "left", end: "right", right: "right", center: "center", justify: "justify" };
 

@@ -221,6 +221,8 @@ const dict: Dict = {
   fieldAuthor: "Author",
   fieldFileName: "File name",
   paraShading: "Paragraph shading",
+  paraBorder: "Paragraph border",
+  borderTopBottom: "Top & bottom",
 };
 
 export default dict;

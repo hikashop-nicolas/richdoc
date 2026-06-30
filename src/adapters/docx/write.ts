@@ -2,7 +2,7 @@
 // Pure HTML -> XML (body, header/footer, comments, reactions, replies, page margins); the
 // read half lives in ./read.
 import { strFromU8, strToU8, unzipSync, zipSync } from "fflate";
-import { toHex6, fontSizeToHalfPt, firstFontFamily, imageLayoutFromEl } from "../../core/util";
+import { toHex6, fontSizeToHalfPt, firstFontFamily, imageLayoutFromEl, blockBorders } from "../../core/util";
 import type { ImageLayout, NewStyle, Note, PageGeometry } from "../../core/types";
 import { W, R, PKG, REL_HYPERLINK, NS_DECLS, FMT0, HL_BY_HEX, JC_BY_ALIGN } from "./shared";
 import type { Fmt } from "./shared";
@@ -470,7 +470,8 @@ function makeParagraph(ctx: DocxCtx, src: HTMLElement, opts: { heading?: number;
   const regenSect = !!secGeom && (src.getAttribute("data-rdoc-secedited") === "1" || !sectXml);
   const tabStops = src.getAttribute("data-rdoc-tabstops"); // custom tab stops (JSON), schema-ordered before spacing
   const shadeHex = toHex6(src.style.backgroundColor); // paragraph shading -> w:shd
-  if (opts.heading || namedStyle || opts.listNumId || jc || revPara || sectXml || regenSect || tabStops || shadeHex || indentPx > 0 || lineHeight > 0 || hasBefore || hasAfter) {
+  const borders = blockBorders(src); // paragraph borders -> w:pBdr
+  if (opts.heading || namedStyle || opts.listNumId || jc || revPara || sectXml || regenSect || tabStops || shadeHex || borders.length || indentPx > 0 || lineHeight > 0 || hasBefore || hasAfter) {
     const pPr = ctx.doc.createElementNS(W, "w:pPr");
     if (opts.heading || namedStyle) {
       const st = ctx.doc.createElementNS(W, "w:pStyle");
@@ -486,7 +487,19 @@ function makeParagraph(ctx: DocxCtx, src: HTMLElement, opts: { heading?: number;
       numPr.append(ilvl, numId);
       pPr.appendChild(numPr);
     }
-    // w:shd sits after numPr and before tabs/spacing in the pPr schema order.
+    // w:pBdr then w:shd sit after numPr and before tabs/spacing in the pPr schema order.
+    if (borders.length) {
+      const pBdr = ctx.doc.createElementNS(W, "w:pBdr");
+      for (const b of borders) {
+        const e = ctx.doc.createElementNS(W, `w:${b.side}`);
+        e.setAttributeNS(W, "w:val", DOCX_BORDER_VAL[b.style] ?? "single");
+        e.setAttributeNS(W, "w:sz", String(Math.max(2, Math.round(b.px * 6)))); // px -> eighths of a point
+        e.setAttributeNS(W, "w:space", "1");
+        e.setAttributeNS(W, "w:color", b.hex);
+        pBdr.appendChild(e);
+      }
+      pPr.appendChild(pBdr);
+    }
     if (shadeHex) {
       const shd = ctx.doc.createElementNS(W, "w:shd");
       shd.setAttributeNS(W, "w:val", "clear");

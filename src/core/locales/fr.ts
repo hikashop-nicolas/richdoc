@@ -221,6 +221,8 @@ const dict: Dict = {
   fieldAuthor: "Auteur",
   fieldFileName: "Nom du fichier",
   paraShading: "Trame de fond du paragraphe",
+  paraBorder: "Bordure du paragraphe",
+  borderTopBottom: "Haut et bas",
 };
 
 export default dict;

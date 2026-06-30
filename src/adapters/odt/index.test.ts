@@ -1099,6 +1099,14 @@ describe("odt paragraph shading", () => {
     expect(xml).toMatch(/<style:paragraph-properties[^>]*fo:background-color="#ffeecc"/i);
     expect(odtToHtml(out)).toContain("background-color:#ffeecc"); // and reads back
   });
+
+  it("round-trips paragraph borders as fo:border-*", () => {
+    const out = htmlToOdt('<p style="border-top:1px solid #000000;border-bottom:1px solid #000000;padding:2px 6px">hi</p>', makeOdt());
+    const xml = strFromU8(unzipSync(out)["content.xml"]);
+    expect(xml).toMatch(/fo:border-top="[^"]*solid #000000"/);
+    expect(xml).toMatch(/fo:border-bottom="[^"]*solid #000000"/);
+    expect(odtToHtml(out)).toContain("border-top:1px solid #000000"); // and reads back
+  });
 });
 
 describe("odt info fields (date / author / file name)", () => {

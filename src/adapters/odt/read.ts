@@ -300,8 +300,16 @@ function collectParaStyles(doc: Document): Map<string, PFmt> {
     const spaceAfterPx = mb != null ? Math.round(lenToPx(mb) ?? 0) : undefined;
     const pbg = pp?.getAttribute("fo:background-color");
     const shading = pbg && /^#[0-9a-f]{6}$/i.test(pbg) ? pbg.toLowerCase() : undefined;
-    if (align || indentPx || lineHeight || spaceBeforePx !== undefined || spaceAfterPx !== undefined || shading)
-      map.set(name, { align, indentPx, lineHeight, spaceBeforePx, spaceAfterPx, shading });
+    const allB = parseOdtBorder(pp?.getAttribute("fo:border"));
+    const bparts: string[] = [];
+    for (const side of ["top", "right", "bottom", "left"] as const) {
+      const c = parseOdtBorder(pp?.getAttribute(`fo:border-${side}`)) ?? allB;
+      if (c) bparts.push(`border-${side}:${c}`);
+    }
+    if (bparts.length) bparts.push("padding:2px 6px");
+    const border = bparts.length ? bparts.join(";") : undefined;
+    if (align || indentPx || lineHeight || spaceBeforePx !== undefined || spaceAfterPx !== undefined || shading || border)
+      map.set(name, { align, indentPx, lineHeight, spaceBeforePx, spaceAfterPx, shading, border });
   }
   return map;
 }
@@ -749,6 +757,7 @@ function blockToHtml(el: Element, ctx: RCtx): string {
     if (pf.spaceBeforePx !== undefined) css.push(`margin-top:${pf.spaceBeforePx}px`);
     if (pf.spaceAfterPx !== undefined) css.push(`margin-bottom:${pf.spaceAfterPx}px`);
     if (pf.shading) css.push(`background-color:${pf.shading}`);
+    if (pf.border) css.push(pf.border);
     return css.length ? ` style="${css.join(";")}"` : "";
   };
   // The named paragraph style behind this block: a direct reference, or the parent of an
