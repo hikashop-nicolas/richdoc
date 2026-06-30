@@ -44,7 +44,8 @@ A full word-processor surface in the browser, the same for both formats unless n
 - **Furigana / ruby**, rendered natively (reading above in horizontal text, to the
   right in vertical).
 - **Tabs & tab stops:** real tab characters plus custom tab stops with left / center /
-  right / decimal alignment and dot leaders, authored on the ruler.
+  right / decimal alignment and dot leaders, authored on the ruler and aligned in both
+  horizontal and vertical (tategaki) text.
 - **Comments** (with replies, reactions and resolve) and **track changes**
   (insert / delete / formatting) with a suggesting mode.
 - **Bookmarks, cross-references and captions:** reference a bookmark, heading or

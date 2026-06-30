@@ -17,22 +17,9 @@ HTML.
 These do not round-trip once the surrounding context is edited, because that context is
 regenerated from the HTML.
 
-- **Vertical + multi-column mid-section.** A whole-document vertical multi-column layout
-  works; a *mid-document* section that is BOTH vertical AND multi-column renders as a
-  single vertical flow.
-- **Style authoring depth.** Paragraph shading, borders and tab stops are authorable both as direct
-  formatting and as part of a named style, round-tripping on both formats (docx pPr `w:shd` /
-  `w:pBdr` / `w:tabs`, odt `fo:background-color` / `fo:border-*` / `style:tab-stops`); a style's tab
-  stops ride a `--rdoc-tabstops` custom property so styled paragraphs render them. The border picker
-  offers colour, line style (solid / dashed / dotted / double), width, and side presets for box, each
-  single edge (top / bottom / left / right), top-and-bottom and left-and-right; only the rare
-  multi-edge combinations (e.g. exactly three sides) are not a one-click preset, and those still
-  round-trip on import.
 - **Image layout fine detail.** Square / tight wrap uses alignment only (a file's exact
   `posOffset` for a wrapped image is not honored); behind / front offsets map to a
   CSS-positioned element rather than a true layout engine.
-- **Vertical (tategaki) tab alignment.** Custom tab-stop alignment renders in horizontal
-  text; vertical text keeps the default grid.
 
 ---
 

@@ -456,26 +456,33 @@ export function setupPageView(deps: PageViewDeps) {
     for (const [block, raw] of targets) {
       const tabs = Array.from(block.querySelectorAll<HTMLElement>(".docx-tab"));
       if (!tabs.length) continue;
-      if (getComputedStyle(block).writingMode !== "horizontal-tb") continue; // vertical: keep default grid
+      // The tab stops run along the paragraph's inline axis: x in horizontal text, y (top-down) in
+      // vertical (tategaki) text, where an inline-block's advance is its height, not its width.
+      const vert = getComputedStyle(block).writingMode.startsWith("vertical");
+      const inStart = (r: DOMRect): number => (vert ? r.top : r.left);
+      const inSize = (r: DOMRect): number => (vert ? r.height : r.width);
       let stops: { pos: number; val: string; leader?: string }[];
       try { stops = JSON.parse(raw); } catch { continue; }
       stops = (Array.isArray(stops) ? stops : []).filter((s) => s && s.pos > 0).sort((a, b) => a.pos - b.pos);
-      // .docx-tab-laid (in the stylesheet) makes the span an inline-block on the baseline; only the
-      // computed width is per-tab, so it is the one inline value we set.
-      for (const tab of tabs) { tab.classList.add("docx-tab-laid"); tab.style.width = "0px"; }
-      const marginLeft = parseFloat(getComputedStyle(block).marginLeft) || 0; // the paragraph indent (unscaled)
-      const originX = block.getBoundingClientRect().left - marginLeft * z; // screen x of the margin origin
+      // .docx-tab-laid (in the stylesheet) makes the span an inline-block on the baseline; we set the
+      // one inline-advance value: its width in horizontal text, its height in vertical.
+      for (const tab of tabs) { tab.classList.add("docx-tab-laid"); tab.style.width = ""; tab.style.height = ""; tab.style[vert ? "height" : "width"] = "0px"; }
+      const cs = getComputedStyle(block);
+      const r0 = block.getBoundingClientRect();
+      // Inline-axis origin: horizontal subtracts the indent (margin-left) so stops measure from the
+      // text-area edge; vertical's inline-start is the block's top (the indent rides the block axis).
+      const origin = vert ? r0.top : r0.left - (parseFloat(cs.marginLeft) || 0) * z;
       for (let i = 0; i < tabs.length; i++) {
         const tab = tabs[i]!;
-        const xUnscaled = (tab.getBoundingClientRect().left - originX) / z; // tab left, from the margin
+        const xUnscaled = (inStart(tab.getBoundingClientRect()) - origin) / z; // tab's inline offset from the margin
         const next = tabs[i + 1] ?? null;
         // measure the segment after this tab (up to the next tab / line end) for non-left alignment
         const rng = document.createRange();
         rng.setStartAfter(tab);
         if (next) rng.setEndBefore(next); else rng.setEnd(block, block.childNodes.length);
         const segRect = rng.getBoundingClientRect();
-        const segW = segRect.width / z;
-        let dec = segW; // decimal point offset within the segment (right edge if none found)
+        const segW = inSize(segRect) / z;
+        let dec = segW; // decimal point offset within the segment (far edge if none found)
         if (stops.some((s) => s.val === "decimal")) {
           try {
             const w = document.createTreeWalker(block, NodeFilter.SHOW_TEXT);
@@ -485,7 +492,7 @@ export function setupPageView(deps: PageViewDeps) {
               const beforeNext = !next || !!(next.compareDocumentPosition(n) & Node.DOCUMENT_POSITION_PRECEDING);
               if (!afterTab || !beforeNext) continue;
               const m = (n.textContent || "").search(/[.,]/);
-              if (m >= 0) { const r2 = document.createRange(); r2.setStart(n, m); r2.setEnd(n, m + 1); dec = (r2.getBoundingClientRect().left - segRect.left) / z; break; }
+              if (m >= 0) { const r2 = document.createRange(); r2.setStart(n, m); r2.setEnd(n, m + 1); dec = (inStart(r2.getBoundingClientRect()) - inStart(segRect)) / z; break; }
             }
           } catch { /* leave dec = segW */ }
         }
@@ -497,8 +504,9 @@ export function setupPageView(deps: PageViewDeps) {
           if (ts >= xUnscaled + 0.5) { targetStart = ts; leader = s.leader; break; } // first stop that fits
         }
         if (targetStart == null) targetStart = Math.ceil((xUnscaled + 0.5) / DEFAULT_TAB) * DEFAULT_TAB;
-        tab.style.width = `${Math.max(0, targetStart - xUnscaled)}px`;
-        tab.classList.toggle("docx-tab-leader", !!leader);
+        tab.style[vert ? "height" : "width"] = `${Math.max(0, targetStart - xUnscaled)}px`;
+        tab.classList.toggle("docx-tab-leader", !!leader && !vert);
+        tab.classList.toggle("docx-tab-leader-v", !!leader && vert);
       }
     }
   };

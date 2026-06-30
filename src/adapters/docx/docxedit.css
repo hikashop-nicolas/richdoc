@@ -366,6 +366,8 @@
    only per-tab value, so it is the only inline style the engine sets. */
 .docx-tab.docx-tab-laid { display: inline-block; vertical-align: baseline; }
 .docx-tab-leader { background-image: radial-gradient(circle, currentColor 0.6px, transparent 0.7px); background-size: 4px 1.1em; background-repeat: repeat-x; background-position: left bottom 0.18em; }
+/* Vertical (tategaki) tab leader: dots run down the inline (vertical) axis. */
+.docx-tab-leader-v { background-image: radial-gradient(circle, currentColor 0.6px, transparent 0.7px); background-size: 1.1em 4px; background-repeat: repeat-y; background-position: right 0.18em top; }
 /* Multi-column sections. Paginated: one balanced multi-column box per page (.docxedit-colpage,
    built in editor.ts). Pageless: the body flows continuously into N columns. Tables and floating
    images span all columns so they are not sliced. */
