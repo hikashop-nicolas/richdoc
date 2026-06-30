@@ -65,4 +65,6 @@ realistic / not worth it; "complete" for them means surviving a save, which they
   noted above.
 - Single-section documents keep their full section properties (columns, borders,
   page-number restart, etc.); per-section authoring is implemented, and untouched sections
-  still round-trip byte-for-byte.
+  still round-trip byte-for-byte. Editing a section's geometry preserves a custom column
+  layout (unequal widths, separator line) when the column count is unchanged; only changing
+  the count rebuilds equal-width columns.

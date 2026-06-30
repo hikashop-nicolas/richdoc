@@ -999,14 +999,25 @@ function setPageLayoutGeom(doc: Document, props: Element, g: { w: number; h: num
   props.setAttributeNS(NS.fo, "fo:margin-right", pxToCm(g.mr));
   props.setAttributeNS(NS.fo, "fo:margin-bottom", pxToCm(g.mb));
   props.setAttributeNS(NS.fo, "fo:margin-left", pxToCm(g.ml));
-  // Columns: a style:columns child with the count + gap; remove it when down to one column.
+  // Columns: a style:columns child with count + gap. Keep a custom layout (unequal rel-widths or a
+  // separator line) untouched when the count is unchanged, since the editor models only count + gap;
+  // otherwise (re)build a plain equal-width one, and remove it entirely when down to one column.
+  const n = g.cols && g.cols > 1 ? g.cols : 1;
   const old = props.getElementsByTagName("style:columns")[0];
-  if (old) old.parentNode!.removeChild(old);
-  if (g.cols && g.cols > 1) {
-    const colsEl = doc.createElementNS(NS.style, "style:columns");
-    colsEl.setAttributeNS(NS.fo, "fo:column-count", String(g.cols));
-    colsEl.setAttributeNS(NS.fo, "fo:column-gap", pxToCm(g.colGap ?? 36));
-    props.appendChild(colsEl);
+  const colChildren = old ? Array.from(old.getElementsByTagName("style:column")) : [];
+  const hasSep = !!old && old.getElementsByTagName("style:column-sep").length > 0;
+  const relWidths = colChildren.map((c) => c.getAttribute("style:rel-width"));
+  const unequal = relWidths.length > 1 && new Set(relWidths).size > 1;
+  const existingNum = old ? Number(old.getAttribute("fo:column-count")) || colChildren.length : 0;
+  const keepCustom = !!old && n > 1 && (hasSep || unequal) && existingNum === n;
+  if (!keepCustom) {
+    if (old) old.parentNode!.removeChild(old);
+    if (n > 1) {
+      const colsEl = doc.createElementNS(NS.style, "style:columns");
+      colsEl.setAttributeNS(NS.fo, "fo:column-count", String(n));
+      colsEl.setAttributeNS(NS.fo, "fo:column-gap", pxToCm(g.colGap ?? 36));
+      props.appendChild(colsEl);
+    }
   }
 }
 

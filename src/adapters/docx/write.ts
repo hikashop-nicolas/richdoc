@@ -1552,12 +1552,23 @@ function setSectPrGeom(doc: Document, sectPr: Element, g: { w: number; h: number
   pgMar.setAttributeNS(W, "w:right", tw(g.mr));
   pgMar.setAttributeNS(W, "w:bottom", tw(g.mb));
   pgMar.setAttributeNS(W, "w:left", tw(g.ml));
-  // Columns: write w:cols @num + equal-width @space; drop to single column when columns <= 1.
+  // Columns. The editor models only count + gap, so an equal-width rewrite would flatten a custom
+  // (unequal-width / separated) layout. Keep the original w:cols untouched when the count is
+  // unchanged; regenerate equal-width only when the count changes or there is no custom layout.
   const n = g.cols && g.cols > 1 ? g.cols : 1;
   const cols = child("w:cols");
-  cols.setAttributeNS(W, "w:num", String(n));
-  cols.setAttributeNS(W, "w:space", tw(g.colGap ?? 36));
-  cols.setAttributeNS(W, "w:equalWidth", "1");
+  const colChildren = Array.from(cols.getElementsByTagName("w:col"));
+  const eqAttr = cols.getAttributeNS(W, "equalWidth") ?? cols.getAttribute("w:equalWidth");
+  const sepAttr = cols.getAttributeNS(W, "sep") ?? cols.getAttribute("w:sep");
+  const existingNum = Number(cols.getAttributeNS(W, "num") ?? cols.getAttribute("w:num")) || colChildren.length;
+  const hadCustom = colChildren.length > 0 || eqAttr === "0" || eqAttr === "false";
+  if (!(hadCustom && existingNum === n)) {
+    for (const c of colChildren) cols.removeChild(c);
+    cols.setAttributeNS(W, "w:num", String(n));
+    cols.setAttributeNS(W, "w:space", tw(g.colGap ?? 36));
+    cols.setAttributeNS(W, "w:equalWidth", "1");
+    if (sepAttr === "1" || sepAttr === "true") cols.setAttributeNS(W, "w:sep", "1");
+  }
   // Writing direction: vertical tategaki (w:textDirection tbRl) / horizontal RTL (w:bidi).
   dropTag("w:textDirection");
   dropTag("w:bidi");

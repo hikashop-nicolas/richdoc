@@ -679,6 +679,42 @@ describe("odt page geometry (page-layout)", () => {
     expect(page?.columns).toBe(2);
     expect(page?.columnGapPx).toBe(19); // 0.5cm = ~19px
   });
+
+  const unequalColsOdt = () =>
+    zipSync({
+      mimetype: [strToU8("application/vnd.oasis.opendocument.text"), { level: 0 }],
+      "content.xml": strToU8(CONTENT),
+      "styles.xml": strToU8(
+        '<?xml version="1.0"?><office:document-styles xmlns:office="urn:oasis:names:tc:opendocument:xmlns:office:1.0" ' +
+          'xmlns:style="urn:oasis:names:tc:opendocument:xmlns:style:1.0" xmlns:fo="urn:oasis:names:tc:opendocument:xmlns:xsl-fo-compatible:1.0">' +
+          '<office:automatic-styles><style:page-layout style:name="pm1"><style:page-layout-properties fo:page-width="21cm" fo:page-height="29.7cm">' +
+          '<style:columns fo:column-count="2"><style:column style:rel-width="3000*"/><style:column style:rel-width="6000*"/><style:column-sep style:width="0.05cm"/></style:columns>' +
+          '</style:page-layout-properties></style:page-layout></office:automatic-styles>' +
+          '<office:master-styles><style:master-page style:name="Standard" style:page-layout-name="pm1"/></office:master-styles></office:document-styles>',
+      ),
+      "META-INF/manifest.xml": strToU8("<m/>"),
+    });
+
+  it("preserves an unequal / separated column layout when the count is unchanged", () => {
+    const out = htmlToOdt("<p>x</p>", unequalColsOdt(), {
+      page: { widthPx: 794, heightPx: 1123, margin: { top: 48, right: 48, bottom: 48, left: 48 }, columns: 2, columnGapPx: 36 },
+    });
+    const s = strFromU8(unzipSync(out)["styles.xml"]);
+    expect(s).toContain('fo:margin-top="1.27cm"'); // 48px: the unrelated margin edit still applies
+    expect(s).toContain('style:rel-width="3000*"'); // the custom widths survive
+    expect(s).toContain('style:rel-width="6000*"');
+    expect(s).toContain("style:column-sep"); // the separator line survives
+  });
+
+  it("rebuilds plain equal-width columns when the count changes", () => {
+    const out = htmlToOdt("<p>x</p>", unequalColsOdt(), {
+      page: { widthPx: 794, heightPx: 1123, margin: { top: 96, right: 96, bottom: 96, left: 96 }, columns: 3, columnGapPx: 48 },
+    });
+    const s = strFromU8(unzipSync(out)["styles.xml"]);
+    expect(s).toMatch(/fo:column-count="3"/);
+    expect(s).not.toContain("style:rel-width"); // stale per-column widths are dropped
+    expect(s).not.toContain("style:column-sep"); // and the separator on a rebuilt layout
+  });
 });
 
 describe("odt editable tables (cell content round-trip)", () => {

@@ -786,6 +786,37 @@ describe("page margin write-back (w:pgMar)", () => {
   });
 });
 
+describe("section columns write-back (w:cols)", () => {
+  const unequalDoc = `<?xml version="1.0"?>
+<w:document xmlns:w="http://schemas.openxmlformats.org/wordprocessingml/2006/main"><w:body>
+  <w:p><w:r><w:t>Hi</w:t></w:r></w:p>
+  <w:sectPr><w:pgSz w:w="11906" w:h="16838"/><w:cols w:num="2" w:equalWidth="0" w:sep="1"><w:col w:w="3000" w:space="200"/><w:col w:w="6000"/></w:cols></w:sectPr>
+</w:body></w:document>`;
+
+  it("preserves an unequal-width / separated column layout when the count is unchanged", () => {
+    const out = htmlToDocx("<p>x</p>", makeDocx(unequalDoc), undefined, {
+      pageGeometry: { widthPx: 794, heightPx: 1123, margin: { top: 48, right: 48, bottom: 48, left: 48 }, columns: 2, columnGapPx: 36 },
+    });
+    const xml = strFromU8(unzipSync(out)["word/document.xml"]);
+    expect(xml).toMatch(/w:pgMar[^>]*w:top="720"/); // the unrelated margin edit still applies
+    expect(xml).toContain('w:w="3000"'); // the custom column widths survive
+    expect(xml).toContain('w:w="6000"');
+    expect(xml).toMatch(/w:cols[^>]*w:equalWidth="0"/); // not flattened to equal width
+    expect(xml).not.toMatch(/w:equalWidth="1"/);
+  });
+
+  it("regenerates equal-width columns when the count actually changes", () => {
+    const out = htmlToDocx("<p>x</p>", makeDocx(unequalDoc), undefined, {
+      pageGeometry: { widthPx: 794, heightPx: 1123, margin: { top: 96, right: 96, bottom: 96, left: 96 }, columns: 3, columnGapPx: 48 },
+    });
+    const xml = strFromU8(unzipSync(out)["word/document.xml"]);
+    expect(xml).toMatch(/w:cols[^>]*w:num="3"/);
+    expect(xml).toMatch(/w:cols[^>]*w:equalWidth="1"/);
+    expect(xml).not.toContain('w:w="3000"'); // stale per-column widths are dropped
+    expect(xml).toContain('w:sep="1"'); // the separator-line flag is count-independent, kept
+  });
+});
+
 describe("create a header/footer from scratch", () => {
   it("adds a new header part, its relationship, a section reference, and a content type", () => {
     // The "header" path is the sentinel the engine sends for a band created in-editor.
