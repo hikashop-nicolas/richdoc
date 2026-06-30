@@ -448,6 +448,13 @@ function readOdtStyles(stylesXml: Uint8Array | undefined): {
       if (lh && lh.endsWith("%")) out["line-height"] = String(Math.round((parseFloat(lh) / 100) * 100) / 100);
       const pbg = pp?.getAttribute("fo:background-color");
       if (pbg && /^#[0-9a-f]{6}$/i.test(pbg)) out["background-color"] = pbg;
+      const allB = parseOdtBorder(pp?.getAttribute("fo:border"));
+      let anyB = false;
+      for (const side of ["top", "right", "bottom", "left"] as const) {
+        const bc = parseOdtBorder(pp?.getAttribute(`fo:border-${side}`)) ?? allB;
+        if (bc) { out[`border-${side}`] = bc; anyB = true; }
+      }
+      if (anyB) out["padding"] = "2px 6px";
     }
     const bg = tp?.getAttribute("fo:background-color");
     if (bg && /^#[0-9a-f]{6}$/i.test(bg)) out["background-color"] = bg;

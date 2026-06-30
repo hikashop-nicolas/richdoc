@@ -983,6 +983,18 @@ describe("authoring new styles", () => {
     expect(defs.find((d) => d.id === "Hi")?.css["background-color"]).toBe("#ffff00");
   });
 
+  it("writes a paragraph style's border as a w:pBdr and reads it back", () => {
+    const out = htmlToDocx('<p data-rdoc-style="Framed">x</p>', make(P("<w:p/>")), undefined, {
+      newStyles: [{ id: "Framed", name: "Framed", kind: "paragraph", css: { "border-top": "1px solid #ff0000", "border-bottom": "1px solid #ff0000", padding: "2px 6px" } }],
+    });
+    const stylesXml = strFromU8(unzipSync(out)["word/styles.xml"]!);
+    expect(stylesXml).toMatch(/<w:pBdr>/);
+    expect(stylesXml).toMatch(/<w:top[^>]*w:val="single"/);
+    expect(stylesXml).toMatch(/<w:top[^>]*w:color="FF0000"/i);
+    const def = (docxToParts(out).styleDefs ?? []).find((d) => d.id === "Framed");
+    expect(def?.css["border-top"]?.toLowerCase()).toBe("1px solid #ff0000"); // round-trips into the dialog's model
+  });
+
   it("editing an existing style replaces its definition in place (no duplicate)", () => {
     const STYLES = `<?xml version="1.0"?><w:styles xmlns:w="http://schemas.openxmlformats.org/wordprocessingml/2006/main">
  <w:style w:type="paragraph" w:styleId="Quote"><w:name w:val="Quote"/><w:rPr><w:i/></w:rPr></w:style></w:styles>`;

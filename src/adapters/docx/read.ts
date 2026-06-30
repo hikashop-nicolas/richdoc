@@ -1092,6 +1092,15 @@ function readStyles(stylesXml: Uint8Array | undefined): {
       if (line && (wv(sp ?? undefined, "lineRule") ?? "auto") === "auto") out["line-height"] = String(Math.round((Number(line) / 240) * 100) / 100);
       const pShd = pPr?.getElementsByTagName("w:shd")[0]?.getAttribute("w:fill");
       if (pShd && pShd !== "auto" && /^[0-9a-f]{6}$/i.test(pShd)) out["background-color"] = `#${pShd}`;
+      const pBdr = pPr?.getElementsByTagName("w:pBdr")[0];
+      if (pBdr) {
+        let any = false;
+        for (const side of ["top", "right", "bottom", "left"] as const) {
+          const bc = borderCss(pBdr.getElementsByTagName(`w:${side}`)[0]);
+          if (bc && bc !== "none") { out[`border-${side}`] = bc; any = true; }
+        }
+        if (any) out["padding"] = "2px 6px";
+      }
     }
     const shd = rPr?.getElementsByTagName("w:shd")[0]?.getAttribute("w:fill");
     if (shd && shd !== "auto" && /^[0-9a-f]{6}$/i.test(shd)) out["background-color"] = `#${shd}`;

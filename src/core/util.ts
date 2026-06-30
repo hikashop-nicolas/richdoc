@@ -38,6 +38,14 @@ export function blockBorders(el: HTMLElement): BlockBorderSide[] {
   return out;
 }
 
+/** Parse a CSS border value ("1px solid #000000") into its parts, or null if absent / borderless. */
+export function parseCssBorder(v: string | undefined): { px: number; style: string; hex: string } | null {
+  if (!v) return null;
+  const m = /^([\d.]+)px\s+(\w+)\s+#?([0-9a-fA-F]{6})/.exec(v.trim());
+  if (!m || m[2] === "none" || m[2] === "hidden") return null;
+  return { px: Math.max(1, Math.round(parseFloat(m[1]!))), style: m[2]!, hex: m[3]!.toUpperCase() };
+}
+
 /** CSS font-size (pt or px) to OOXML/ODF half-points. */
 export function fontSizeToHalfPt(v: string | undefined): number | undefined {
   if (!v) return undefined;

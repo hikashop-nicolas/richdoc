@@ -826,6 +826,17 @@ describe("odt authoring new styles", () => {
     expect(odtToParts(out).paragraphStyles?.some((s) => s.id === "MyHeading")).toBe(true);
   });
 
+  it("writes a paragraph style's border as fo:border-* and reads it back", () => {
+    const out = htmlToOdt('<p data-rdoc-style="Framed">Hi</p>', make(), {
+      newStyles: [{ id: "Framed", name: "Framed", kind: "paragraph", css: { "border-top": "1px solid #ff0000", "border-bottom": "1px solid #ff0000", padding: "2px 6px" } }],
+    });
+    const stylesXml = strFromU8(unzipSync(out)["styles.xml"]);
+    expect(stylesXml).toMatch(/fo:border-top="[^"]*solid #ff0000"/);
+    expect(stylesXml).toMatch(/fo:border-bottom="[^"]*solid #ff0000"/);
+    const def = (odtToParts(out).styleDefs ?? []).find((d) => d.id === "Framed");
+    expect(def?.css["border-top"]?.toLowerCase()).toBe("1px solid #ff0000");
+  });
+
   it("adds an authored character style to styles.xml", () => {
     const out = htmlToOdt('<p>a <span data-rdoc-cstyle="Em">b</span></p>', make(), {
       newStyles: [{ id: "Em", name: "Emph", kind: "character", css: { "font-style": "italic" } }],

@@ -4,7 +4,7 @@
 // the id round-trips to w:pStyle/w:rStyle (docx) or text:style-name (odt). The behaviours it
 // needs (selection capture, block selection, the caret-state resync) come in as deps.
 import { t } from "../../i18n";
-import { firstFontFamily } from "../../util";
+import { firstFontFamily, blockBorders, parseCssBorder } from "../../util";
 import { alignIcon } from "./icons";
 import type { NewStyle, RichDoc } from "../../types";
 
@@ -188,6 +188,9 @@ export function setupStyles(deps: StylesDeps) {
     if (b.style.marginTop) css["margin-top"] = b.style.marginTop;
     if (b.style.marginBottom) css["margin-bottom"] = b.style.marginBottom;
     if (b.style.backgroundColor) css["background-color"] = rgbToHex(b.style.backgroundColor) ?? "";
+    const bs = blockBorders(b);
+    for (const x of bs) css[`border-${x.side}`] = `${x.px}px ${x.style} #${x.hex.toLowerCase()}`;
+    if (bs.length) css["padding"] = "2px 6px";
     return css;
   };
   // Capture the selection's run formatting (toggles via execCommand state, the rest computed).
@@ -307,6 +310,18 @@ export function setupStyles(deps: StylesDeps) {
   dFont.title = t("font");
   let dFontFilled = false; // populated lazily from FONTS
   bgRow.append(dFont, bgLabel);
+  // Paragraph border: a preset picker + colour (paragraph styles only; black 1px presets).
+  const borderRow = document.createElement("div");
+  borderRow.className = "docxedit-dialog-row";
+  const dBorder = document.createElement("select");
+  dBorder.className = "docxedit-dialog-font";
+  dBorder.title = t("paraBorder");
+  for (const [v, key] of [["", "borderNone"], ["box", "borderAll"], ["top", "borderTop"], ["bottom", "borderBottom"], ["topbottom", "borderTopBottom"]] as const) dBorder.add(new Option(t(key), v));
+  const dBorderColor = document.createElement("input");
+  dBorderColor.type = "color";
+  dBorderColor.value = "#000000";
+  dBorderColor.title = t("borderColor");
+  borderRow.append(dBorder, dBorderColor);
   const dCreate = document.createElement("button");
   dCreate.type = "button";
   dCreate.className = "docxedit-menu-item docxedit-dialog-primary";
@@ -318,7 +333,7 @@ export function setupStyles(deps: StylesDeps) {
   const btnRow = document.createElement("div");
   btnRow.className = "docxedit-dialog-row docxedit-dialog-actions";
   btnRow.append(dCancel, dCreate);
-  panel.append(dlgTitle, dlgName, fmtRow, alignRow, sizeRow, bgRow, btnRow);
+  panel.append(dlgTitle, dlgName, fmtRow, alignRow, sizeRow, bgRow, borderRow, btnRow);
   wrap.appendChild(overlay);
 
   let dlgEditId: string | null = null; // set when editing an existing style
@@ -351,6 +366,14 @@ export function setupStyles(deps: StylesDeps) {
     if (dlgKind === "paragraph") {
       delete css["text-align"];
       for (const k of Object.keys(alignBtns)) if (alignBtns[k]!.classList.contains("is-on")) css["text-align"] = k;
+      for (const s of ["top", "right", "bottom", "left"]) delete css[`border-${s}`];
+      delete css["padding"];
+      const preset = dBorder.value;
+      if (preset) {
+        const sides = preset === "box" ? ["top", "right", "bottom", "left"] : preset === "topbottom" ? ["top", "bottom"] : [preset];
+        for (const s of sides) css[`border-${s}`] = `1px solid ${dBorderColor.value}`;
+        css["padding"] = "2px 6px";
+      }
     }
     return css;
   };
@@ -373,6 +396,14 @@ export function setupStyles(deps: StylesDeps) {
     const fam = (pre["font-family"] ?? "").replace(/['"]/g, "").split(",")[0]?.trim() ?? "";
     dFont.value = Array.from(dFont.options).some((o) => o.value === fam) ? fam : "";
     for (const k of Object.keys(alignBtns)) alignBtns[k]!.classList.toggle("is-on", pre["text-align"] === k);
+    // Border: pick the preset matching which sides are present, and its colour.
+    const bsides = ["top", "right", "bottom", "left"].filter((s) => parseCssBorder(pre[`border-${s}`]));
+    dBorder.value = bsides.length === 4 ? "box"
+      : bsides.length === 2 && bsides.includes("top") && bsides.includes("bottom") ? "topbottom"
+      : bsides.length === 1 && bsides[0] === "top" ? "top"
+      : bsides.length === 1 && bsides[0] === "bottom" ? "bottom" : "";
+    const firstB = bsides.length ? parseCssBorder(pre[`border-${bsides[0]}`]) : null;
+    dBorderColor.value = firstB ? `#${firstB.hex.toLowerCase()}` : "#000000";
     dlgPassthrough = {};
     for (const p of ["margin-left", "margin-top", "margin-bottom", "line-height"]) if (pre[p]) dlgPassthrough[p] = pre[p]!;
   };
@@ -399,6 +430,7 @@ export function setupStyles(deps: StylesDeps) {
     dlgName.disabled = false;
     fillDialog(pre);
     alignRow.hidden = kind !== "paragraph";
+    borderRow.hidden = kind !== "paragraph";
     overlay.hidden = false;
     dlgName.focus();
   };
@@ -418,6 +450,7 @@ export function setupStyles(deps: StylesDeps) {
     dlgName.disabled = true; // renaming a style id is not supported
     fillDialog(def.css);
     alignRow.hidden = kind !== "paragraph";
+    borderRow.hidden = kind !== "paragraph";
     overlay.hidden = false;
     dCreate.focus();
   };
@@ -436,7 +469,7 @@ export function setupStyles(deps: StylesDeps) {
       for (const b of dlgBlocks) {
         b.setAttribute("data-rdoc-style", id);
         // captured direct formatting now lives in the style; clear it so it is not written twice
-        for (const p of ["textAlign", "marginLeft", "lineHeight", "marginTop", "marginBottom"] as const) b.style[p] = "";
+        for (const p of ["textAlign", "marginLeft", "lineHeight", "marginTop", "marginBottom", "backgroundColor", "borderTop", "borderRight", "borderBottom", "borderLeft", "padding"] as const) b.style[p] = "";
       }
       mark();
     } else {

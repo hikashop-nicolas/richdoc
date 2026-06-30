@@ -2,7 +2,7 @@
 // Pure HTML -> XML (body, header/footer, comments, reactions, replies, page margins); the
 // read half lives in ./read.
 import { strFromU8, strToU8, unzipSync, zipSync } from "fflate";
-import { toHex6, fontSizeToHalfPt, firstFontFamily, imageLayoutFromEl, blockBorders } from "../../core/util";
+import { toHex6, fontSizeToHalfPt, firstFontFamily, imageLayoutFromEl, blockBorders, parseCssBorder } from "../../core/util";
 import type { ImageLayout, NewStyle, Note, PageGeometry } from "../../core/types";
 import { W, R, PKG, REL_HYPERLINK, NS_DECLS, FMT0, HL_BY_HEX, JC_BY_ALIGN } from "./shared";
 import type { Fmt } from "./shared";
@@ -1674,7 +1674,8 @@ function addNewStyles(files: Record<string, Uint8Array>, styles: NewStyle[]): vo
   }
   // The style properties the dialog owns; on edit only these are re-derived, so the long tail
   // (tabs, keepNext, outline level, small caps, ...) the dialog does not model is preserved.
-  const PPR_MODELED = new Set(["w:spacing", "w:ind", "w:jc", "w:shd"]);
+  const PPR_MODELED = new Set(["w:spacing", "w:ind", "w:jc", "w:shd", "w:pBdr"]);
+  const SIDES = ["top", "right", "bottom", "left"] as const;
   const RPR_MODELED = new Set(["w:rFonts", "w:b", "w:i", "w:u", "w:strike", "w:color", "w:sz", "w:shd"]);
   const directChild = (parent: Element, tag: string): Element | undefined => Array.from(parent.children).find((c) => c.tagName === tag);
   for (const s of styles) {
@@ -1687,7 +1688,8 @@ function addNewStyles(files: Record<string, Uint8Array>, styles: NewStyle[]): vo
       valEl(st, "w:name", s.name);
     }
     if (s.kind === "paragraph") {
-      const hasPara = !!(c["margin-top"] || c["margin-bottom"] || c["line-height"] || c["margin-left"] || JC_BY_ALIGN[c["text-align"] ?? ""] || /^[0-9a-f]{6}$/i.test((c["background-color"] ?? "").replace(/^#/, "")));
+      const hasBorder = SIDES.some((s) => parseCssBorder(c[`border-${s}`]));
+      const hasPara = !!(c["margin-top"] || c["margin-bottom"] || c["line-height"] || c["margin-left"] || JC_BY_ALIGN[c["text-align"] ?? ""] || /^[0-9a-f]{6}$/i.test((c["background-color"] ?? "").replace(/^#/, "")) || hasBorder);
       let pPr = directChild(st, "w:pPr");
       if (pPr || hasPara) {
         if (!pPr) { pPr = el("w:pPr"); st.insertBefore(pPr, st.firstChild); }
@@ -1709,6 +1711,19 @@ function addNewStyles(files: Record<string, Uint8Array>, styles: NewStyle[]): vo
         }
         const jc = JC_BY_ALIGN[c["text-align"] ?? ""];
         if (jc) valEl(pPr, "w:jc", jc);
+        // paragraph borders (w:pBdr) come before w:shd in the pPr schema
+        let pBdr: Element | undefined;
+        for (const side of SIDES) {
+          const b = parseCssBorder(c[`border-${side}`]);
+          if (!b) continue;
+          if (!pBdr) { pBdr = el("w:pBdr"); pPr.appendChild(pBdr); }
+          const e = el(`w:${side}`);
+          e.setAttributeNS(W, "w:val", DOCX_BORDER_VAL[b.style] ?? "single");
+          e.setAttributeNS(W, "w:sz", String(Math.max(2, Math.round(b.px * 6))));
+          e.setAttributeNS(W, "w:space", "1");
+          e.setAttributeNS(W, "w:color", b.hex);
+          pBdr.appendChild(e);
+        }
         const pbg = (c["background-color"] ?? "").replace(/^#/, "");
         if (/^[0-9a-f]{6}$/i.test(pbg)) shd(pPr, pbg); // paragraph shading
         if (!pPr.childNodes.length) st.removeChild(pPr); // edited down to nothing

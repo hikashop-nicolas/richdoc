@@ -2,7 +2,7 @@
 // Pure HTML -> XML (body, styles, header/footer, comments, tracked changes, page margins);
 // the read half lives in ./read.
 import { strFromU8, strToU8, unzipSync, zipSync } from "fflate";
-import { firstFontFamily, fontSizeToHalfPt, toHex6, imageLayoutFromEl, blockBorders } from "../../core/util";
+import { firstFontFamily, fontSizeToHalfPt, toHex6, imageLayoutFromEl, blockBorders, parseCssBorder } from "../../core/util";
 import type { BlockBorderSide } from "../../core/util";
 import type { NewStyle, Note, PageGeometry } from "../../core/types";
 import { NS, fmtKey, FMT0, ODF_ALIGN, importPassthrough, IMG_MIME } from "./shared";
@@ -1103,7 +1103,7 @@ function addOdtStyles(files: Record<string, Uint8Array>, styles: NewStyle[]): vo
   // ODF keeps style properties as attributes on these elements, so on edit only the dialog's
   // own attributes are re-derived; the long tail (fo:keep-with-next, text-indent, ...) is kept.
   const directChild = (parent: Element, tag: string): Element | undefined => Array.from(parent.children).find((c) => c.tagName === tag);
-  const PARA_FO = ["text-align", "margin-left", "margin-top", "margin-bottom", "line-height", "background-color"];
+  const PARA_FO = ["text-align", "margin-left", "margin-top", "margin-bottom", "line-height", "background-color", "border-top", "border-right", "border-bottom", "border-left"];
   const RUN_FO = ["font-weight", "font-style", "color", "font-size", "background-color", "font-family"];
   const RUN_STYLE = ["text-underline-style", "text-underline-width", "text-underline-color", "text-line-through-style", "text-line-through-type", "font-name"];
   for (const s of styles) {
@@ -1118,7 +1118,8 @@ function addOdtStyles(files: Record<string, Uint8Array>, styles: NewStyle[]): vo
     if (s.kind === "paragraph") {
       const a = ODF_ALIGN[c["text-align"] ?? ""];
       const align = a && a !== "left" ? (a === "right" ? "end" : a === "center" ? "center" : "justify") : undefined;
-      const hasPara = !!(align || c["margin-left"] || c["margin-top"] || c["margin-bottom"] || c["line-height"] || c["background-color"]);
+      const pBorders = (["top", "right", "bottom", "left"] as const).map((side) => ({ side, b: parseCssBorder(c[`border-${side}`]) })).filter((x) => x.b);
+      const hasPara = !!(align || c["margin-left"] || c["margin-top"] || c["margin-bottom"] || c["line-height"] || c["background-color"] || pBorders.length);
       let pp = directChild(st, "style:paragraph-properties");
       if (pp || hasPara) {
         if (!pp) { pp = doc.createElementNS(NS.style, "style:paragraph-properties"); st.insertBefore(pp, st.firstChild); }
@@ -1129,6 +1130,7 @@ function addOdtStyles(files: Record<string, Uint8Array>, styles: NewStyle[]): vo
         if (c["margin-bottom"]) pp.setAttributeNS(NS.fo, "fo:margin-bottom", pxToCm(parseFloat(c["margin-bottom"])));
         if (c["line-height"]) pp.setAttributeNS(NS.fo, "fo:line-height", `${Math.round(parseFloat(c["line-height"]) * 100)}%`);
         if (c["background-color"]) pp.setAttributeNS(NS.fo, "fo:background-color", c["background-color"]);
+        for (const { side, b } of pBorders) pp.setAttributeNS(NS.fo, `fo:border-${side}`, `${pxToCm(b!.px)} ${b!.style} #${b!.hex.toLowerCase()}`);
         if (!pp.attributes.length) st.removeChild(pp);
       }
     }
