@@ -4,6 +4,7 @@
 // main toolbar wiring. setupReferences builds the dialogs and returns the four open/insert handlers;
 // the toolbar creates the buttons that call them.
 import { t } from "../../i18n";
+import { makeDialogAccessible } from "../dialog-a11y";
 import { applyCaption, topBlock, captionText, captionAfter, type CaptionKind } from "../caption";
 
 export interface ReferencesDeps {
@@ -167,6 +168,7 @@ export function setupReferences(deps: ReferencesDeps) {
   xrefPanel.append(xrefTitle, typeRow, targetSel, fmtRow, xrefActions);
   xrefOverlay.appendChild(xrefPanel);
   wrap.appendChild(xrefOverlay);
+  makeDialogAccessible(xrefOverlay);
   const closeXref = () => { xrefOverlay.hidden = true; };
   const openXrefDialog = () => {
     captureSel();
@@ -250,6 +252,7 @@ export function setupReferences(deps: ReferencesDeps) {
   capPanel.append(capTitle, mkCapField(t("captionType"), capTypeSel), mkCapField(t("caption"), capTextInput), capActions);
   capOverlay.appendChild(capPanel);
   wrap.appendChild(capOverlay);
+  makeDialogAccessible(capOverlay);
   const closeCap = () => { capOverlay.hidden = true; };
   const captionBlock = (): HTMLElement | null => {
     const sel = window.getSelection();
@@ -344,6 +347,7 @@ export function setupReferences(deps: ReferencesDeps) {
   linkPanel.append(linkTitle, linkModeRow, linkUrlRow, linkTargetRow, linkActions);
   linkOverlay.appendChild(linkPanel);
   wrap.appendChild(linkOverlay);
+  makeDialogAccessible(linkOverlay);
   const closeLink = () => { linkOverlay.hidden = true; };
   const openLinkDialog = () => {
     captureSel();

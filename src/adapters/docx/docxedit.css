@@ -517,3 +517,7 @@
 }
 .docxedit-cmt-pop.docxedit-cmt-tip { top: 8px; left: 12px; }
 .docxedit-cmt-pop b { display: block; font-size: .85em; color: #666; margin-bottom: 3px; font-weight: 600; }
+
+@media (prefers-reduced-motion: reduce) {
+  .docxedit-cmt-pop, .docxedit-cmt-tip { transition: none !important; }
+}

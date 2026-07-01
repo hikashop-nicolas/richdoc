@@ -4,6 +4,7 @@
 // whether the margins were edited (so the engine writes them back). Extracted from the
 // engine; the geometry, layout callbacks and DOM refs come in as deps.
 import { t } from "../i18n";
+import { makeDialogAccessible } from "./dialog-a11y";
 import type { Capabilities, EditorOptions, PageGeometry, SecGeom } from "../types";
 
 export interface PageViewDeps {
@@ -688,6 +689,7 @@ export function setupPageView(deps: PageViewDeps) {
   psActions.append(psCancel, psApply);
   psPanel.append(psTitle, sizeRow, customRow, orientRow, marginRow, marginCustomRow, colRow, ...(caps.verticalText ? [dirRow] : []), pbRow, ...(caps.pageNumbering ? [pnRow] : []), ...(caps.lineNumbering ? [lnRow] : []), ...(caps.pageVAlign ? [vaRow] : []), firstRow, evenRow, psActions);
   scroll.appendChild(psOverlay);
+  makeDialogAccessible(psOverlay);
   const closePageSetup = () => { psOverlay.hidden = true; };
   const openPageSetup = () => {
     const g = readSectionGeom(); // the section the caret is in (document geometry if none)

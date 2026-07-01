@@ -3,6 +3,7 @@
 // It only writes the format-agnostic data-rdoc-* attributes (the adapters map them to docx
 // wp:anchor / odt draw:frame); CSS renders them. Behind/front images can be dragged to position.
 import { t } from "../i18n";
+import { makeDialogAccessible } from "./dialog-a11y";
 import type { ImageWrap } from "../types";
 import { applyCaption, captionAfter, captionText, topBlock } from "./caption";
 
@@ -129,6 +130,7 @@ export function setupImageLayout(deps: ImageLayoutDeps) {
   panel.append(dlgTitle, altField.row, capField.row, dlgActions);
   overlay.appendChild(panel);
   wrap.appendChild(overlay);
+  makeDialogAccessible(overlay);
   // The dialog keeps its own image reference: opening it moves focus, which deselects the image
   // (img -> null), so apply must act on the image captured when the dialog opened.
   let dlgImg: HTMLImageElement | null = null;

@@ -4,6 +4,7 @@
 // sync, then lays the row out with progressive grouping + an overflow popover. Named styles,
 // the floating bar, the keyboard shortcuts and the icons each live in a sibling module.
 import { t } from "../../i18n";
+import { makeDialogAccessible } from "../dialog-a11y";
 import { firstFontFamily, fontSizeToHalfPt } from "../../util";
 import { setupTrackChanges } from "../track-changes";
 import { setupStyles } from "./styles";
@@ -914,6 +915,7 @@ export function setupToolbar(deps: ToolbarDeps) {
   notePanel.append(noteTitle, noteText, kindRow, noteActions);
   noteOverlay.appendChild(notePanel);
   wrap.appendChild(noteOverlay);
+  makeDialogAccessible(noteOverlay);
   const closeNote = () => { noteOverlay.hidden = true; };
   const openNoteDialog = () => {
     captureSel();

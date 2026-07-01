@@ -3,6 +3,7 @@
 // adapter work. The popup stays open so several can be inserted in a row; Esc or a click outside
 // closes it.
 import { t } from "../i18n";
+import { makeDialogAccessible } from "./dialog-a11y";
 
 export interface SymbolDeps {
   doc: HTMLElement; // the editable body (kept for parity with the other features)
@@ -92,6 +93,7 @@ export function setupSymbols(deps: SymbolDeps) {
   panel.append(title, grid, actions);
   overlay.appendChild(panel);
   wrap.appendChild(overlay);
+  makeDialogAccessible(overlay);
 
   const close = (): void => { overlay.hidden = true; };
   const open = (): void => { captureSel(); overlay.hidden = false; };

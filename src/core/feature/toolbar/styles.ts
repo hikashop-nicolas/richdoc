@@ -4,6 +4,7 @@
 // the id round-trips to w:pStyle/w:rStyle (docx) or text:style-name (odt). The behaviours it
 // needs (selection capture, block selection, the caret-state resync) come in as deps.
 import { t } from "../../i18n";
+import { makeDialogAccessible } from "../dialog-a11y";
 import { firstFontFamily, blockBorders, parseCssBorder } from "../../util";
 import { alignIcon } from "./icons";
 import type { NewStyle, RichDoc } from "../../types";
@@ -343,6 +344,7 @@ export function setupStyles(deps: StylesDeps) {
   btnRow.append(dCancel, dCreate);
   panel.append(dlgTitle, dlgName, fmtRow, alignRow, sizeRow, bgRow, borderRow, btnRow);
   wrap.appendChild(overlay);
+  makeDialogAccessible(overlay);
 
   let dlgEditId: string | null = null; // set when editing an existing style
   let dlgPassthrough: Record<string, string> = {}; // captured props with no dialog control

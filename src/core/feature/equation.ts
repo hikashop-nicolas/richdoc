@@ -4,6 +4,7 @@
 // non-editable inline span: <span class="docx-eq" data-rdoc-eq data-latex="...">{<math>…</math>}</span>.
 // Insert / edit / delete go through execCommand so they join the native undo stack and dirty tracking.
 import { t } from "../i18n";
+import { makeDialogAccessible } from "./dialog-a11y";
 import { mathmlToLatex } from "./mathml-latex";
 
 export interface EquationDeps {
@@ -58,6 +59,7 @@ export function setupEquation(deps: EquationDeps) {
   panel.append(title, input, preview, actions);
   overlay.appendChild(panel);
   wrap.appendChild(overlay);
+  makeDialogAccessible(overlay);
 
   let editing: HTMLElement | null = null; // the equation being edited, or null for a fresh insert
   const close = (): void => { overlay.hidden = true; editing = null; };
