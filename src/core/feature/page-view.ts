@@ -524,9 +524,28 @@ export function setupPageView(deps: PageViewDeps) {
     updateRulers();
     layoutTabs();
   };
+  // Capture the document point at the viewport centre (as a fraction of the scaled page rect,
+  // real screen px so it is robust to the CSS transform) so a user zoom can keep it fixed;
+  // otherwise pagebox height changes while scrollTop stays and the view jumps to another page.
+  const zoomAnchor = (): { cy: number; cx: number; fy: number; fx: number } | null => {
+    const pr = page.getBoundingClientRect();
+    if (!pr.height || !pr.width) return null;
+    const sr = scroll.getBoundingClientRect();
+    const cy = sr.top + scroll.clientHeight / 2;
+    const cx = sr.left + scroll.clientWidth / 2;
+    return { cy, cx, fy: (cy - pr.top) / pr.height, fx: (cx - pr.left) / pr.width };
+  };
+  const restoreAnchor = (a: { cy: number; cx: number; fy: number; fx: number } | null): void => {
+    if (!a) return;
+    const pr = page.getBoundingClientRect();
+    scroll.scrollTop += pr.top + a.fy * pr.height - a.cy;
+    scroll.scrollLeft += pr.left + a.fx * pr.width - a.cx;
+  };
   const setZoom = (z: number | null) => {
+    const a = zoomAnchor();
     userZoom = z == null ? null : Math.max(0.3, Math.min(2.5, Math.round(z * 100) / 100));
     applyZoom();
+    restoreAnchor(a);
     positionCards();
   };
 
