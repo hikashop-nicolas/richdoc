@@ -773,6 +773,7 @@ export function setupPageView(deps: PageViewDeps) {
   psApply.addEventListener("click", applyPageSetup);
   psCancel.addEventListener("click", closePageSetup);
   psOverlay.addEventListener("click", (e) => { if (e.target === psOverlay) closePageSetup(); });
+  psOverlay.addEventListener("keydown", (e) => { if (e.key === "Escape") { e.preventDefault(); closePageSetup(); } });
   const pageSetupBtn = document.createElement("button");
   pageSetupBtn.type = "button";
   pageSetupBtn.className = "docxedit-pagesetup-btn";

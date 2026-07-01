@@ -155,6 +155,7 @@ export function setupImageLayout(deps: ImageLayoutDeps) {
   });
   dlgCancel.addEventListener("click", closeDlg);
   overlay.addEventListener("mousedown", (e) => { if (e.target === overlay) closeDlg(); });
+  overlay.addEventListener("keydown", (e) => { if (e.key === "Escape") { e.preventDefault(); closeDlg(); } });
 
   const wrapBtns: Record<string, HTMLButtonElement> = {
     inline: mkBtn(WRAP_ICONS.inline, t("wrapInline"), () => setWrap("inline")),

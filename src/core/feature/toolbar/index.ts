@@ -925,6 +925,7 @@ export function setupToolbar(deps: ToolbarDeps) {
     setTimeout(() => noteText.focus(), 0);
   };
   noteOverlay.addEventListener("mousedown", (e) => { if (e.target === noteOverlay) closeNote(); });
+  noteOverlay.addEventListener("keydown", (e) => { if (e.key === "Escape") { e.preventDefault(); closeNote(); } });
   noteCancel.addEventListener("click", closeNote);
   noteInsertBtn.addEventListener("click", () => {
     const kind = enOpt.input.checked ? "endnote" : "footnote";

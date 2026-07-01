@@ -185,6 +185,7 @@ export function setupReferences(deps: ReferencesDeps) {
     xrefOverlay.hidden = false;
   };
   xrefOverlay.addEventListener("mousedown", (e) => { if (e.target === xrefOverlay) closeXref(); });
+  xrefOverlay.addEventListener("keydown", (e) => { if (e.key === "Escape") { e.preventDefault(); closeXref(); } });
   xrefCancel.addEventListener("click", closeXref);
   xrefInsertBtn.addEventListener("click", () => {
     const target = xrefEls[Number(targetSel.value)];
@@ -274,6 +275,7 @@ export function setupReferences(deps: ReferencesDeps) {
   };
   capTypeSel.addEventListener("change", prefillCaption);
   capOverlay.addEventListener("mousedown", (e) => { if (e.target === capOverlay) closeCap(); });
+  capOverlay.addEventListener("keydown", (e) => { if (e.key === "Escape") { e.preventDefault(); closeCap(); } });
   capCancel.addEventListener("click", closeCap);
   capInsertBtn.addEventListener("click", () => {
     closeCap();
@@ -364,6 +366,7 @@ export function setupReferences(deps: ReferencesDeps) {
     (mWeb.input.checked ? linkUrlInput : linkTargetSel).focus();
   };
   linkOverlay.addEventListener("mousedown", (e) => { if (e.target === linkOverlay) closeLink(); });
+  linkOverlay.addEventListener("keydown", (e) => { if (e.key === "Escape") { e.preventDefault(); closeLink(); } });
   linkCancel.addEventListener("click", closeLink);
   linkApply.addEventListener("click", () => {
     closeLink();
