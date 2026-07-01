@@ -1,14 +1,18 @@
 // Shared modal accessibility for the standard docxedit dialog (an overlay containing a
 // .docxedit-dialog panel with a .docxedit-dialog-title). Marks it as a modal dialog for
-// assistive tech, traps Tab within the panel, and restores focus to whatever was focused
-// before it opened once the overlay leaves the DOM. Call once, right after the overlay is
-// appended. Escape / overlay-click dismissal stays with each dialog's own handlers.
+// assistive tech, traps Tab within the panel, focuses the first field when it opens, and
+// restores focus to the opener when it closes. Escape / overlay-click dismissal stays with
+// each dialog's own handlers.
+//
+// Works for both dialog lifecycles used here: created-per-open (appended then removed) and
+// persistent (created once, shown/hidden via the `hidden` attribute), by observing the
+// overlay's visibility rather than assuming one or the other. Call once, right after the
+// overlay is created/appended.
 let dlgSeq = 0;
 
 export function makeDialogAccessible(overlay: HTMLElement, initialFocus?: HTMLElement): void {
   const panel = overlay.querySelector<HTMLElement>(".docxedit-dialog");
   if (!panel) return;
-  const prev = document.activeElement as HTMLElement | null; // the opener, restored on close
   panel.setAttribute("role", "dialog");
   panel.setAttribute("aria-modal", "true");
   const title = panel.querySelector<HTMLElement>(".docxedit-dialog-title");
@@ -35,17 +39,27 @@ export function makeDialogAccessible(overlay: HTMLElement, initialFocus?: HTMLEl
       first.focus();
     }
   });
-  // Only take focus if the caller has not already focused something inside the dialog.
-  if (!panel.contains(document.activeElement)) (initialFocus ?? focusables()[0])?.focus();
-  // Restore focus to the opener when the dialog is dismissed (its overlay removed).
-  const root = overlay.parentNode;
-  if (root && typeof MutationObserver !== "undefined") {
-    const mo = new MutationObserver(() => {
-      if (!overlay.isConnected) {
-        mo.disconnect();
-        prev?.focus?.();
-      }
-    });
-    mo.observe(root, { childList: true });
-  }
+
+  const isVisible = (): boolean => overlay.isConnected && !overlay.hidden && getComputedStyle(overlay).display !== "none";
+  let opener: HTMLElement | null = null;
+  let wasVisible = false;
+  const check = (): void => {
+    const vis = isVisible();
+    if (vis && !wasVisible) {
+      opener = document.activeElement as HTMLElement | null; // restored on close
+      // Defer so any post-open focus handling from the opener runs first.
+      setTimeout(() => {
+        if (isVisible() && !panel.contains(document.activeElement)) (initialFocus ?? focusables()[0])?.focus();
+      }, 0);
+    } else if (!vis && wasVisible) {
+      opener?.focus?.();
+      opener = null;
+      if (!overlay.isConnected) mo.disconnect(); // a per-open dialog is gone for good
+    }
+    wasVisible = vis;
+  };
+  const mo = new MutationObserver(check);
+  mo.observe(overlay, { attributes: true, attributeFilter: ["hidden", "style", "class"] });
+  if (overlay.parentNode) mo.observe(overlay.parentNode, { childList: true });
+  check(); // handle a dialog that is already visible at call time (per-open pattern)
 }
