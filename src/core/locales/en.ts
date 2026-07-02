@@ -239,6 +239,7 @@ const dict: Dict = {
   vaCenter: "Centre",
   vaBottom: "Bottom",
   vaJustify: "Justified",
+  readFailed: "This document could not be opened. It is shown read-only and saving returns the file unchanged.",
 };
 
 export default dict;

@@ -22,13 +22,10 @@ export function createOdtAdapter(bytes: Uint8Array): Adapter {
   return {
     original,
     read(): RichDoc {
-      let parts: ReturnType<typeof odtToParts> = { body: "<p><br></p>", comments: [], header: "", footer: "" };
-      try {
-        const p = odtToParts(bytes);
-        parts = { ...p, body: p.body || "<p><br></p>" };
-      } catch (e) {
-        console.warn("odtedit: failed to parse document", e);
-      }
+      // Let a parse failure propagate: the engine latches the editor read-only so a
+      // blank surface can never overwrite the real file on save.
+      const p = odtToParts(bytes);
+      const parts = { ...p, body: p.body || "<p><br></p>" };
       return {
         body: parts.body,
         header: parts.header,

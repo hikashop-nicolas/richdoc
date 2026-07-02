@@ -38,6 +38,28 @@ const ODT = zipSync({
 });
 
 describe("shared engine mount", () => {
+  it("latches read-only on unreadable docx input and returns the original bytes", async () => {
+    const host = document.createElement("div");
+    const garbage = new Uint8Array([1, 2, 3, 4, 5]);
+    const ed = createDocxEditor(host, garbage);
+    expect(host.querySelector(".docxedit-read-error")).toBeTruthy();
+    const docEl = host.querySelector(".docxedit-doc") as HTMLElement;
+    expect(docEl.getAttribute("contenteditable")).toBe("false");
+    expect(ed.isDirty()).toBe(false);
+    expect(Array.from(await ed.getBytes())).toEqual([1, 2, 3, 4, 5]);
+    ed.destroy();
+  });
+
+  it("latches read-only on unreadable odt input and returns the original bytes", async () => {
+    const host = document.createElement("div");
+    const garbage = new Uint8Array([9, 9, 9]);
+    const ed = createOdtEditor(host, garbage);
+    expect(host.querySelector(".docxedit-read-error")).toBeTruthy();
+    expect(ed.isDirty()).toBe(false);
+    expect(Array.from(await ed.getBytes())).toEqual([9, 9, 9]);
+    ed.destroy();
+  });
+
   it("mounts a docx editor with the full toolbar and renders the body", () => {
     const host = document.createElement("div");
     const ed = createDocxEditor(host, DOCX);

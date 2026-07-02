@@ -64,12 +64,9 @@ export function createDocxAdapter(bytes: Uint8Array): Adapter {
   return {
     original,
     read(): RichDoc {
-      let parts: DocxParts = { body: "<p><br></p>", header: "", footer: "", comments: [] };
-      try {
-        parts = docxToParts(bytes);
-      } catch (e) {
-        console.warn("docxedit: failed to parse document", e);
-      }
+      // Let a parse failure propagate: the engine latches the editor read-only so a
+      // blank surface can never overwrite the real file on save.
+      const parts: DocxParts = docxToParts(bytes);
       let fontCss = "";
       let fontUrls: string[] = [];
       let defaultFontName: string | undefined;

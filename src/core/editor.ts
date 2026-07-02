@@ -42,12 +42,20 @@ export function createRichEditor(container: HTMLElement, adapter: Adapter, optio
   doc.setAttribute("aria-label", t("documentText"));
 
   let parts: RichDoc = { body: "<p><br></p>", header: "", footer: "", comments: [] };
+  let readFailed = false;
   try {
     parts = adapter.read();
   } catch (e) {
     console.warn("richdoc: failed to parse document", e);
+    // A failed parse must never let the (near-empty) editor overwrite the real
+    // file: latch read-only and have getBytes return the original bytes.
+    readFailed = true;
   }
   doc.innerHTML = parts.body || "<p><br></p>";
+  if (readFailed) {
+    doc.setAttribute("contenteditable", "false");
+    doc.setAttribute("aria-readonly", "true");
+  }
 
   // Render the document in its own embedded typefaces, if the adapter supplied any.
   const fontUrls: string[] = parts.fontUrls ?? [];
@@ -396,7 +404,15 @@ export function createRichEditor(container: HTMLElement, adapter: Adapter, optio
   main.className = "docxedit-main";
   main.append(outline.pane, scroll);
   bottomLeft.append(outline.toggleBtn, findReplace.toggleBtn);
-  wrap.append(toolbar, main, bottomBar);
+  if (readFailed) {
+    const banner = document.createElement("div");
+    banner.className = "docxedit-read-error";
+    banner.setAttribute("role", "alert");
+    banner.textContent = t("readFailed");
+    wrap.append(toolbar, banner, main, bottomBar);
+  } else {
+    wrap.append(toolbar, main, bottomBar);
+  }
   container.appendChild(wrap);
 
   // Footnote / endnote area below the pages. References are renumbered in document order and each
@@ -1573,10 +1589,10 @@ export function createRichEditor(container: HTMLElement, adapter: Adapter, optio
 
   return {
     isDirty() {
-      return dirty;
+      return !readFailed && dirty;
     },
     async getBytes() {
-      if (!dirty) return original.slice();
+      if (readFailed || !dirty) return original.slice();
       const editedParts: { path: string; html: string }[] = [];
       // Use the band's own part path when it came from the file; a band created in-editor
       // has none, so fall back to the "header"/"footer" sentinel the adapters create from.
