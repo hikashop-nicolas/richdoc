@@ -432,6 +432,50 @@ const attrVal = (rPr: Element | undefined, tag: string): string | undefined =>
 const pageBreakHtml = (kind: "manual" | "auto"): string =>
   `<span class="docx-pagebreak${kind === "auto" ? " docx-pagebreak-auto" : ""}" contenteditable="false" data-docx-pagebreak="${kind}" data-label="${escapeAttr(t("pageBreak"))}"></span>`;
 
+// Which rPr/pPr content the editor models (rebuilt from the DOM on save). Anything
+// else is stashed on the emitted HTML so the writer can merge it back, instead of
+// silently dropping it document-wide on every save.
+const MODELED_RPR = new Set(["w:rStyle", "w:b", "w:i", "w:strike", "w:vertAlign", "w:color", "w:sz", "w:szCs", "w:highlight", "w:shd", "w:rPrChange"]);
+function rPrHasUnmodeled(rPr: Element): boolean {
+  for (const c of Array.from(rPr.children)) {
+    const tag = c.tagName;
+    if (MODELED_RPR.has(tag)) continue;
+    if (tag === "w:u") {
+      // A plain single underline is fully modeled; any other flavour/colour must survive.
+      if ((c.getAttribute("w:val") ?? "single") === "single" && c.attributes.length <= 1) continue;
+      return true;
+    }
+    if (tag === "w:rFonts") {
+      for (const a of Array.from(c.attributes)) if (a.name !== "w:ascii" && a.name !== "w:hAnsi") return true;
+      continue;
+    }
+    return true; // smallCaps, caps, dstrike, spacing, kern, position, vanish, lang, bCs, ...
+  }
+  return false;
+}
+const MODELED_PPR = new Set(["w:pStyle", "w:numPr", "w:pBdr", "w:shd", "w:tabs", "w:jc", "w:rPr", "w:sectPr", "w:pageBreakBefore"]);
+function pPrHasUnmodeled(pPr: Element): boolean {
+  for (const c of Array.from(pPr.children)) {
+    const tag = c.tagName;
+    if (MODELED_PPR.has(tag)) continue;
+    if (tag === "w:spacing") {
+      const auto = (c.getAttribute("w:lineRule") ?? "auto") === "auto";
+      for (const a of Array.from(c.attributes)) {
+        if (a.name === "w:before" || a.name === "w:after") continue;
+        if ((a.name === "w:line" || a.name === "w:lineRule") && auto) continue;
+        return true; // exact/atLeast line rule, beforeLines, afterAutospacing, ...
+      }
+      continue;
+    }
+    if (tag === "w:ind") {
+      for (const a of Array.from(c.attributes)) if (a.name !== "w:left" && a.name !== "w:start") return true;
+      continue;
+    }
+    return true; // keepNext, keepLines, widowControl, outlineLvl, bidi, contextualSpacing, ...
+  }
+  return false;
+}
+
 /** Read a w:rPr element into a Fmt (used for the run's props and rPrChange's old props). */
 function readFmt(rPr: Element | undefined): Fmt {
   const color = attrVal(rPr, "w:color");
@@ -482,6 +526,9 @@ function runToHtml(run: Element): string {
     }
   }
   flush();
+  // Unmodeled run properties (small caps, character spacing, eastAsia fonts, underline
+  // flavours, lang, ...) ride along so the writer can merge them back on save.
+  if (rPr && out && rPrHasUnmodeled(rPr)) out = `<span data-docx-rpr="${escapeAttr(serializePassthrough(rPr))}">${out}</span>`;
   // A named character style on the run, so it round-trips and picks up the injected style CSS.
   const rStyle = attrVal(rPr, "w:rStyle");
   if (rStyle && out) out = `<span data-rdoc-cstyle="${escapeAttr(rStyle)}">${out}</span>`;
@@ -687,6 +734,7 @@ interface PInfo {
   secHeaderRid?: string; // r:id of this section's header part (keys into sectionBands)
   secFooterRid?: string; // r:id of this section's footer part
   tabStops?: string; // JSON [{pos,val,leader}] of the paragraph's custom tab stops (w:tabs)
+  pPrXml?: string; // the original w:pPr, stashed when it holds properties the editor does not model
 }
 /** The r:id of a section's default header/footer reference (keys per-section header/footer). */
 function refRid(sectPr: Element | undefined, tag: string): string | undefined {
@@ -756,6 +804,7 @@ function paragraphInfo(p: Element, numbering: Map<string, boolean>): PInfo {
     secHeaderRid: refRid(sectEl, "w:headerReference"),
     secFooterRid: refRid(sectEl, "w:footerReference"),
     tabStops: stops.length ? JSON.stringify(stops) : undefined,
+    pPrXml: pPr && pPrHasUnmodeled(pPr) ? serializePassthrough(pPr) : undefined,
   };
 }
 // Compact JSON page geometry of a section, read from its w:sectPr, for per-section rendering.
@@ -780,7 +829,10 @@ function blockStyleAttr(info: PInfo): string {
   const secHKey = info.secHeaderRid ? ` data-rdoc-secheaderkey="${escapeAttr(info.secHeaderRid)}"` : "";
   const secFKey = info.secFooterRid ? ` data-rdoc-secfooterkey="${escapeAttr(info.secFooterRid)}"` : "";
   const tabAttr = info.tabStops ? ` data-rdoc-tabstops="${escapeAttr(info.tabStops)}"` : "";
-  const sec = sectAttr + secGeomAttr + secHKey + secFKey;
+  // Unmodeled paragraph properties + the list's original numbering id, for merge-back on save.
+  const pprAttr = info.pPrXml ? ` data-docx-ppr="${escapeAttr(info.pPrXml)}"` : "";
+  const numAttr = info.isList && info.numId ? ` data-docx-numid="${escapeAttr(info.numId)}"` : "";
+  const sec = sectAttr + secGeomAttr + secHKey + secFKey + pprAttr + numAttr;
   if (!info.revPara) return style + styleAttr + sec + tabAttr;
   return `${style}${styleAttr}${sec}${tabAttr} class="docx-para-${info.revPara}" data-rev-para="${info.revPara}" data-rev-author="${escapeAttr(info.revAuthor ?? "")}" data-rev-date="${escapeAttr(info.revDate ?? "")}"`;
 }

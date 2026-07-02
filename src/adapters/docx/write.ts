@@ -214,24 +214,109 @@ interface RprChange {
   author: string;
   date: string;
 }
-function makeRun(ctx: DocxCtx, text: string, f: Fmt, del = false, change?: RprChange): Element {
-  const r = ctx.doc.createElementNS(W, "w:r");
-  if (fmtHasProps(f) || change) {
-    const rPr = ctx.doc.createElementNS(W, "w:rPr");
-    fillRPr(ctx, rPr, f);
-    if (change) {
-      // A tracked formatting change: record the previous properties in w:rPrChange.
-      const ch = ctx.doc.createElementNS(W, "w:rPrChange");
-      ch.setAttributeNS(W, "w:id", String(ctx.nextRevId++));
-      ch.setAttributeNS(W, "w:author", change.author || "Author");
-      if (change.date) ch.setAttributeNS(W, "w:date", change.date);
-      const oldRPr = ctx.doc.createElementNS(W, "w:rPr");
-      fillRPr(ctx, oldRPr, change.old);
-      ch.appendChild(oldRPr);
-      rPr.appendChild(ch);
+
+// OOXML property elements follow a strict schema order; merged (stashed + modeled)
+// properties are inserted at their schema position.
+const RPR_ORDER = ["w:rStyle", "w:rFonts", "w:b", "w:bCs", "w:i", "w:iCs", "w:caps", "w:smallCaps", "w:strike", "w:dstrike", "w:outline", "w:shadow", "w:emboss", "w:imprint", "w:noProof", "w:snapToGrid", "w:vanish", "w:webHidden", "w:color", "w:spacing", "w:w", "w:kern", "w:position", "w:sz", "w:szCs", "w:highlight", "w:u", "w:effect", "w:bdr", "w:shd", "w:fitText", "w:vertAlign", "w:rtl", "w:cs", "w:em", "w:lang", "w:eastAsianLayout", "w:specVanish", "w:oMath", "w:rPrChange"];
+const PPR_ORDER = ["w:pStyle", "w:keepNext", "w:keepLines", "w:pageBreakBefore", "w:framePr", "w:widowControl", "w:numPr", "w:suppressLineNumbers", "w:pBdr", "w:shd", "w:tabs", "w:suppressAutoHyphens", "w:kinsoku", "w:wordWrap", "w:overflowPunct", "w:topLinePunct", "w:autoSpaceDE", "w:autoSpaceDN", "w:bidi", "w:adjustRightInd", "w:snapToGrid", "w:spacing", "w:ind", "w:contextualSpacing", "w:mirrorIndents", "w:suppressOverlap", "w:jc", "w:textDirection", "w:textAlignment", "w:textboxTightWrap", "w:outlineLvl", "w:divId", "w:cnfStyle", "w:rPr", "w:sectPr", "w:pPrChange"];
+function insertInOrder(parent: Element, el: Element, order: string[]): void {
+  const idx = order.indexOf(el.tagName);
+  if (idx >= 0) {
+    for (const c of Array.from(parent.children)) {
+      const ci = order.indexOf(c.tagName);
+      if (ci > idx) {
+        parent.insertBefore(el, c);
+        return;
+      }
     }
-    r.appendChild(rPr);
   }
+  parent.appendChild(el);
+}
+
+/** Build a run's w:rPr: the stashed original properties (minus the modeled ones, which
+    the DOM owns) merged with the modeled Fmt, in schema order. Null when empty. */
+function buildRPr(ctx: DocxCtx, f: Fmt, change?: RprChange, stashXml?: string | null): Element | null {
+  let rPr: Element | null = null;
+  let keptU = false;
+  if (stashXml) {
+    const base = importPassthrough(ctx, stashXml);
+    if (base && base.tagName === "w:rPr") {
+      for (const c of Array.from(base.children)) {
+        const tag = c.tagName;
+        if (MODELED_RPR_W.has(tag)) {
+          base.removeChild(c);
+        } else if (tag === "w:u") {
+          // Underline still on: keep the original element so its flavour/colour survive.
+          if (f.u) keptU = true;
+          else base.removeChild(c);
+        } else if (tag === "w:rFonts" && f.font) {
+          // ascii/hAnsi are re-set from the DOM below; keep eastAsia/cs/theme attrs.
+          c.removeAttribute("w:ascii");
+          c.removeAttribute("w:hAnsi");
+          if (!c.attributes.length) base.removeChild(c);
+        }
+      }
+      if (base.children.length) rPr = base;
+    }
+  }
+  if (!fmtHasProps(f) && !change && !rPr) return null;
+  if (!rPr) rPr = ctx.doc.createElementNS(W, "w:rPr");
+  const out = rPr;
+  const valEl = (tag: string, val: string) => {
+    const el = ctx.doc.createElementNS(W, tag);
+    el.setAttributeNS(W, "w:val", val);
+    insertInOrder(out, el, RPR_ORDER);
+  };
+  const flag = (tag: string) => insertInOrder(out, ctx.doc.createElementNS(W, tag), RPR_ORDER);
+  if (f.cStyle) valEl("w:rStyle", f.cStyle);
+  if (f.font) {
+    let rf = Array.from(out.children).find((c) => c.tagName === "w:rFonts");
+    if (!rf) {
+      rf = ctx.doc.createElementNS(W, "w:rFonts");
+      insertInOrder(out, rf, RPR_ORDER);
+    }
+    rf.setAttributeNS(W, "w:ascii", f.font);
+    rf.setAttributeNS(W, "w:hAnsi", f.font);
+  }
+  if (f.b) flag("w:b");
+  if (f.i) flag("w:i");
+  if (f.strike) flag("w:strike");
+  if (f.color) valEl("w:color", f.color);
+  if (f.sizeHalfPt) {
+    valEl("w:sz", String(f.sizeHalfPt));
+    valEl("w:szCs", String(f.sizeHalfPt));
+  }
+  if (f.highlight) valEl("w:highlight", f.highlight);
+  if (f.shading) {
+    const shd = ctx.doc.createElementNS(W, "w:shd");
+    shd.setAttributeNS(W, "w:val", "clear");
+    shd.setAttributeNS(W, "w:color", "auto");
+    shd.setAttributeNS(W, "w:fill", f.shading);
+    insertInOrder(out, shd, RPR_ORDER);
+  }
+  if (f.u && !keptU) valEl("w:u", "single");
+  if (f.vertAlign) valEl("w:vertAlign", f.vertAlign === "super" ? "superscript" : "subscript");
+  if (change) {
+    // A tracked formatting change: record the previous properties in w:rPrChange.
+    const ch = ctx.doc.createElementNS(W, "w:rPrChange");
+    ch.setAttributeNS(W, "w:id", String(ctx.nextRevId++));
+    ch.setAttributeNS(W, "w:author", change.author || "Author");
+    if (change.date) ch.setAttributeNS(W, "w:date", change.date);
+    const oldRPr = ctx.doc.createElementNS(W, "w:rPr");
+    fillRPr(ctx, oldRPr, change.old);
+    ch.appendChild(oldRPr);
+    insertInOrder(out, ch, RPR_ORDER);
+  }
+  return out;
+}
+// Modeled rPr children (owned by the DOM state and rebuilt on save); w:u and w:rFonts
+// get attribute-level treatment in buildRPr instead.
+const MODELED_RPR_W = new Set(["w:rStyle", "w:b", "w:i", "w:strike", "w:vertAlign", "w:color", "w:sz", "w:szCs", "w:highlight", "w:shd", "w:rPrChange"]);
+
+function makeRun(ctx: DocxCtx, text: string, f: Fmt, del = false, change?: RprChange, rprStash?: string | null): Element {
+  const r = ctx.doc.createElementNS(W, "w:r");
+  const rPr = buildRPr(ctx, f, change, rprStash);
+  if (rPr) r.appendChild(rPr);
   const t = ctx.doc.createElementNS(W, del ? "w:delText" : "w:t");
   t.setAttribute("xml:space", "preserve");
   t.textContent = text;
@@ -259,16 +344,18 @@ function importPassthrough(ctx: DocxCtx, xml: string): Element | null {
   }
 }
 
-function appendInline(ctx: DocxCtx, node: Node, parent: Element, f: Fmt, del = false, change?: RprChange): void {
+function appendInline(ctx: DocxCtx, node: Node, parent: Element, f: Fmt, del = false, change?: RprChange, rprStash: string | null = null): void {
   for (const child of Array.from(node.childNodes)) {
     if (child.nodeType === 3) {
       const txt = child.textContent ?? "";
-      if (txt) parent.appendChild(makeRun(ctx, txt, f, del, change));
+      if (txt) parent.appendChild(makeRun(ctx, txt, f, del, change, rprStash));
       continue;
     }
     if (child.nodeType !== 1) continue;
     const el = child as HTMLElement;
     const tag = el.tagName.toLowerCase();
+    // The innermost stash of unmodeled run properties wins (see runToHtml).
+    const stash4 = el.getAttribute("data-docx-rpr") ?? rprStash;
     if (tag === "ul" || tag === "ol" || tag === "li") continue; // nested lists are emitted as block paragraphs, not inline
     // A field (page number / count / caption sequence): a w:fldSimple whose cached result is shown.
     if (el.classList.contains("docx-field")) {
@@ -276,7 +363,7 @@ function appendInline(ctx: DocxCtx, node: Node, parent: Element, f: Fmt, del = f
       const instr = k === "seq" ? ` SEQ ${el.getAttribute("data-seq") || "Figure"} \\* ARABIC ` : ` ${k} `;
       const fld = ctx.doc.createElementNS(W, "w:fldSimple");
       fld.setAttributeNS(W, "w:instr", instr);
-      fld.appendChild(makeRun(ctx, el.textContent || "", f, del, change));
+      fld.appendChild(makeRun(ctx, el.textContent || "", f, del, change, stash4));
       parent.appendChild(fld);
       continue;
     }
@@ -288,7 +375,7 @@ function appendInline(ctx: DocxCtx, node: Node, parent: Element, f: Fmt, del = f
       } catch {
         /* keep default */
       }
-      appendInline(ctx, el, parent, f, del, { old, author: el.getAttribute("data-rev-author") || "Author", date: el.getAttribute("data-rev-date") || "" });
+      appendInline(ctx, el, parent, f, del, { old, author: el.getAttribute("data-rev-author") || "Author", date: el.getAttribute("data-rev-date") || "" }, stash4);
       continue;
     }
     // Tracked changes: <ins>/<del> -> w:ins/w:del (del runs use w:delText).
@@ -298,7 +385,7 @@ function appendInline(ctx: DocxCtx, node: Node, parent: Element, f: Fmt, del = f
       w.setAttributeNS(W, "w:author", el.getAttribute("data-author") || "Author");
       const d = el.getAttribute("data-date");
       if (d) w.setAttributeNS(W, "w:date", d);
-      appendInline(ctx, el, w, f, del || tag === "del", change);
+      appendInline(ctx, el, w, f, del || tag === "del", change, stash4);
       parent.appendChild(w);
       continue;
     }
@@ -363,11 +450,11 @@ function appendInline(ctx: DocxCtx, node: Node, parent: Element, f: Fmt, del = f
       ruby.appendChild(pr && pr.tagName === "w:rubyPr" ? pr : ctx.doc.createElementNS(W, "w:rubyPr"));
       const rtEl = Array.from(el.children).find((c) => c.tagName.toLowerCase() === "rt") as HTMLElement | undefined;
       const rt = ctx.doc.createElementNS(W, "w:rt");
-      if (rtEl) appendInline(ctx, rtEl, rt, f, del, change);
+      if (rtEl) appendInline(ctx, rtEl, rt, f, del, change, stash4);
       const base = ctx.doc.createElementNS(W, "w:rubyBase");
       const baseClone = el.cloneNode(true) as HTMLElement;
       for (const r of Array.from(baseClone.children)) if (r.tagName.toLowerCase() === "rt") r.remove();
-      appendInline(ctx, baseClone, base, f, del, change);
+      appendInline(ctx, baseClone, base, f, del, change, stash4);
       ruby.append(rt, base);
       parent.appendChild(ruby);
       continue;
@@ -407,7 +494,7 @@ function appendInline(ctx: DocxCtx, node: Node, parent: Element, f: Fmt, del = f
         // An internal link to a bookmark: w:hyperlink w:anchor (no relationship).
         const link = ctx.doc.createElementNS(W, "w:hyperlink");
         link.setAttributeNS(W, "w:anchor", href.slice(1));
-        appendInline(ctx, el, link, f, del, change);
+        appendInline(ctx, el, link, f, del, change, stash4);
         parent.appendChild(link);
         continue;
       }
@@ -415,10 +502,10 @@ function appendInline(ctx: DocxCtx, node: Node, parent: Element, f: Fmt, del = f
       if (id) {
         const link = ctx.doc.createElementNS(W, "w:hyperlink");
         link.setAttributeNS(R, "r:id", id);
-        appendInline(ctx, el, link, f, del, change);
+        appendInline(ctx, el, link, f, del, change, stash4);
         parent.appendChild(link);
       } else {
-        appendInline(ctx, el, parent, f, del, change);
+        appendInline(ctx, el, parent, f, del, change, stash4);
       }
       continue;
     }
@@ -446,7 +533,7 @@ function appendInline(ctx: DocxCtx, node: Node, parent: Element, f: Fmt, del = f
       font: firstFontFamily(el.style.fontFamily) ?? f.font,
       cStyle: el.getAttribute("data-rdoc-cstyle") || f.cStyle,
     };
-    appendInline(ctx, el, parent, next, del, change);
+    appendInline(ctx, el, parent, next, del, change, stash4);
   }
 }
 
@@ -490,7 +577,8 @@ function makeParagraph(ctx: DocxCtx, src: HTMLElement, opts: { heading?: number;
   const tabStops = src.getAttribute("data-rdoc-tabstops"); // custom tab stops (JSON), schema-ordered before spacing
   const shadeHex = toHex6(src.style.backgroundColor); // paragraph shading -> w:shd
   const borders = blockBorders(src); // paragraph borders -> w:pBdr
-  if (opts.heading || namedStyle || opts.listNumId || jc || revPara || sectXml || regenSect || tabStops || shadeHex || borders.length || indentPx > 0 || lineHeight > 0 || hasBefore || hasAfter) {
+  const pprStash = src.getAttribute("data-docx-ppr"); // unmodeled original pPr content to merge back
+  if (opts.heading || namedStyle || opts.listNumId || jc || revPara || sectXml || regenSect || tabStops || shadeHex || borders.length || indentPx > 0 || lineHeight > 0 || hasBefore || hasAfter || pprStash) {
     const pPr = ctx.doc.createElementNS(W, "w:pPr");
     if (opts.heading || namedStyle) {
       const st = ctx.doc.createElementNS(W, "w:pStyle");
@@ -569,10 +657,47 @@ function makeParagraph(ctx: DocxCtx, src: HTMLElement, opts: { heading?: number;
       const sect = importPassthrough(ctx, sectXml);
       if (sect) pPr.appendChild(sect);
     }
+    if (pprStash) mergePPr(ctx, pPr, pprStash);
     p.appendChild(pPr);
   }
   appendInline(ctx, src, p, FMT0);
   return p;
+}
+
+// Modeled pPr children (owned by the DOM state and rebuilt in makeParagraph);
+// w:spacing and w:ind get attribute-level treatment in mergePPr instead.
+const MODELED_PPR_W = new Set(["w:pStyle", "w:numPr", "w:pBdr", "w:shd", "w:tabs", "w:jc", "w:rPr", "w:sectPr", "w:pageBreakBefore"]);
+
+/** Merge the stashed original pPr's unmodeled content into the freshly built pPr, at
+    schema position. For w:spacing/w:ind only the unmodeled attributes are carried over
+    (exact/atLeast line rules, first-line and hanging indents, ...); the DOM wins on the
+    modeled ones so removals stick. */
+function mergePPr(ctx: DocxCtx, pPr: Element, stashXml: string): void {
+  const base = importPassthrough(ctx, stashXml);
+  if (!base || base.tagName !== "w:pPr") return;
+  for (const c of Array.from(base.children)) {
+    const tag = c.tagName;
+    if (MODELED_PPR_W.has(tag)) continue;
+    if (tag === "w:spacing" || tag === "w:ind") {
+      c.removeAttribute(tag === "w:spacing" ? "w:before" : "w:left");
+      c.removeAttribute(tag === "w:spacing" ? "w:after" : "w:start");
+      if (tag === "w:spacing" && (c.getAttribute("w:lineRule") ?? "auto") === "auto") {
+        c.removeAttribute("w:line");
+        c.removeAttribute("w:lineRule");
+      }
+      if (!c.attributes.length) continue;
+      let target = Array.from(pPr.children).find((x) => x.tagName === tag);
+      if (!target) {
+        target = ctx.doc.createElementNS(W, tag);
+        insertInOrder(pPr, target, PPR_ORDER);
+      }
+      for (const a of Array.from(c.attributes)) {
+        if (!target.hasAttribute(a.name)) target.setAttributeNS(a.namespaceURI, a.name, a.value);
+      }
+      continue;
+    }
+    insertInOrder(pPr, c, PPR_ORDER); // keepNext, widowControl, outlineLvl, bidi, ...
+  }
 }
 
 /** Rebuild a w:tbl from its preserved skeleton, replacing each (non-vMerge-continue) cell's
@@ -839,13 +964,23 @@ function newOrderedNumId(ctx: DocxCtx, start: number): string {
     A nested ordered list under an ordered ancestor reuses its numId (one sequence across levels). */
 function appendList(ctx: DocxCtx, body: Element, listEl: Element, depth: number, orderedNumId: string | null): void {
   const ordered = listEl.tagName.toLowerCase() === "ol";
-  const numId = ordered ? (orderedNumId ?? newOrderedNumId(ctx, listStartOf(listEl))) : ensureListNumbering(ctx).bullet;
+  // Items that came from the file carry their original numId (data-docx-numid) and keep
+  // it, so the file's numbering definitions (roman, custom bullets, multilevel labels)
+  // survive a save. A generic definition is minted lazily, only for items without one.
+  let defaultId: string | null = ordered ? orderedNumId : null;
+  let lastId: string | null = null;
   for (const li of Array.from(listEl.children)) {
     if (li.tagName.toLowerCase() !== "li") continue;
+    let numId = (li as HTMLElement).getAttribute("data-docx-numid");
+    if (!numId) {
+      if (!defaultId) defaultId = ordered ? newOrderedNumId(ctx, listStartOf(listEl)) : ensureListNumbering(ctx).bullet;
+      numId = defaultId;
+    }
+    lastId = numId;
     body.appendChild(makeParagraph(ctx, li as HTMLElement, { listLevel: Math.min(8, depth), listNumId: numId }));
     for (const child of Array.from(li.children)) {
       const ct = child.tagName.toLowerCase();
-      if (ct === "ul" || ct === "ol") appendList(ctx, body, child, depth + 1, ordered ? numId : null);
+      if (ct === "ul" || ct === "ol") appendList(ctx, body, child, depth + 1, ordered ? lastId : null);
     }
   }
 }

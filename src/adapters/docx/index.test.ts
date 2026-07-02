@@ -418,9 +418,9 @@ describe("docx <-> html", () => {
       "word/numbering.xml": strToU8(numbering),
     };
     const html = docxToHtml(zipSync(files));
-    expect(html).toContain('<ol start="3"><li>three</li></ol>'); // explicit start of 3
-    expect(html).toContain("<ol><li>one</li><li>two</li></ol>"); // first list of numId 2 starts at 1
-    expect(html).toContain('<ol start="3"><li>cont</li></ol>'); // third list continues numId 2 (1,2 -> 3)
+    expect(html).toContain('<ol start="3"><li data-docx-numid="1">three</li></ol>'); // explicit start of 3
+    expect(html).toContain('<ol><li data-docx-numid="2">one</li><li data-docx-numid="2">two</li></ol>'); // first list of numId 2 starts at 1
+    expect(html).toContain('<ol start="3"><li data-docx-numid="2">cont</li></ol>'); // third list continues numId 2 (1,2 -> 3)
   });
 
   it("shows manual page breaks (and Word's auto breaks) and round-trips the manual one", () => {
@@ -1731,5 +1731,81 @@ describe("list fidelity: nesting and ordered/bullet", () => {
     const html = docxToHtml(out);
     expect(html).toContain('data-rdoc-caption="table"');
     expect(html).toContain('data-seq="Table"');
+  });
+});
+
+describe("preserve-by-default (unmodeled rPr/pPr survive saves)", () => {
+  const PRESERVE_DOC = `<?xml version="1.0"?>
+<w:document xmlns:w="http://schemas.openxmlformats.org/wordprocessingml/2006/main"><w:body>
+ <w:p><w:pPr><w:keepNext/><w:bidi/><w:spacing w:line="480" w:lineRule="exact"/><w:ind w:left="720" w:hanging="360"/></w:pPr><w:r><w:rPr><w:b/><w:smallCaps/><w:spacing w:val="20"/><w:rFonts w:eastAsia="MS Mincho"/></w:rPr><w:t>styled</w:t></w:r></w:p>
+ <w:p><w:r><w:rPr><w:u w:val="double"/></w:rPr><w:t>doubleu</w:t></w:r></w:p>
+ <w:p><w:r><w:t>plain</w:t></w:r></w:p>
+</w:body></w:document>`;
+
+  it("keeps unmodeled run and paragraph properties across an unrelated edit", () => {
+    const docx = makeDocx(PRESERVE_DOC);
+    const html = docxToHtml(docx);
+    expect(html).toContain("data-docx-rpr");
+    expect(html).toContain("data-docx-ppr");
+    const out = htmlToDocx(html.replace("plain", "edited elsewhere"), docx);
+    const docXml = strFromU8(unzipSync(out)["word/document.xml"]);
+    // unmodeled run properties survive
+    expect(docXml).toContain("w:smallCaps");
+    expect(docXml).toContain('MS Mincho');
+    expect(docXml).toMatch(/w:spacing w:val="20"/);
+    // modeled bold is still there too
+    expect(docXml).toContain("<w:b/>");
+    // unmodeled paragraph properties survive
+    expect(docXml).toContain("w:keepNext");
+    expect(docXml).toContain("w:bidi");
+    expect(docXml).toContain('w:lineRule="exact"');
+    expect(docXml).toContain('w:line="480"');
+    expect(docXml).toContain('w:hanging="360"');
+    expect(docXml).toContain('w:left="720"');
+    expect(docXml).toContain("edited elsewhere");
+  });
+
+  it("removing bold keeps the run's other (unmodeled) properties", () => {
+    const docx = makeDocx(PRESERVE_DOC);
+    const html = docxToHtml(docx).replace("<strong>styled</strong>", "styled");
+    const docXml = strFromU8(unzipSync(htmlToDocx(html, docx))["word/document.xml"]);
+    expect(docXml).toContain("w:smallCaps");
+    // the run that had bold+smallCaps no longer has w:b (the double-underline run has no b either)
+    expect(docXml).not.toContain("<w:b/>");
+  });
+
+  it("keeps the underline flavour instead of flattening to single", () => {
+    const docx = makeDocx(PRESERVE_DOC);
+    const html = docxToHtml(docx);
+    expect(html).toContain("<u>doubleu</u>");
+    const docXml = strFromU8(unzipSync(htmlToDocx(html, docx))["word/document.xml"]);
+    expect(docXml).toMatch(/w:u [^>]*w:val="double"/);
+    // removing the underline drops the element entirely
+    const docXml2 = strFromU8(unzipSync(htmlToDocx(html.replace("<u>doubleu</u>", "doubleu"), docx))["word/document.xml"]);
+    expect(docXml2).not.toContain('w:val="double"');
+  });
+
+  it("reuses the file's list numbering ids instead of re-pointing at a generic definition", () => {
+    const numbering = `<?xml version="1.0"?><w:numbering xmlns:w="http://schemas.openxmlformats.org/wordprocessingml/2006/main">` +
+      '<w:abstractNum w:abstractNumId="0"><w:lvl w:ilvl="0"><w:start w:val="1"/><w:numFmt w:val="upperRoman"/></w:lvl></w:abstractNum>' +
+      '<w:num w:numId="5"><w:abstractNumId w:val="0"/></w:num></w:numbering>';
+    const doc = `<?xml version="1.0"?><w:document xmlns:w="http://schemas.openxmlformats.org/wordprocessingml/2006/main"><w:body>
+ <w:p><w:pPr><w:numPr><w:ilvl w:val="0"/><w:numId w:val="5"/></w:numPr></w:pPr><w:r><w:t>first</w:t></w:r></w:p>
+ <w:p><w:pPr><w:numPr><w:ilvl w:val="0"/><w:numId w:val="5"/></w:numPr></w:pPr><w:r><w:t>second</w:t></w:r></w:p>
+</w:body></w:document>`;
+    const files = {
+      "[Content_Types].xml": strToU8("<Types/>"),
+      "_rels/.rels": strToU8("<Relationships/>"),
+      "word/document.xml": strToU8(doc),
+      "word/_rels/document.xml.rels": strToU8(RELS),
+      "word/numbering.xml": strToU8(numbering),
+    };
+    const docx = zipSync(files);
+    const html = docxToHtml(docx);
+    expect(html).toContain('data-docx-numid="5"');
+    const out = unzipSync(htmlToDocx(html, docx));
+    const docXml = strFromU8(out["word/document.xml"]);
+    expect(docXml.match(/w:numId w:val="5"/g)?.length).toBe(2); // original id kept on both items
+    expect(strFromU8(out["word/numbering.xml"])).toBe(numbering); // no generic definition minted
   });
 });

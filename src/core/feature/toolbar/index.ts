@@ -776,6 +776,9 @@ export function setupToolbar(deps: ToolbarDeps) {
   const setListStart = (ol: HTMLOListElement, start: number): void => {
     if (start > 1) ol.setAttribute("start", String(start));
     else ol.removeAttribute("start"); // restart at 1 = no start attribute
+    // Numbering changed: drop preserved original numbering ids so the writer mints
+    // a fresh definition honouring the new start instead of reusing the file's.
+    for (const li of Array.from(ol.children)) if (li.tagName === "LI") li.removeAttribute("data-docx-numid");
     mark();
     syncToolbarState();
   };
