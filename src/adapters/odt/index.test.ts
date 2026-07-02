@@ -1278,3 +1278,65 @@ describe("odt info fields (date / author / file name)", () => {
     expect(xml).toContain("Jane"); // the cached snapshot survives
   });
 });
+
+describe("odt preserve-by-default (unmodeled style content survives saves)", () => {
+  const PRESERVE = `<?xml version="1.0" encoding="UTF-8"?>
+<office:document-content xmlns:office="urn:oasis:names:tc:opendocument:xmlns:office:1.0" xmlns:text="urn:oasis:names:tc:opendocument:xmlns:text:1.0" xmlns:style="urn:oasis:names:tc:opendocument:xmlns:style:1.0" xmlns:fo="urn:oasis:names:tc:opendocument:xmlns:xsl-fo-compatible:1.0" xmlns:xlink="http://www.w3.org/1999/xlink" office:version="1.2">
+ <office:automatic-styles>
+  <style:style style:name="T1" style:family="text"><style:text-properties fo:font-weight="bold" fo:letter-spacing="0.1cm" style:font-name-asian="MS Mincho"/></style:style>
+  <style:style style:name="T2" style:family="text"><style:text-properties style:text-underline-style="wave" style:text-underline-width="auto" style:text-underline-color="font-color"/></style:style>
+  <style:style style:name="P1" style:family="paragraph"><style:paragraph-properties fo:text-align="center" fo:text-indent="1cm" fo:keep-with-next="always" fo:widows="2"/><style:text-properties fo:font-family="Garamond"/></style:style>
+ </office:automatic-styles>
+ <office:body>
+  <office:text>
+   <text:p text:style-name="P1">Styled <text:span text:style-name="T1">spaced</text:span> <text:span text:style-name="T2">waved</text:span></text:p>
+   <text:p>plain</text:p>
+  </office:text>
+ </office:body>
+</office:document-content>`;
+
+  it("keeps unmodeled text and paragraph properties across an unrelated edit", () => {
+    const odt = makeOdt(PRESERVE);
+    const html = odtToHtml(odt);
+    expect(html).toContain("data-odt-rpr");
+    expect(html).toContain("data-odt-ppr");
+    const out = strFromU8(unzipSync(htmlToOdt(html.replace("plain", "edited elsewhere"), odt))["content.xml"]);
+    expect(out).toContain('fo:letter-spacing="0.1cm"');
+    expect(out).toContain('style:font-name-asian="MS Mincho"');
+    expect(out).toContain('fo:font-weight="bold"'); // modeled bold still present
+    expect(out).toContain('fo:text-indent="1cm"');
+    expect(out).toContain('fo:keep-with-next="always"');
+    expect(out).toContain('fo:widows="2"');
+    expect(out).toContain('fo:font-family="Garamond"'); // the paragraph style's default run font
+    expect(out).toContain('fo:text-align="center"'); // modeled alignment still present
+    expect(out).toContain("edited elsewhere");
+  });
+
+  // The style referenced by the span holding `text` (original automatic styles stay in
+  // the file; what matters is what the edited run points at).
+  const styleOfRun = (content: string, text: string): string => {
+    const m = new RegExp(`<text:span text:style-name="([^"]+)">${text}</text:span>`).exec(content);
+    if (!m) return "";
+    const st = new RegExp(`<style:style[^>]*style:name="${m[1]}"[^>]*>[\\s\\S]*?</style:style>`).exec(content);
+    return st ? st[0] : "";
+  };
+
+  it("removing bold keeps the run's other unmodeled properties", () => {
+    const odt = makeOdt(PRESERVE);
+    const html = odtToHtml(odt).replace("<strong>spaced</strong>", "spaced");
+    const out = strFromU8(unzipSync(htmlToOdt(html, odt))["content.xml"]);
+    const st = styleOfRun(out, "spaced");
+    expect(st).toContain('fo:letter-spacing="0.1cm"');
+    expect(st).not.toContain('fo:font-weight="bold"');
+  });
+
+  it("keeps the underline flavour instead of flattening to solid", () => {
+    const odt = makeOdt(PRESERVE);
+    const html = odtToHtml(odt);
+    expect(html).toContain("<u>waved</u>");
+    const out = strFromU8(unzipSync(htmlToOdt(html, odt))["content.xml"]);
+    expect(styleOfRun(out, "waved")).toContain('style:text-underline-style="wave"');
+    const out2 = strFromU8(unzipSync(htmlToOdt(html.replace("<u>waved</u>", "waved"), odt))["content.xml"]);
+    expect(styleOfRun(out2, "waved")).not.toContain("text-underline");
+  });
+});

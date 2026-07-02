@@ -4,7 +4,7 @@ import { strFromU8, unzipSync } from "fflate";
 import { bytesToBase64, imageLayoutAttrs } from "../../core/util";
 import { t } from "../../core/i18n";
 import type { CommentThread, PageBorder, PageGeometry } from "../../core/types";
-import { ODF_ALIGN, escapeHtml, escapeAttr, inlinePass, blockPass, passthroughAttr, FMT0, IMG_MIME } from "./shared";
+import { ODF_ALIGN, escapeHtml, escapeAttr, inlinePass, blockPass, passthroughAttr, serializePassthrough, FMT0, IMG_MIME } from "./shared";
 import type { Fmt, PFmt } from "./shared";
 import { collectGraphicStyles, readOdtLayout } from "./image-layout";
 import type { GraphicStyleInfo } from "./image-layout";
@@ -80,6 +80,8 @@ interface RCtx {
   listStarts: Map<string, number>; // list style-name -> level-1 start number
   listRun: { last: number }; // running end-count of the last level-1 ordered list (for continue-numbering)
   tabStops: Map<string, TabStop[]>; // paragraph style-name -> custom tab stops (px)
+  textStash: Map<string, string>; // text style-name -> style XML, when it has unmodeled properties
+  paraStash: Map<string, string>; // paragraph style-name -> style XML, when it has unmodeled properties
   masterGeoms: Map<string, string>; // master-page name -> JSON page geometry (for per-section rendering)
   masterBands?: Map<string, { header: string; footer: string; headerLeft?: string; footerLeft?: string; headerFirst?: string; footerFirst?: string }>; // master-page name -> its header/footer HTML (left = even, first = first page)
   notes?: { id: string; kind: "footnote" | "endnote"; html: string }[]; // footnote/endnote bodies, collected inline
@@ -266,6 +268,52 @@ function frameMathHtml(frame: Element, ctx: RCtx): string | null {
   if (!root || root.localName !== "math") return null;
   const mathml = new XMLSerializer().serializeToString(root);
   return `<span class="docx-eq" data-rdoc-eq contenteditable="false"${passthroughAttr(frame)}>${mathml}</span>`;
+}
+
+// Which style properties the editor models (rebuilt from the DOM on save). Styles
+// holding anything else are stashed on the emitted HTML so the writer can merge
+// them back instead of silently dropping them document-wide.
+const MODELED_ODT_TP = new Set([
+  "fo:font-weight", "style:font-weight-asian", "style:font-weight-complex",
+  "fo:font-style", "style:font-style-asian", "style:font-style-complex",
+  "style:text-underline-style", "style:text-underline-width", "style:text-underline-color",
+  "style:text-line-through-style", "style:text-line-through-type",
+  "style:text-position", "fo:color", "fo:background-color",
+  "fo:font-family", "style:font-name",
+  "fo:font-size", "style:font-size-asian", "style:font-size-complex",
+]);
+const MODELED_ODT_PP = new Set([
+  "fo:text-align", "fo:margin-left", "fo:line-height", "fo:margin-top", "fo:margin-bottom",
+  "fo:background-color", "fo:border", "fo:border-top", "fo:border-right", "fo:border-bottom", "fo:border-left",
+  "fo:break-before", "fo:break-after",
+]);
+/** Map style-name -> the style's XML, for styles carrying properties the editor does not model. */
+function collectStyleStashes(doc: Document, family: "text" | "paragraph"): Map<string, string> {
+  const out = new Map<string, string>();
+  for (const st of Array.from(doc.getElementsByTagName("style:style"))) {
+    if (st.getAttribute("style:family") !== family) continue;
+    const name = st.getAttribute("style:name");
+    if (!name) continue;
+    let unmodeled = false;
+    for (const child of Array.from(st.children)) {
+      if (family === "text" && child.tagName === "style:text-properties") {
+        for (const a of Array.from(child.attributes)) if (!MODELED_ODT_TP.has(a.name)) { unmodeled = true; break; }
+        // Non-solid underline/strike flavours are beyond what the editor rebuilds.
+        const u = child.getAttribute("style:text-underline-style");
+        if (u && u !== "none" && u !== "solid") unmodeled = true;
+        const lt = child.getAttribute("style:text-line-through-style");
+        if (lt && lt !== "none" && lt !== "solid") unmodeled = true;
+      } else if (family === "paragraph" && child.tagName === "style:paragraph-properties") {
+        for (const a of Array.from(child.attributes)) if (!MODELED_ODT_PP.has(a.name)) { unmodeled = true; break; }
+        if (!unmodeled) for (const gc of Array.from(child.children)) if (gc.tagName !== "style:tab-stops") { unmodeled = true; break; }
+      } else {
+        unmodeled = true; // e.g. text-properties on a paragraph style (its default run font)
+      }
+      if (unmodeled) break;
+    }
+    if (unmodeled) out.set(name, serializePassthrough(st));
+  }
+  return out;
 }
 
 /** Map text:style-name -> run formatting, read from the automatic/text styles. */
@@ -591,6 +639,9 @@ function inlineToHtml(el: Element, ctx: RCtx): string {
         const sn = child.getAttribute("text:style-name") ?? "";
         const f = ctx.styles.get(sn) ?? FMT0;
         let inner = wrapFmt(inlineToHtml(child, ctx), f);
+        // Unmodeled style content (letter spacing, asian fonts, ...) rides along for merge-back.
+        const rstash = ctx.textStash.get(sn);
+        if (rstash && inner) inner = `<span data-odt-rpr="${escapeAttr(rstash)}">${inner}</span>`;
         // A named character style behind the span (direct, or the parent of an automatic style).
         const eff = ctx.namedCharStyles.has(sn) ? sn : ctx.namedCharStyles.has(ctx.textAutoParent.get(sn) ?? "") ? ctx.textAutoParent.get(sn)! : "";
         if (eff) inner = `<span data-rdoc-cstyle="${escapeAttr(eff)}">${inner}</span>`;
@@ -822,11 +873,14 @@ function blockToHtml(el: Element, ctx: RCtx): string {
   // Custom tab stops from the paragraph's own or parent style, preserved as data-rdoc-tabstops.
   const stops = ctx.tabStops.get(sn) ?? ctx.tabStops.get(ctx.autoParent.get(sn) ?? "");
   const tabAttr = stops && stops.length ? ` data-rdoc-tabstops="${escapeAttr(JSON.stringify(stops))}"` : "";
+  // Unmodeled paragraph-style content (first-line indent, keep-with-next, default run font, ...).
+  const pstash = ctx.paraStash.get(sn);
+  const pprAttr = pstash ? ` data-odt-ppr="${escapeAttr(pstash)}"` : "";
   switch (el.tagName) {
     case "text:h": {
       const lvl = Math.min(3, Math.max(1, parseInt(el.getAttribute("text:outline-level") ?? "1", 10) || 1));
       const inner = inlineToHtml(el, ctx);
-      return `${before}<h${lvl}${alignAttr()}${breakAttr}${tabAttr}>${inner || "<br>"}</h${lvl}>${after}`;
+      return `${before}<h${lvl}${alignAttr()}${breakAttr}${tabAttr}${pprAttr}>${inner || "<br>"}</h${lvl}>${after}`;
     }
     case "text:list":
       return listToHtml(el, ctx);
@@ -837,7 +891,7 @@ function blockToHtml(el: Element, ctx: RCtx): string {
       // A paragraph carrying a caption sequence field is a figure/table/equation caption (type from the seq name).
       const capKind = /data-seq="[^"]*[Tt]able/.test(inner) ? "table" : /data-seq="[^"]*[Ee]quation/.test(inner) ? "equation" : "figure";
       const capAttr = inner.includes('data-field="seq"') ? ` data-rdoc-caption="${capKind}"` : "";
-      return `${before}<p${alignAttr()}${namedAttr()}${breakAttr}${tabAttr}${capAttr}>${inner || "<br>"}</p>${after}`;
+      return `${before}<p${alignAttr()}${namedAttr()}${breakAttr}${tabAttr}${pprAttr}${capAttr}>${inner || "<br>"}</p>${after}`;
     }
     default:
       // Tables, tracked-changes, sequence-decls, sections, ... preserved verbatim.
@@ -852,7 +906,7 @@ function collectMasterBands(files: Record<string, Uint8Array>): Map<string, { he
   const raw = files["styles.xml"];
   if (!raw) return out;
   const doc = new DOMParser().parseFromString(strFromU8(raw), "application/xml");
-  const ctx: RCtx = { files, styles: collectTextStyles(doc), paras: collectParaStyles(doc), cellStyles: collectCellStyles(doc), tableMargins: collectTableMargins(doc), listStyles: collectListStyles(doc), namedStyles: new Set(), autoParent: new Map(), namedCharStyles: new Set(), textAutoParent: new Map(), threads: [], rangedNames: new Set(), openComment: new Set(), changes: new Map(), openIns: new Set(), graphicStyles: collectGraphicStyles(doc, lenToPx), paraBreaks: collectParaBreaks(doc), listStarts: collectListStarts(doc), listRun: { last: 0 }, tabStops: collectTabStops(doc, lenToPx), masterGeoms: collectMasterGeoms(files["styles.xml"], lenToPx) };
+  const ctx: RCtx = { files, styles: collectTextStyles(doc), paras: collectParaStyles(doc), cellStyles: collectCellStyles(doc), tableMargins: collectTableMargins(doc), listStyles: collectListStyles(doc), namedStyles: new Set(), autoParent: new Map(), namedCharStyles: new Set(), textAutoParent: new Map(), threads: [], rangedNames: new Set(), openComment: new Set(), changes: new Map(), openIns: new Set(), graphicStyles: collectGraphicStyles(doc, lenToPx), paraBreaks: collectParaBreaks(doc), listStarts: collectListStarts(doc), listRun: { last: 0 }, tabStops: collectTabStops(doc, lenToPx), textStash: collectStyleStashes(doc, "text"), paraStash: collectStyleStashes(doc, "paragraph"), masterGeoms: collectMasterGeoms(files["styles.xml"], lenToPx) };
   const render = (master: Element, tag: string): string => {
     const el = master.getElementsByTagName(tag)[0];
     if (!el) return "";
@@ -956,7 +1010,7 @@ export function odtToParts(bytes: Uint8Array): { body: string; comments: Comment
     for (const [k, v] of collectListStarts(sdoc)) if (!listStarts.has(k)) listStarts.set(k, v);
     for (const [k, v] of collectTabStops(sdoc, lenToPx)) if (!tabStops.has(k)) tabStops.set(k, v);
   }
-  const ctx: RCtx = { files, styles: collectTextStyles(doc), paras: collectParaStyles(doc), cellStyles: collectCellStyles(doc), tableMargins: collectTableMargins(doc), listStyles: collectListStyles(doc), namedStyles: ps.namedPara, autoParent: collectAutoParents(doc, "paragraph"), namedCharStyles: ps.namedChar, textAutoParent: collectAutoParents(doc, "text"), threads: [], rangedNames, openComment: new Set(), changes: readChanges(body), openIns: new Set(), graphicStyles, paraBreaks, listStarts, listRun: { last: 0 }, tabStops, masterGeoms: collectMasterGeoms(files["styles.xml"], lenToPx), masterBands, notes: [] };
+  const ctx: RCtx = { files, styles: collectTextStyles(doc), paras: collectParaStyles(doc), cellStyles: collectCellStyles(doc), tableMargins: collectTableMargins(doc), listStyles: collectListStyles(doc), namedStyles: ps.namedPara, autoParent: collectAutoParents(doc, "paragraph"), namedCharStyles: ps.namedChar, textAutoParent: collectAutoParents(doc, "text"), threads: [], rangedNames, openComment: new Set(), changes: readChanges(body), openIns: new Set(), graphicStyles, paraBreaks, listStarts, listRun: { last: 0 }, tabStops, textStash: collectStyleStashes(doc, "text"), paraStash: collectStyleStashes(doc, "paragraph"), masterGeoms: collectMasterGeoms(files["styles.xml"], lenToPx), masterBands, notes: [] };
   let html = "";
   for (const block of Array.from(body.children)) {
     if (block.tagName === "text:tracked-changes") continue; // metadata, parsed into ctx.changes

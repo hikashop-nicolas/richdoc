@@ -33,28 +33,71 @@ function ensureAutoStyles(doc: Document, beforeTag = "office:body"): Element {
   return auto;
 }
 
-/** Create (once) a text style for a run-formatting combo and return its name. */
-function styleFor(doc: Document, auto: Element, created: Map<string, string>, f: Fmt): string | null {
+// Modeled style:text-properties attributes, stripped from a stashed style before
+// the DOM-derived formatting is applied (so removals stick); everything else in the
+// stash survives. Underline/strike attrs are handled separately to keep flavours.
+const MODELED_TP_W = ["fo:font-weight", "style:font-weight-asian", "style:font-weight-complex", "fo:font-style", "style:font-style-asian", "style:font-style-complex", "style:text-position", "fo:color", "fo:background-color", "fo:font-family", "style:font-name", "fo:font-size", "style:font-size-asian", "style:font-size-complex"];
+const UNDERLINE_TP = ["style:text-underline-style", "style:text-underline-width", "style:text-underline-color", "style:text-underline-type", "style:text-underline-mode"];
+const STRIKE_TP = ["style:text-line-through-style", "style:text-line-through-type", "style:text-line-through-mode"];
+
+/** Create (once) a text style for a run-formatting combo and return its name. When the
+    original style carried unmodeled properties (stashXml), they are merged back. */
+function styleFor(doc: Document, auto: Element, created: Map<string, string>, f: Fmt, stashXml?: string | null): string | null {
   const key = fmtKey(f);
-  if (!key) return null;
+  if (!key && !stashXml) return null;
   const parent = f.cStyle; // direct formatting layered over a named character style
-  const ckey = parent ? `${key}|${parent}` : key;
+  const ckey = `${key}|${parent ?? ""}|${stashXml ?? ""}`;
   const existing = created.get(ckey);
   if (existing) return existing;
   const name = `OT_t${created.size}`;
-  const st = doc.createElementNS(NS.style, "style:style");
+  let st: Element | null = null;
+  let tp: Element | null = null;
+  let keptU = false;
+  let keptStrike = false;
+  if (stashXml) {
+    const base = importPassthrough(doc, stashXml);
+    if (base && base.tagName === "style:style") {
+      st = base;
+      tp = st.getElementsByTagName("style:text-properties")[0] ?? null;
+      if (tp) {
+        for (const a of MODELED_TP_W) tp.removeAttribute(a);
+        // Underline/strike still on: keep the original flavour attributes.
+        if (f.u && tp.getAttribute("style:text-underline-style")) keptU = true;
+        else for (const a of UNDERLINE_TP) tp.removeAttribute(a);
+        if (f.strike && tp.getAttribute("style:text-line-through-style")) keptStrike = true;
+        else for (const a of STRIKE_TP) tp.removeAttribute(a);
+      }
+    }
+  }
+  if (!st) st = doc.createElementNS(NS.style, "style:style");
   st.setAttributeNS(NS.style, "style:name", name);
   st.setAttributeNS(NS.style, "style:family", "text");
   if (parent) st.setAttributeNS(NS.style, "style:parent-style-name", parent);
-  const tp = doc.createElementNS(NS.style, "style:text-properties");
-  if (f.b) tp.setAttributeNS(NS.fo, "fo:font-weight", "bold");
-  if (f.i) tp.setAttributeNS(NS.fo, "fo:font-style", "italic");
-  if (f.u) {
+  else st.removeAttribute("style:parent-style-name");
+  if (!tp) {
+    tp = doc.createElementNS(NS.style, "style:text-properties");
+    st.appendChild(tp);
+  }
+  if (f.b) {
+    tp.setAttributeNS(NS.fo, "fo:font-weight", "bold");
+    if (stashXml) {
+      tp.setAttributeNS(NS.style, "style:font-weight-asian", "bold");
+      tp.setAttributeNS(NS.style, "style:font-weight-complex", "bold");
+    }
+  }
+  if (f.i) {
+    tp.setAttributeNS(NS.fo, "fo:font-style", "italic");
+    if (stashXml) {
+      tp.setAttributeNS(NS.style, "style:font-style-asian", "italic");
+      tp.setAttributeNS(NS.style, "style:font-style-complex", "italic");
+    }
+  }
+  if (f.u && !keptU) {
     tp.setAttributeNS(NS.style, "style:text-underline-style", "solid");
     tp.setAttributeNS(NS.style, "style:text-underline-width", "auto");
     tp.setAttributeNS(NS.style, "style:text-underline-color", "font-color");
   }
-  if (f.strike) {
+  if (f.strike && !keptStrike) {
     tp.setAttributeNS(NS.style, "style:text-line-through-style", "solid");
     tp.setAttributeNS(NS.style, "style:text-line-through-type", "single");
   }
@@ -65,8 +108,13 @@ function styleFor(doc: Document, auto: Element, created: Map<string, string>, f:
     tp.setAttributeNS(NS.fo, "fo:font-family", f.font);
     tp.setAttributeNS(NS.style, "style:font-name", f.font);
   }
-  if (f.sizePt) tp.setAttributeNS(NS.fo, "fo:font-size", `${f.sizePt}pt`);
-  st.appendChild(tp);
+  if (f.sizePt) {
+    tp.setAttributeNS(NS.fo, "fo:font-size", `${f.sizePt}pt`);
+    if (stashXml) {
+      tp.setAttributeNS(NS.style, "style:font-size-asian", `${f.sizePt}pt`);
+      tp.setAttributeNS(NS.style, "style:font-size-complex", `${f.sizePt}pt`);
+    }
+  }
   auto.appendChild(st);
   created.set(ckey, name);
   return name;
@@ -95,29 +143,52 @@ function buildOdtTabStops(doc: Document, stops: { pos: number; val?: string; lea
 /** Create (once) a paragraph style for an alignment and return its name. The breakBefore /
     breakAfter / masterPage fields carry a section break (a new page, optionally with a
     different page master) so editing a paragraph does not drop it. */
-function paraStyleFor(doc: Document, auto: Element, created: Map<string, string>, p: { align?: string; indentPx?: number; lineHeight?: number; spaceBeforePx?: number; spaceAfterPx?: number; parent?: string; breakBefore?: string; breakAfter?: string; masterPage?: string; tabStops?: { pos: number; val?: string; leader?: string }[]; shading?: string; borders?: BlockBorderSide[] }): string | null {
+// Modeled style:paragraph-properties attributes (rebuilt from the DOM on save).
+const MODELED_PP_W = ["fo:text-align", "fo:margin-left", "fo:line-height", "fo:margin-top", "fo:margin-bottom", "fo:break-before", "fo:break-after", "fo:background-color", "fo:border", "fo:border-top", "fo:border-right", "fo:border-bottom", "fo:border-left"];
+
+function paraStyleFor(doc: Document, auto: Element, created: Map<string, string>, p: { align?: string; indentPx?: number; lineHeight?: number; spaceBeforePx?: number; spaceAfterPx?: number; parent?: string; breakBefore?: string; breakAfter?: string; masterPage?: string; tabStops?: { pos: number; val?: string; leader?: string }[]; shading?: string; borders?: BlockBorderSide[]; stashXml?: string | null }): string | null {
   const a = p.align ? ODF_ALIGN[p.align] : undefined;
   const align = a && a !== "left" ? a : undefined;
   const indentPx = p.indentPx && p.indentPx > 0 ? Math.round(p.indentPx) : undefined;
   const lineHeight = p.lineHeight && p.lineHeight > 0 ? p.lineHeight : undefined;
   const before = p.spaceBeforePx; // may be 0 (explicit "no space"); undefined = not set
   const after = p.spaceAfterPx;
-  const { breakBefore, breakAfter, masterPage } = p;
+  const { breakBefore, breakAfter, masterPage, stashXml } = p;
   const tabStops = p.tabStops && p.tabStops.length ? p.tabStops : undefined;
   const shading = p.shading || undefined; // 6-hex (no #) paragraph shading
   const borders = p.borders && p.borders.length ? p.borders : undefined;
-  // With no direct formatting and no section break / tabs, the caller references the named style.
-  if (!align && !indentPx && !lineHeight && before === undefined && after === undefined && !breakBefore && !breakAfter && !masterPage && !tabStops && !shading && !borders) return null;
-  const key = `p_${align ?? ""}_${indentPx ?? ""}_${lineHeight ?? ""}_${before ?? ""}_${after ?? ""}_${p.parent ?? ""}_${breakBefore ?? ""}_${breakAfter ?? ""}_${masterPage ?? ""}_${tabStops ? JSON.stringify(tabStops) : ""}_${shading ?? ""}_${borders ? borders.map((b) => `${b.side}${b.px}${b.style}${b.hex}`).join(",") : ""}`;
+  // With no direct formatting and no section break / tabs / stash, reference the named style.
+  if (!align && !indentPx && !lineHeight && before === undefined && after === undefined && !breakBefore && !breakAfter && !masterPage && !tabStops && !shading && !borders && !stashXml) return null;
+  const key = `p_${align ?? ""}_${indentPx ?? ""}_${lineHeight ?? ""}_${before ?? ""}_${after ?? ""}_${p.parent ?? ""}_${breakBefore ?? ""}_${breakAfter ?? ""}_${masterPage ?? ""}_${tabStops ? JSON.stringify(tabStops) : ""}_${shading ?? ""}_${borders ? borders.map((b) => `${b.side}${b.px}${b.style}${b.hex}`).join(",") : ""}_${stashXml ?? ""}`;
   const existing = created.get(key);
   if (existing) return existing;
   const name = `OT_p${created.size}`;
-  const st = doc.createElementNS(NS.style, "style:style");
+  let st: Element | null = null;
+  let pp: Element | null = null;
+  if (stashXml) {
+    // The original automatic style: keep its unmodeled content (first-line indent,
+    // keep-with-next, default run text-properties, ...), let the DOM win on the rest.
+    const base = importPassthrough(doc, stashXml);
+    if (base && base.tagName === "style:style") {
+      st = base;
+      st.removeAttribute("style:master-page-name");
+      pp = st.getElementsByTagName("style:paragraph-properties")[0] ?? null;
+      if (pp) {
+        for (const attr of MODELED_PP_W) pp.removeAttribute(attr);
+        if (tabStops) for (const ts0 of Array.from(pp.getElementsByTagName("style:tab-stops"))) ts0.remove();
+      }
+    }
+  }
+  if (!st) st = doc.createElementNS(NS.style, "style:style");
   st.setAttributeNS(NS.style, "style:name", name);
   st.setAttributeNS(NS.style, "style:family", "paragraph");
   if (p.parent) st.setAttributeNS(NS.style, "style:parent-style-name", p.parent); // direct formatting over a named style
+  else st.removeAttribute("style:parent-style-name");
   if (masterPage) st.setAttributeNS(NS.style, "style:master-page-name", masterPage); // a section break to a new page master
-  const pp = doc.createElementNS(NS.style, "style:paragraph-properties");
+  if (!pp) {
+    pp = doc.createElementNS(NS.style, "style:paragraph-properties");
+    st.insertBefore(pp, st.firstChild);
+  }
   if (align) pp.setAttributeNS(NS.fo, "fo:text-align", align === "right" ? "end" : align === "center" ? "center" : "justify");
   if (indentPx) pp.setAttributeNS(NS.fo, "fo:margin-left", `${Math.round((indentPx / (96 / 2.54)) * 1000) / 1000}cm`);
   if (lineHeight) pp.setAttributeNS(NS.fo, "fo:line-height", `${Math.round(lineHeight * 100)}%`);
@@ -129,7 +200,6 @@ function paraStyleFor(doc: Document, auto: Element, created: Map<string, string>
   for (const b of borders ?? []) pp.setAttributeNS(NS.fo, `fo:border-${b.side}`, `${pxToCm(b.px)} ${b.style} #${b.hex.toLowerCase()}`);
   const ts = buildOdtTabStops(doc, tabStops);
   if (ts) pp.appendChild(ts);
-  st.appendChild(pp);
   auto.appendChild(st);
   created.set(key, name);
   return name;
@@ -308,14 +378,14 @@ function buildEquationFrame(span: HTMLElement, ctx: OdfCtx): Element | null {
 }
 
 /** Append the inline content of an HTML node to an ODF block element. */
-function htmlInlineToOdf(node: Node, parent: Element, f: Fmt, ctx: OdfCtx): void {
+function htmlInlineToOdf(node: Node, parent: Element, f: Fmt, ctx: OdfCtx, rprStash: string | null = null): void {
   for (const child of Array.from(node.childNodes)) {
     if (child.nodeType === 3) {
       const txt = child.textContent ?? "";
       if (!txt) continue;
       // Direct formatting -> an automatic style (parented to the named char style if any);
       // a bare named char style -> referenced directly; nothing -> a plain text node.
-      const auto = fmtKey(f) ? styleFor(ctx.doc, ctx.auto, ctx.created, f) : null;
+      const auto = fmtKey(f) || rprStash ? styleFor(ctx.doc, ctx.auto, ctx.created, f, rprStash) : null;
       const styleName = auto ?? f.cStyle ?? null;
       if (!styleName) {
         parent.appendChild(ctx.doc.createTextNode(txt));
@@ -330,6 +400,8 @@ function htmlInlineToOdf(node: Node, parent: Element, f: Fmt, ctx: OdfCtx): void
     if (child.nodeType !== 1) continue;
     const el = child as HTMLElement;
     const tag = el.tagName.toLowerCase();
+    // The innermost stash of unmodeled style content wins (see the reader's span wrap).
+    const stash4 = el.getAttribute("data-odt-rpr") ?? rprStash;
     if (tag === "ul" || tag === "ol" || tag === "li") continue; // nested lists handled by htmlListToOdf, not inline
     // An image (new or preserved) is rebuilt so size + wrap edits round-trip; this must run
     // before the generic passthrough below, which would otherwise re-emit the frame verbatim.
@@ -387,7 +459,7 @@ function htmlInlineToOdf(node: Node, parent: Element, f: Fmt, ctx: OdfCtx): void
       const baseEl = ctx.doc.createElementNS(NS.text, "text:ruby-base");
       const baseClone = el.cloneNode(true) as HTMLElement;
       for (const r of Array.from(baseClone.children)) if (r.tagName.toLowerCase() === "rt") r.remove();
-      htmlInlineToOdf(baseClone, baseEl, f, ctx);
+      htmlInlineToOdf(baseClone, baseEl, f, ctx, stash4);
       const textEl = ctx.doc.createElementNS(NS.text, "text:ruby-text");
       textEl.appendChild(ctx.doc.createTextNode(rtEl?.textContent ?? ""));
       ruby.append(baseEl, textEl);
@@ -428,7 +500,7 @@ function htmlInlineToOdf(node: Node, parent: Element, f: Fmt, ctx: OdfCtx): void
       // commented range: annotation at the start, the text, then annotation-end
       const id = el.getAttribute("data-comment-id") ?? "";
       parent.appendChild(makeAnnotation(ctx, id));
-      htmlInlineToOdf(el, parent, f, ctx);
+      htmlInlineToOdf(el, parent, f, ctx, stash4);
       const end = ctx.doc.createElementNS(NS.office, "office:annotation-end");
       end.setAttributeNS(NS.office, "office:name", id);
       parent.appendChild(end);
@@ -447,7 +519,7 @@ function htmlInlineToOdf(node: Node, parent: Element, f: Fmt, ctx: OdfCtx): void
       const start = ctx.doc.createElementNS(NS.text, "text:change-start");
       start.setAttributeNS(NS.text, "text:change-id", id);
       parent.appendChild(start);
-      htmlInlineToOdf(el, parent, f, ctx);
+      htmlInlineToOdf(el, parent, f, ctx, stash4);
       const end = ctx.doc.createElementNS(NS.text, "text:change-end");
       end.setAttributeNS(NS.text, "text:change-id", id);
       parent.appendChild(end);
@@ -487,7 +559,7 @@ function htmlInlineToOdf(node: Node, parent: Element, f: Fmt, ctx: OdfCtx): void
     if (tag === "a") {
       const a = ctx.doc.createElementNS(NS.text, "text:a");
       a.setAttributeNS(NS.xlink, "xlink:href", el.getAttribute("href") ?? "");
-      htmlInlineToOdf(el, a, f, ctx);
+      htmlInlineToOdf(el, a, f, ctx, stash4);
       parent.appendChild(a);
       continue;
     }
@@ -504,7 +576,7 @@ function htmlInlineToOdf(node: Node, parent: Element, f: Fmt, ctx: OdfCtx): void
       sizePt: hp ? hp / 2 : f.sizePt,
       cStyle: el.getAttribute("data-rdoc-cstyle") || f.cStyle,
     };
-    htmlInlineToOdf(el, parent, next, ctx);
+    htmlInlineToOdf(el, parent, next, ctx, stash4);
   }
 }
 
@@ -850,6 +922,7 @@ function htmlBlockToOdf(node: Node, ctx: OdfCtx): Element | null {
       tabStops: parseTabStops(el.getAttribute("data-rdoc-tabstops")),
       shading: toHex6(el.style.backgroundColor) || undefined,
       borders: blockBorders(el),
+      stashXml: el.getAttribute("data-odt-ppr"),
     });
     // direct formatting -> an automatic style (parented to the named one); otherwise the named style itself
     if (name) block.setAttributeNS(NS.text, "text:style-name", name);

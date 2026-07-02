@@ -24,3 +24,19 @@ describe.skipIf(!samples.length)("real-file round-trip corpus", () => {
     });
   }
 });
+
+// Same guard for the .odt samples through the odt adapter.
+import { odtToHtml, htmlToOdt } from "../odt/index";
+const odtSamples = existsSync(dir) ? readdirSync(dir).filter((f) => f.endsWith(".odt")) : [];
+describe.skipIf(!odtSamples.length)("real-file odt round-trip corpus", () => {
+  for (const name of odtSamples) {
+    it(`round-trips ${name}`, () => {
+      const bytes = new Uint8Array(readFileSync(join(dir, name)));
+      const html = odtToHtml(bytes);
+      const out = htmlToOdt(html, bytes);
+      const html2 = odtToHtml(out);
+      const textOf = (h: string) => h.replace(/<[^>]+>/g, "").replace(/\s+/g, " ").trim();
+      expect(textOf(html2)).toBe(textOf(html));
+    });
+  }
+});
