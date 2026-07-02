@@ -317,11 +317,9 @@ function tableHtml(tbl: Element, ctx: RenderCtx): string {
     let cells = "";
     for (const ci of grid[r]) {
       if (ci.cont) continue; // a vMerge continuation cell: covered by the restart above
-      let inner = "";
-      for (const p of Array.from(ci.tc.children)) {
-        if (p.tagName === "w:p") inner += `<div>${inlineToHtml(p, ctx) || "<br>"}</div>`;
-        else if (p.tagName === "w:tbl") inner += tableHtml(p, ctx);
-      }
+      // Cell content goes through the same block pipeline as the body, so in-cell
+      // alignment, spacing, named styles, lists and the pPr stash render and survive.
+      const inner = renderBlocks(ci.tc, ctx);
       const cs = ci.gridSpan > 1 ? ` colspan="${ci.gridSpan}"` : "";
       const rsN = ci.restart ? rowspanOf(r, ci.gridCol) : 1;
       const rs = rsN > 1 ? ` rowspan="${rsN}"` : "";
@@ -887,9 +885,10 @@ function renderBlocks(container: Element, ctx: RenderCtx): string {
     }
     if (node.tagName !== "w:p") {
       flushList();
-      // w:sectPr is re-appended separately on save; any other block (block-level content
-      // control, etc.) is preserved verbatim so an edit doesn't drop it.
-      if (node.tagName !== "w:sectPr") {
+      // w:sectPr is re-appended separately on save and w:tcPr is preserved by the table
+      // rebuild; any other block (block-level content control, etc.) is preserved
+      // verbatim so an edit doesn't drop it.
+      if (node.tagName !== "w:sectPr" && node.tagName !== "w:tcPr") {
         html += `<div class="docx-pass-block" contenteditable="false"${passthroughAttr(node)}>${escapeHtml(node.textContent ?? "")}</div>`;
       }
       continue;

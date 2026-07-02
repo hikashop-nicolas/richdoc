@@ -1809,3 +1809,43 @@ describe("preserve-by-default (unmodeled rPr/pPr survive saves)", () => {
     expect(strFromU8(out["word/numbering.xml"])).toBe(numbering); // no generic definition minted
   });
 });
+
+describe("in-cell paragraph formatting", () => {
+  const TBL_DOC = `<?xml version="1.0"?><w:document xmlns:w="http://schemas.openxmlformats.org/wordprocessingml/2006/main"><w:body>
+ <w:tbl><w:tblPr/><w:tblGrid><w:gridCol w:w="4000"/></w:tblGrid>
+  <w:tr><w:tc><w:tcPr/>
+   <w:p><w:pPr><w:jc w:val="center"/><w:keepNext/></w:pPr><w:r><w:t>centered</w:t></w:r></w:p>
+   <w:p><w:pPr><w:numPr><w:ilvl w:val="0"/><w:numId w:val="7"/></w:numPr></w:pPr><w:r><w:t>item</w:t></w:r></w:p>
+  </w:tc></w:tr>
+ </w:tbl>
+ <w:p><w:r><w:t>after</w:t></w:r></w:p>
+</w:body></w:document>`;
+  const NUMBERING = `<?xml version="1.0"?><w:numbering xmlns:w="http://schemas.openxmlformats.org/wordprocessingml/2006/main">` +
+    '<w:abstractNum w:abstractNumId="0"><w:lvl w:ilvl="0"><w:start w:val="1"/><w:numFmt w:val="decimal"/></w:lvl></w:abstractNum>' +
+    '<w:num w:numId="7"><w:abstractNumId w:val="0"/></w:num></w:numbering>';
+  const files = () => ({
+    "[Content_Types].xml": strToU8("<Types/>"),
+    "_rels/.rels": strToU8("<Relationships/>"),
+    "word/document.xml": strToU8(TBL_DOC),
+    "word/_rels/document.xml.rels": strToU8(RELS),
+    "word/numbering.xml": strToU8(NUMBERING),
+  });
+
+  it("renders in-cell alignment and lists", () => {
+    const html = docxToHtml(zipSync(files()));
+    const cell = html.slice(html.indexOf("docx-cell"), html.indexOf("</td>"));
+    expect(cell).toContain("text-align:center");
+    expect(cell).toMatch(/<ol><li[^>]*data-docx-numid="7"/);
+  });
+
+  it("keeps in-cell formatting across an unrelated edit", () => {
+    const docx = zipSync(files());
+    const html = docxToHtml(docx).replace("after", "changed");
+    const out = strFromU8(unzipSync(htmlToDocx(html, docx))["word/document.xml"]);
+    const tc = out.slice(out.indexOf("<w:tc>"), out.indexOf("</w:tc>"));
+    expect(tc).toContain('w:jc w:val="center"');
+    expect(tc).toContain("w:keepNext"); // unmodeled pPr survives via the stash
+    expect(tc).toContain('w:numId w:val="7"'); // in-cell list keeps its numbering
+    expect(out).toContain("changed");
+  });
+});
