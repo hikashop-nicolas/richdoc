@@ -15,7 +15,7 @@ import { setupEquation } from "../equation";
 import { setupSymbols } from "../symbols";
 import {
   alignIcon, indentIcon, bulletIcon, numberIcon, linkIcon, pbIcon, imgIcon, cmtIcon,
-  supIcon, subIcon, lineSpacingIcon, tableIcon, fieldIcon, furiganaIcon, footnoteIcon, bookmarkIcon, xrefIcon, captionIcon, equationIcon, symbolIcon, borderIcon, caret, styleGroupSvg, insertGroupSvg,
+  supIcon, subIcon, lineSpacingIcon, tableIcon, fieldIcon, furiganaIcon, footnoteIcon, bookmarkIcon, xrefIcon, captionIcon, equationIcon, symbolIcon, borderIcon, undoIcon, redoIcon, caret, styleGroupSvg, insertGroupSvg,
 } from "./icons";
 import type { Adapter, Capabilities, CommentThread, EditorOptions, NewStyle, RichDoc } from "../../types";
 
@@ -29,7 +29,9 @@ export interface ToolbarDeps {
   parts: RichDoc;
   adapter: Adapter;
   getActiveEl: () => HTMLElement;
-  mark: () => void;
+  mark: (coalesce?: string) => void;
+  undo: () => void;
+  redo: () => void;
   positionCards: () => void;
   addThreadCard: (thread: CommentThread) => HTMLElement;
   setActiveComment: (id: string | null) => void;
@@ -46,7 +48,7 @@ export interface ToolbarDeps {
 
 export function setupToolbar(deps: ToolbarDeps) {
   const {
-    toolbar, wrap, doc, regions, caps, options, parts, adapter, getActiveEl, mark, positionCards,
+    toolbar, wrap, doc, regions, caps, options, parts, adapter, getActiveEl, mark, undo, redo, positionCards,
     addThreadCard, setActiveComment, allocId, freshParaId, insertImage, styleBar,
     newStyles, newStyleCss, vertical, insertSectionBreak, insertNote,
   } = deps;
@@ -992,6 +994,9 @@ export function setupToolbar(deps: ToolbarDeps) {
   const insertGroup = makeGroup(insertControls, insertGroupSvg, t("insertMenu"));
 
   const items: (Node | null)[] = [
+    iconBtn(undoIcon, withSc(t("undo"), "Z"), undo),
+    iconBtn(redoIcon, withSc(t("redo"), "Y"), redo),
+    sep(),
     styleGroup.has ? styleGroup.slot : null,
     styleGroup.has ? sep() : null,
     iconBtn(bulletIcon, withSc(t("bulleted"), "L", { shift: true }), () => exec("insertUnorderedList")),

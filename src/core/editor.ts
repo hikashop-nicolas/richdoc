@@ -16,6 +16,7 @@ import { setupTableEdit } from "./feature/table-edit";
 import { setupOutline } from "./feature/outline";
 import { setupFindReplace } from "./feature/find-replace";
 import { setupFields } from "./feature/fields";
+import { setupHistory } from "./feature/history";
 import "../adapters/docx/docxedit.css";
 
 export function createRichEditor(container: HTMLElement, adapter: Adapter, options: EditorOptions = {}): RichEditor {
@@ -167,7 +168,7 @@ export function createRichEditor(container: HTMLElement, adapter: Adapter, optio
     el.spellcheck = false;
     el.innerHTML = n.html || "<p><br></p>";
     el.addEventListener("focus", () => { activeEl = el; });
-    el.addEventListener("input", () => mark());
+    el.addEventListener("input", () => mark("note"));
     noteBands.set(n.id, { el, kind: n.kind });
   }
   // A band counts as empty when it has no text and no image, so an abandoned new one
@@ -223,10 +224,15 @@ export function createRichEditor(container: HTMLElement, adapter: Adapter, optio
 
   // Comment id allocation, the side panel, edit bookkeeping and click-to-open live in the
   // comments module; mark() is defined here so it (and the page view) can be handed it.
-  const mark = () => {
+  // `coalesce` groups consecutive same-key marks into one undo step (typing runs);
+  // without it the change is its own step. The history module is created later
+  // (it needs cleanBody/reflow), hence the indirection.
+  let commitHistory: (key: string | null) => void = () => {};
+  const mark = (coalesce?: string) => {
     dirty = true;
     options.onChange?.();
     scheduleReflow(); // content changed: re-paginate (debounced)
+    commitHistory(coalesce ?? null);
   };
   const { addThreadCard, positionCards, setActiveComment, allocId, freshParaId, getEdits } =
     setupComments({ wrap, cmtPanel, pagebox, options, caps, mark });
@@ -528,7 +534,7 @@ export function createRichEditor(container: HTMLElement, adapter: Adapter, optio
     if (text.trim()) p.textContent = text; else p.innerHTML = "<br>";
     nb.appendChild(p);
     nb.addEventListener("focus", () => { activeEl = nb; });
-    nb.addEventListener("input", () => mark());
+    nb.addEventListener("input", () => mark("note"));
     noteBands.set(id, { el: nb, kind });
     mark();
     reflow();
@@ -578,7 +584,7 @@ export function createRichEditor(container: HTMLElement, adapter: Adapter, optio
     });
     c.addEventListener("input", () => {
       src.innerHTML = c.innerHTML; // keep the canonical (save source) current
-      mark();
+      mark("hf");
     });
     c.addEventListener("blur", () => {
       c.classList.remove("is-editing");
@@ -1436,6 +1442,38 @@ export function createRichEditor(container: HTMLElement, adapter: Adapter, optio
     reflowTimer = window.setTimeout(reflow, 150);
   };
 
+  // Undo/redo over the logical body. A restore swaps the body wholesale and re-runs
+  // the same plumbing as an edit; reflow is immediate so the user never sees the
+  // unpaginated intermediate state.
+  const history = setupHistory({
+    doc,
+    cleanBody,
+    charOffsetIn,
+    placeCaret,
+    onRestore: () => {
+      dirty = true;
+      options.onChange?.();
+      reflow();
+    },
+  });
+  commitHistory = (key) => history.commit(key);
+
+  // Ctrl/Cmd+Z / Shift+Z / Y anywhere in the body use the snapshot history (and
+  // suppress the native undo it replaces). Bands and notes are separate small
+  // editables outside the snapshots; they keep the browser's native undo.
+  const onUndoKeys = (e: KeyboardEvent) => {
+    if (!(e.metaKey || e.ctrlKey) || e.altKey) return;
+    const k = e.key.toLowerCase();
+    const isUndo = k === "z" && !e.shiftKey;
+    const isRedo = (k === "z" && e.shiftKey) || k === "y";
+    if (!isUndo && !isRedo) return;
+    if (!doc.contains(e.target as Node | null)) return;
+    e.preventDefault();
+    if (isUndo) history.undo();
+    else history.redo();
+  };
+  wrap.addEventListener("keydown", onUndoKeys);
+
   // --- Create header/footer on demand --------------------------------------
   // Double-clicking a page's top (or bottom) margin, where none exists yet, starts an
   // empty header (or footer) and drops the caret in it. It is only persisted if typed in
@@ -1563,7 +1601,8 @@ export function createRichEditor(container: HTMLElement, adapter: Adapter, optio
     }
   };
   for (const r of regions) {
-    r.addEventListener("input", mark);
+    // Typing coalesces into one undo step per run; band typing only closes runs.
+    r.addEventListener("input", () => mark(r === doc ? "t" : "hf"));
     r.addEventListener("keydown", removeAdjacentNoteRef);
     r.addEventListener("focusin", (e) => {
       // A table cell is its own editing host nested in the region; target it directly so
@@ -1576,6 +1615,7 @@ export function createRichEditor(container: HTMLElement, adapter: Adapter, optio
   // its own module; it returns the change-button toggle to hook into the reflow cycle.
   const { updateChangeButtons, teardown: teardownToolbar } = setupToolbar({
     toolbar, wrap, doc, regions, caps, options, parts, adapter, getActiveEl: () => activeEl, mark,
+    undo: () => history.undo(), redo: () => history.redo(),
     positionCards, addThreadCard, setActiveComment, allocId, freshParaId, insertImage, styleBar: bottomLeft,
     newStyles, newStyleCss, vertical: isVertical(),
     insertSectionBreak: sectionBreakBtn ? () => sectionBreakBtn.click() : null,
@@ -1613,10 +1653,23 @@ export function createRichEditor(container: HTMLElement, adapter: Adapter, optio
 
       return adapter.write(cleanBody(), editedParts, getEdits(), geometryDirty ? geometry : undefined, newStyles, notes);
     },
+    undo() {
+      history.undo();
+    },
+    redo() {
+      history.redo();
+    },
+    canUndo() {
+      return history.canUndo();
+    },
+    canRedo() {
+      return history.canRedo();
+    },
     destroy() {
       for (const u of fontUrls) URL.revokeObjectURL(u);
       window.clearTimeout(reflowTimer);
       repositionObserver.disconnect();
+      history.teardown();
       teardownToolbar();
       tableEdit?.teardown();
       imageLayout?.teardown();

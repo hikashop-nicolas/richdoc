@@ -11,7 +11,7 @@ export interface TrackChangesDeps {
   wrap: HTMLElement;
   regions: HTMLElement[];
   options: EditorOptions;
-  mark: () => void;
+  mark: (coalesce?: string) => void;
   positionCards: () => void;
   getActiveEl: () => HTMLElement;
   iconBtn: (svg: string, title: string, fn: () => void) => HTMLElement;
@@ -157,7 +157,7 @@ export function setupTrackChanges(deps: TrackChangesDeps) {
       const range = sel.getRangeAt(0);
       if (!range.collapsed) suggestDelete(range);
       insertSuggestText(data);
-      mark();
+      mark("suggest");
       positionCards();
     } else if (type.startsWith("delete")) {
       ie.preventDefault();
@@ -181,7 +181,7 @@ export function setupTrackChanges(deps: TrackChangesDeps) {
       } else {
         suggestDelete(r);
       }
-      mark();
+      mark("suggest");
       positionCards();
     }
   };

@@ -104,3 +104,8 @@ export const caret = '<svg width="8" height="8" viewBox="0 0 8 8" fill="currentC
 /** Cluster-button glyphs: a serif "A" for the formatting group, a "+" for the insert group. */
 export const styleGroupSvg = '<svg width="14" height="14" viewBox="0 0 16 16" fill="currentColor" aria-hidden="true"><path d="M4 13 7 3h2l3 10h-2l-.66-2.4H6.66L6 13H4zm3.1-4.2h1.8L8 5.4 7.1 8.8z"/></svg>';
 export const insertGroupSvg = '<svg width="14" height="14" viewBox="0 0 16 16" fill="currentColor" aria-hidden="true"><path d="M7 2h2v5h5v2H9v5H7V9H2V7h5z"/></svg>';
+
+export const undoIcon =
+  '<svg width="14" height="14" viewBox="0 0 16 16" fill="none" stroke="currentColor" stroke-width="1.6" stroke-linecap="round" stroke-linejoin="round" aria-hidden="true"><path d="M3 7h7a3.5 3.5 0 0 1 0 7H6"/><path d="M6 4 3 7l3 3"/></svg>';
+export const redoIcon =
+  '<svg width="14" height="14" viewBox="0 0 16 16" fill="none" stroke="currentColor" stroke-width="1.6" stroke-linecap="round" stroke-linejoin="round" aria-hidden="true"><path d="M13 7H6a3.5 3.5 0 0 0 0 7h4"/><path d="M10 4l3 3-3 3"/></svg>';

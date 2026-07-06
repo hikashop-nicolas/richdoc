@@ -90,6 +90,8 @@ const dict: Dict = {
   commentSelect: "Sélectionnez d'abord du texte.",
   more: "plus",
   moreTools: "Plus d'outils",
+  undo: "Annuler",
+  redo: "Rétablir",
   formatting: "Mise en forme du texte",
   insertMenu: "Insérer",
   zoom: "Zoom",

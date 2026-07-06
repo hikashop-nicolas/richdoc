@@ -269,5 +269,10 @@ export interface EditorOptions {
 export interface RichEditor {
   getBytes(): Promise<Uint8Array>;
   isDirty(): boolean;
+  /** Document-level undo/redo (body content; bands and notes keep native undo). */
+  undo(): void;
+  redo(): void;
+  canUndo(): boolean;
+  canRedo(): boolean;
   destroy(): void;
 }
