@@ -16,6 +16,7 @@ export type Dict = Record<string, string>;
 /** Lazy loaders for the non-English locales. Each is a separate chunk (dynamic import). */
 const LOADERS: Record<string, () => Promise<{ default: Dict }>> = {
   fr: () => import("./locales/fr"),
+  ja: () => import("./locales/ja"),
 };
 
 const loaded: Record<string, Dict> = { en };
