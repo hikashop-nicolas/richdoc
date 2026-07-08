@@ -17,6 +17,7 @@ import { setupOutline } from "./feature/outline";
 import { setupFindReplace } from "./feature/find-replace";
 import { setupFields } from "./feature/fields";
 import { setupHistory } from "./feature/history";
+import { setupPaste } from "./feature/paste";
 import "../adapters/docx/docxedit.css";
 
 export function createRichEditor(container: HTMLElement, adapter: Adapter, options: EditorOptions = {}): RichEditor {
@@ -1546,6 +1547,8 @@ export function createRichEditor(container: HTMLElement, adapter: Adapter, optio
     : null;
   images = setupImages({ wrap, scroll, regions, mark, getActiveEl: () => activeEl, onSelect: imageLayout?.onSelect });
   const { insertImage } = images;
+  // External clipboard HTML is normalized onto the editor vocabulary (see feature/paste.ts).
+  setupPaste({ wrap, regions, mark });
   // Emit inline CSS (text-align, font-weight, ...) the serializer reads back, not legacy tags.
   try {
     document.execCommand("styleWithCSS", false, "true");

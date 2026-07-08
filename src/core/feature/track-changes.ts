@@ -282,6 +282,9 @@ export function setupTrackChanges(deps: TrackChangesDeps) {
   const suggestBtn = iconBtn(suggestIcon, t("suggesting"), () => {
     suggesting = !suggesting;
     suggestBtn.classList.toggle("is-on", suggesting);
+    // Advertised on the wrap so other features (the paste pipeline) can stand down.
+    if (suggesting) wrap.dataset.rdocSuggesting = "1";
+    else delete wrap.dataset.rdocSuggesting;
     getActiveEl().focus();
   });
 
