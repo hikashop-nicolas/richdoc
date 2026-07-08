@@ -5,44 +5,44 @@
 /* Bottom bar: style pickers (left) + zoom (right). */
 .docxedit-bottombar {
   display: flex; align-items: center; justify-content: space-between; gap: 8px; padding: 5px 10px;
-  background: #2b2f36; border-top: 1px solid #1c1f24; color: #e6e6e6; font: 13px system-ui, sans-serif;
+  background: var(--rdoc-chrome, #2b2f36); border-top: 1px solid var(--rdoc-border, #1c1f24); color: var(--rdoc-text, #e6e6e6); font: 13px system-ui, sans-serif;
 }
 .docxedit-bottombar-left, .docxedit-bottombar-right { display: flex; align-items: center; gap: 6px; }
 
 /* Floating formatting bar shown near the caret/selection on mouse proximity (desktop). */
 .docxedit-floatbar {
   position: fixed; z-index: 60; display: flex; gap: 3px; padding: 4px;
-  background: #2b2f36; border: 1px solid #1c1f24; border-radius: 8px; box-shadow: 0 6px 20px rgba(0,0,0,.5);
+  background: var(--rdoc-chrome, #2b2f36); border: 1px solid var(--rdoc-border, #1c1f24); border-radius: 8px; box-shadow: 0 6px 20px rgba(0,0,0,.5);
 }
 .docxedit-floatbar[hidden] { display: none; }
 .docxedit-floatbar.is-vertical { flex-direction: column; } /* tategaki: buttons stacked, beside the caret */
 .docxedit-floatbar-btn {
-  font: 13px system-ui, sans-serif; background: #3a3f47; color: #e6e6e6; border: 1px solid #4a4f57; border-radius: 5px;
+  font: 13px system-ui, sans-serif; background: var(--rdoc-btn, #3a3f47); color: var(--rdoc-text, #e6e6e6); border: 1px solid var(--rdoc-btn-border, #4a4f57); border-radius: 5px;
   height: 26px; min-width: 28px; padding: 2px 6px; cursor: pointer;
 }
-.docxedit-floatbar-color { width: 28px; height: 26px; padding: 1px; background: #3a3f47; border: 1px solid #4a4f57; border-radius: 5px; cursor: pointer; box-sizing: border-box; }
-.docxedit-floatbar-color:hover { border-color: #6e7bff; }
-.docxedit-floatbar-btn:hover { border-color: #6e7bff; }
-.docxedit-floatbar-btn.is-on { background: #6e7bff; border-color: #6e7bff; color: #fff; }
+.docxedit-floatbar-color { width: 28px; height: 26px; padding: 1px; background: var(--rdoc-btn, #3a3f47); border: 1px solid var(--rdoc-btn-border, #4a4f57); border-radius: 5px; cursor: pointer; box-sizing: border-box; }
+.docxedit-floatbar-color:hover { border-color: var(--rdoc-accent, #6e7bff); }
+.docxedit-floatbar-btn:hover { border-color: var(--rdoc-accent, #6e7bff); }
+.docxedit-floatbar-btn.is-on { background: var(--rdoc-accent, #6e7bff); border-color: var(--rdoc-accent, #6e7bff); color: #fff; }
 .docxedit-floatbar-btn.docxedit-tb-bold { font-weight: bold; }
 .docxedit-floatbar-btn.docxedit-tb-italic { font-style: italic; }
 .docxedit-floatbar-btn.docxedit-tb-underline { text-decoration: underline; }
 .docxedit-floatbar-btn.docxedit-tb-strike { text-decoration: line-through; }
 .docxedit-bottombar select {
-  font: inherit; background: #3a3f47; color: #e6e6e6; border: 1px solid #4a4f57; border-radius: 5px;
+  font: inherit; background: var(--rdoc-btn, #3a3f47); color: var(--rdoc-text, #e6e6e6); border: 1px solid var(--rdoc-btn-border, #4a4f57); border-radius: 5px;
   padding: 3px 8px; cursor: pointer; height: 28px; box-sizing: border-box; min-width: 30px;
 }
-.docxedit-bottombar select:hover { border-color: #6e7bff; }
+.docxedit-bottombar select:hover { border-color: var(--rdoc-accent, #6e7bff); }
 .docxedit-bottombar select:focus-visible { outline: 2px solid #fff; outline-offset: 1px; }
 .docxedit-pagesetup-btn {
   display: inline-flex; align-items: center; justify-content: center; width: 28px; height: 28px;
-  background: #3a3f47; color: #e6e6e6; border: 1px solid #4a4f57; border-radius: 5px; cursor: pointer; box-sizing: border-box;
+  background: var(--rdoc-btn, #3a3f47); color: var(--rdoc-text, #e6e6e6); border: 1px solid var(--rdoc-btn-border, #4a4f57); border-radius: 5px; cursor: pointer; box-sizing: border-box;
 }
-.docxedit-pagesetup-btn:hover { border-color: #6e7bff; }
+.docxedit-pagesetup-btn:hover { border-color: var(--rdoc-accent, #6e7bff); }
 .docxedit-pagesetup-row { justify-content: space-between; }
 .docxedit-pagesetup-label { color: #c7cbd1; }
 .docxedit-pagesetup select, .docxedit-pagesetup input {
-  font: inherit; background: #3a3f47; color: #e6e6e6; border: 1px solid #4a4f57; border-radius: 5px;
+  font: inherit; background: var(--rdoc-btn, #3a3f47); color: var(--rdoc-text, #e6e6e6); border: 1px solid var(--rdoc-btn-border, #4a4f57); border-radius: 5px;
   padding: 3px 8px; height: 28px; box-sizing: border-box;
 }
 .docxedit-pagesetup-custom { gap: 8px; }
@@ -53,7 +53,7 @@
 .docxedit-toolbar {
   display: flex; flex-wrap: nowrap; overflow: hidden; position: relative;
   align-items: center; gap: 6px; padding: 6px 10px;
-  background: #2b2f36; border-bottom: 1px solid #1c1f24; color: #e6e6e6; font: 13px system-ui, sans-serif;
+  background: var(--rdoc-chrome, #2b2f36); border-bottom: 1px solid var(--rdoc-border, #1c1f24); color: var(--rdoc-text, #e6e6e6); font: 13px system-ui, sans-serif;
 }
 .docxedit-tb-more { flex: 0 0 auto; font-weight: 700; }
 /* A collapsible cluster slot: its children participate in the toolbar flex directly. */
@@ -61,17 +61,17 @@
 .docxedit-tb-groupmenu { gap: 6px; padding: 6px; align-items: center; }
 .docxedit-tb-overflow {
   position: absolute; right: 6px; z-index: 30; flex-wrap: wrap; overflow: visible;
-  max-width: min(340px, 90vw); border: 1px solid #1c1f24; border-radius: 8px; box-shadow: 0 8px 20px rgba(0, 0, 0, .5);
+  max-width: min(340px, 90vw); border: 1px solid var(--rdoc-border, #1c1f24); border-radius: 8px; box-shadow: 0 8px 20px rgba(0, 0, 0, .5);
 }
 .docxedit-tb-overflow[hidden] { display: none; }
 .docxedit-toolbar button, .docxedit-toolbar select, .docxedit-toolbar input[type="color"] {
-  font: inherit; background: #3a3f47; color: #e6e6e6; border: 1px solid #4a4f57; border-radius: 5px;
+  font: inherit; background: var(--rdoc-btn, #3a3f47); color: var(--rdoc-text, #e6e6e6); border: 1px solid var(--rdoc-btn-border, #4a4f57); border-radius: 5px;
   padding: 3px 8px; cursor: pointer; height: 28px; box-sizing: border-box; min-width: 30px;
 }
-.docxedit-toolbar button:hover, .docxedit-toolbar select:hover, .docxedit-toolbar input[type="color"]:hover { border-color: #6e7bff; }
+.docxedit-toolbar button:hover, .docxedit-toolbar select:hover, .docxedit-toolbar input[type="color"]:hover { border-color: var(--rdoc-accent, #6e7bff); }
 .docxedit-toolbar button:focus-visible, .docxedit-toolbar select:focus-visible { outline: 2px solid #fff; outline-offset: 1px; }
-.docxedit-toolbar .sep { width: 1px; align-self: stretch; background: #4a4f57; margin: 0 2px; }
-.docxedit-toolbar button.is-on { background: #6e7bff; border-color: #6e7bff; color: #fff; }
+.docxedit-toolbar .sep { width: 1px; align-self: stretch; background: var(--rdoc-btn-border, #4a4f57); margin: 0 2px; }
+.docxedit-toolbar button.is-on { background: var(--rdoc-accent, #6e7bff); border-color: var(--rdoc-accent, #6e7bff); color: #fff; }
 .docxedit-toolbar .docxedit-tb-bold { font-weight: bold; }
 .docxedit-toolbar .docxedit-tb-italic { font-style: italic; }
 .docxedit-toolbar .docxedit-tb-underline { text-decoration: underline; }
@@ -94,17 +94,17 @@
 .docx-table td.rdoc-bb { border-bottom-style: hidden; }
 .docx-table td.rdoc-bl { border-left-style: hidden; }
 /* Border options row in the cell menu (colour swatch + style + width). */
-.docxedit-border-opts { display: flex; gap: 4px; align-items: center; margin-top: 4px; padding-top: 4px; border-top: 1px solid #4a4f57; }
+.docxedit-border-opts { display: flex; gap: 4px; align-items: center; margin-top: 4px; padding-top: 4px; border-top: 1px solid var(--rdoc-btn-border, #4a4f57); }
 .docxedit-border-opts select { font: 12px/1 system-ui, sans-serif; }
 .docxedit-border-opts input[type="color"] { width: 26px; height: 24px; padding: 1px; }
 /* Cells selected together (drag or shift-click): the cell menu acts on all of them. */
 .docx-table td.rdoc-sel { background: rgba(110,123,255,.18); }
 
 /* Insert-table grid picker (drag/hover to choose size). */
-.docxedit-table-picker { position: absolute; z-index: 30; background: #2b2f36; border: 1px solid #4a4f57; border-radius: 8px; padding: 8px; box-shadow: 0 6px 20px rgba(0,0,0,.5); }
+.docxedit-table-picker { position: absolute; z-index: 30; background: var(--rdoc-chrome, #2b2f36); border: 1px solid var(--rdoc-btn-border, #4a4f57); border-radius: 8px; padding: 8px; box-shadow: 0 6px 20px rgba(0,0,0,.5); }
 .docxedit-table-grid { display: grid; grid-template-columns: repeat(10, 16px); grid-auto-rows: 16px; gap: 2px; }
-.docxedit-table-sq { border: 1px solid #5a616b; border-radius: 2px; background: #3a3f47; cursor: pointer; }
-.docxedit-table-sq.on { background: #6e7bff; border-color: #6e7bff; }
+.docxedit-table-sq { border: 1px solid #5a616b; border-radius: 2px; background: var(--rdoc-btn, #3a3f47); cursor: pointer; }
+.docxedit-table-sq.on { background: var(--rdoc-accent, #6e7bff); border-color: var(--rdoc-accent, #6e7bff); }
 .docxedit-table-label { margin-top: 6px; text-align: center; color: #cbd1d8; font-size: 12px; }
 
 /* These controls set display:flex/inline-flex, which beats the UA [hidden]{display:none};
@@ -113,60 +113,60 @@
 
 /* Hover handles around a table (Google-Docs style): row handle on the left, column handle
    on top (a drag grip + a "+" menu), and a per-cell options button. */
-.docxedit-th { position: absolute; z-index: 26; display: flex; align-items: center; gap: 1px; background: #2b2f36; border: 1px solid #4a4f57; border-radius: 6px; padding: 1px; box-shadow: 0 2px 8px rgba(0,0,0,.4); }
+.docxedit-th { position: absolute; z-index: 26; display: flex; align-items: center; gap: 1px; background: var(--rdoc-chrome, #2b2f36); border: 1px solid var(--rdoc-btn-border, #4a4f57); border-radius: 6px; padding: 1px; box-shadow: 0 2px 8px rgba(0,0,0,.4); }
 .docxedit-th-col { flex-direction: row; }
 .docxedit-th-grip { display: inline-flex; align-items: center; justify-content: center; width: 14px; height: 20px; color: #aab1bb; cursor: grab; }
 .docxedit-th-grip:active { cursor: grabbing; }
-.docxedit-th-add { display: inline-flex; align-items: center; justify-content: center; width: 20px; height: 20px; border: 0; border-radius: 4px; background: transparent; color: #e6e8ec; cursor: pointer; }
-.docxedit-th-add:hover { background: #3a3f47; }
-.docxedit-th-cell { position: absolute; z-index: 26; display: inline-flex; align-items: center; justify-content: center; width: 16px; height: 16px; padding: 0; border: 1px solid #4a4f57; border-radius: 4px; background: #2b2f36; color: #e6e8ec; cursor: pointer; box-shadow: 0 1px 4px rgba(0,0,0,.4); }
-.docxedit-th-cell:hover { border-color: #6e7bff; }
+.docxedit-th-add { display: inline-flex; align-items: center; justify-content: center; width: 20px; height: 20px; border: 0; border-radius: 4px; background: transparent; color: var(--rdoc-canvas, #e6e8ec); cursor: pointer; }
+.docxedit-th-add:hover { background: var(--rdoc-btn, #3a3f47); }
+.docxedit-th-cell { position: absolute; z-index: 26; display: inline-flex; align-items: center; justify-content: center; width: 16px; height: 16px; padding: 0; border: 1px solid var(--rdoc-btn-border, #4a4f57); border-radius: 4px; background: var(--rdoc-chrome, #2b2f36); color: var(--rdoc-canvas, #e6e8ec); cursor: pointer; box-shadow: 0 1px 4px rgba(0,0,0,.4); }
+.docxedit-th-cell:hover { border-color: var(--rdoc-accent, #6e7bff); }
 
 /* Small dropdown menu (line spacing, etc.). */
-.docxedit-menu { position: absolute; z-index: 30; min-width: 64px; background: #2b2f36; border: 1px solid #4a4f57; border-radius: 7px; padding: 4px; box-shadow: 0 6px 20px rgba(0,0,0,.5); display: flex; flex-direction: column; gap: 1px; }
-.docxedit-menu-item { font: 13px/1 system-ui, sans-serif; text-align: left; padding: 6px 10px; border: 0; border-radius: 5px; background: transparent; color: #e6e8ec; cursor: pointer; }
-.docxedit-menu-item:hover { background: #3a3f47; }
-.docxedit-menu-item.is-on { background: #6e7bff; color: #fff; }
-.docxedit-menu-sep { height: 1px; margin: 4px 2px; background: #4a4f57; }
+.docxedit-menu { position: absolute; z-index: 30; min-width: 64px; background: var(--rdoc-chrome, #2b2f36); border: 1px solid var(--rdoc-btn-border, #4a4f57); border-radius: 7px; padding: 4px; box-shadow: 0 6px 20px rgba(0,0,0,.5); display: flex; flex-direction: column; gap: 1px; }
+.docxedit-menu-item { font: 13px/1 system-ui, sans-serif; text-align: left; padding: 6px 10px; border: 0; border-radius: 5px; background: transparent; color: var(--rdoc-canvas, #e6e8ec); cursor: pointer; }
+.docxedit-menu-item:hover { background: var(--rdoc-btn, #3a3f47); }
+.docxedit-menu-item.is-on { background: var(--rdoc-accent, #6e7bff); color: #fff; }
+.docxedit-menu-sep { height: 1px; margin: 4px 2px; background: var(--rdoc-btn-border, #4a4f57); }
 /* New-style dialog */
 .docxedit-dialog-overlay { position: fixed; inset: 0; z-index: 1000; display: flex; align-items: center; justify-content: center; background: rgba(0,0,0,.45); }
-.docxedit-dialog { min-width: 280px; max-width: 360px; background: #2b2f36; color: #e6e8ec; border: 1px solid #4a4f57; border-radius: 10px; padding: 16px; box-shadow: 0 12px 40px rgba(0,0,0,.55); display: flex; flex-direction: column; gap: 10px; font: 13px/1.3 system-ui, sans-serif; }
+.docxedit-dialog { min-width: 280px; max-width: 360px; background: var(--rdoc-chrome, #2b2f36); color: var(--rdoc-canvas, #e6e8ec); border: 1px solid var(--rdoc-btn-border, #4a4f57); border-radius: 10px; padding: 16px; box-shadow: 0 12px 40px rgba(0,0,0,.55); display: flex; flex-direction: column; gap: 10px; font: 13px/1.3 system-ui, sans-serif; }
 .docxedit-dialog-title { font-size: 15px; font-weight: 600; }
 .docxedit-dialog-row { display: flex; align-items: center; gap: 6px; flex-wrap: wrap; }
 .docxedit-dialog-row[hidden] { display: none; }
 .docxedit-dialog-actions { justify-content: flex-end; margin-top: 4px; }
-.docxedit-name-input { font: 13px/1.2 system-ui, sans-serif; padding: 7px 9px; border: 1px solid #4a4f57; border-radius: 6px; background: #1f2329; color: #e6e8ec; }
-.docxedit-name-input:focus { outline: none; border-color: #6e7bff; }
-.docxedit-dialog-toggle { min-width: 30px; height: 28px; border: 1px solid #4a4f57; border-radius: 6px; background: #1f2329; color: #e6e8ec; cursor: pointer; font-size: 14px; }
-.docxedit-dialog-toggle.is-on { background: #6e7bff; border-color: #6e7bff; color: #fff; }
+.docxedit-name-input { font: 13px/1.2 system-ui, sans-serif; padding: 7px 9px; border: 1px solid var(--rdoc-btn-border, #4a4f57); border-radius: 6px; background: var(--rdoc-chrome2, #1f2329); color: var(--rdoc-canvas, #e6e8ec); }
+.docxedit-name-input:focus { outline: none; border-color: var(--rdoc-accent, #6e7bff); }
+.docxedit-dialog-toggle { min-width: 30px; height: 28px; border: 1px solid var(--rdoc-btn-border, #4a4f57); border-radius: 6px; background: var(--rdoc-chrome2, #1f2329); color: var(--rdoc-canvas, #e6e8ec); cursor: pointer; font-size: 14px; }
+.docxedit-dialog-toggle.is-on { background: var(--rdoc-accent, #6e7bff); border-color: var(--rdoc-accent, #6e7bff); color: #fff; }
 .docxedit-dialog-toggle svg { display: block; margin: 0 auto; }
 .docxedit-dlg-bold { font-weight: bold; }
 .docxedit-dlg-italic { font-style: italic; }
 .docxedit-dlg-underline { text-decoration: underline; }
 .docxedit-dlg-strike { text-decoration: line-through; }
-.docxedit-dialog-size { width: 64px; padding: 6px 8px; border: 1px solid #4a4f57; border-radius: 6px; background: #1f2329; color: #e6e8ec; }
-.docxedit-dialog-textarea { width: 100%; box-sizing: border-box; resize: vertical; padding: 6px 8px; border: 1px solid #4a4f57; border-radius: 6px; background: #1f2329; color: #e6e8ec; font: inherit; }
+.docxedit-dialog-size { width: 64px; padding: 6px 8px; border: 1px solid var(--rdoc-btn-border, #4a4f57); border-radius: 6px; background: var(--rdoc-chrome2, #1f2329); color: var(--rdoc-canvas, #e6e8ec); }
+.docxedit-dialog-textarea { width: 100%; box-sizing: border-box; resize: vertical; padding: 6px 8px; border: 1px solid var(--rdoc-btn-border, #4a4f57); border-radius: 6px; background: var(--rdoc-chrome2, #1f2329); color: var(--rdoc-canvas, #e6e8ec); font: inherit; }
 .docxedit-noteinsert-kind { gap: 16px; }
 .docxedit-noteinsert-opt { display: inline-flex; align-items: center; gap: 4px; cursor: pointer; }
 .docxedit-noteinsert-opt[hidden] { display: none; } /* inline-flex above beats the UA [hidden] rule */
-.docxedit-imgdialog-field > span { min-width: 64px; color: #aeb4bd; }
-.docxedit-dialog-font { flex: 1; min-width: 120px; padding: 6px 8px; border: 1px solid #4a4f57; border-radius: 6px; background: #1f2329; color: #e6e8ec; }
+.docxedit-imgdialog-field > span { min-width: 64px; color: var(--rdoc-muted, #aeb4bd); }
+.docxedit-dialog-font { flex: 1; min-width: 120px; padding: 6px 8px; border: 1px solid var(--rdoc-btn-border, #4a4f57); border-radius: 6px; background: var(--rdoc-chrome2, #1f2329); color: var(--rdoc-canvas, #e6e8ec); }
 .docxedit-dialog-color { display: inline-flex; align-items: center; gap: 5px; }
 .docxedit-pagesetup-check { display: flex; align-items: center; gap: 7px; cursor: pointer; }
 .docxedit-pagesetup-check input { margin: 0; }
-.docxedit-dialog-primary { background: #6e7bff; color: #fff; }
+.docxedit-dialog-primary { background: var(--rdoc-accent, #6e7bff); color: #fff; }
 .docxedit-dialog-primary:hover { background: #5b69ff; }
 /* Cell-border preset grid inside the cell menu. */
-.docxedit-border-grid { display: grid; grid-template-columns: repeat(3, 1fr); gap: 2px; margin-top: 4px; padding-top: 4px; border-top: 1px solid #4a4f57; }
-.docxedit-border-btn { display: inline-flex; align-items: center; justify-content: center; width: 30px; height: 30px; border: 1px solid #4a4f57; border-radius: 4px; background: #3a3f47; color: #e6e8ec; cursor: pointer; }
-.docxedit-border-btn:hover { border-color: #6e7bff; }
+.docxedit-border-grid { display: grid; grid-template-columns: repeat(3, 1fr); gap: 2px; margin-top: 4px; padding-top: 4px; border-top: 1px solid var(--rdoc-btn-border, #4a4f57); }
+.docxedit-border-btn { display: inline-flex; align-items: center; justify-content: center; width: 30px; height: 30px; border: 1px solid var(--rdoc-btn-border, #4a4f57); border-radius: 4px; background: var(--rdoc-btn, #3a3f47); color: var(--rdoc-canvas, #e6e8ec); cursor: pointer; }
+.docxedit-border-btn:hover { border-color: var(--rdoc-accent, #6e7bff); }
 /* Column/row resize affordance: a thin grabbable strip over a cell boundary. */
 .docxedit-resize { position: absolute; z-index: 25; background: transparent; }
 .docxedit-resize.col { cursor: col-resize; }
 .docxedit-resize.row { cursor: row-resize; }
 .docxedit-resize:hover { background: rgba(110,123,255,.35); }
 /* While dragging: a clear solid guide line, above everything, plus a global resize cursor. */
-.docxedit-resize.dragging { background: #6e7bff; z-index: 40; box-shadow: 0 0 0 1px rgba(110,123,255,.45); }
+.docxedit-resize.dragging { background: var(--rdoc-accent, #6e7bff); z-index: 40; box-shadow: 0 0 0 1px rgba(110,123,255,.45); }
 .docxedit-resizing-col, .docxedit-resizing-col * { cursor: col-resize !important; }
 .docxedit-resizing-row, .docxedit-resizing-row * { cursor: row-resize !important; }
 .docxedit-color { width: 30px; padding: 1px; }
@@ -177,9 +177,9 @@
 .docxedit-main { display: flex; flex: 1; min-height: 0; }
 .docxedit-scroll { flex: 1; min-height: 0; overflow: auto; display: flex; flex-direction: column; align-items: safe center; padding: 24px; }
 /* Document outline (navigation) pane. */
-.docxedit-outline { flex: 0 0 240px; min-height: 0; overflow: auto; background: #3a3d42; color: #e6e8ec; border-right: 1px solid #2b2f36; display: flex; flex-direction: column; font: 13px/1.4 system-ui, sans-serif; }
+.docxedit-outline { flex: 0 0 240px; min-height: 0; overflow: auto; background: #3a3d42; color: var(--rdoc-canvas, #e6e8ec); border-right: 1px solid var(--rdoc-chrome, #2b2f36); display: flex; flex-direction: column; font: 13px/1.4 system-ui, sans-serif; }
 .docxedit-outline[hidden] { display: none; }
-.docxedit-outline-title { padding: 10px 12px; font-weight: 600; color: #aeb4bd; text-transform: uppercase; font-size: 11px; letter-spacing: .04em; border-bottom: 1px solid #2b2f36; }
+.docxedit-outline-title { padding: 10px 12px; font-weight: 600; color: var(--rdoc-muted, #aeb4bd); text-transform: uppercase; font-size: 11px; letter-spacing: .04em; border-bottom: 1px solid var(--rdoc-chrome, #2b2f36); }
 .docxedit-outline-list { padding: 4px 0; }
 .docxedit-outline-empty { padding: 10px 12px; color: #888; font-style: italic; }
 .docxedit-outline-row { display: block; width: 100%; text-align: left; background: none; border: none; color: inherit; cursor: pointer; padding: 4px 12px; border-radius: 0; white-space: nowrap; overflow: hidden; text-overflow: ellipsis; font: inherit; }
@@ -187,24 +187,24 @@
 .docxedit-outline-h1 { font-weight: 600; }
 .docxedit-outline-h2 { padding-left: 26px; }
 .docxedit-outline-h3 { padding-left: 40px; color: #c4c9d2; }
-.docxedit-bottombar-btn { display: inline-flex; align-items: center; justify-content: center; padding: 3px 7px; background: #2b2f36; color: #cfd3da; border: 1px solid #4a4f57; border-radius: 6px; cursor: pointer; }
-.docxedit-bottombar-btn:hover { border-color: #6e7bff; }
-.docxedit-bottombar-btn.is-on { background: #6e7bff; color: #fff; border-color: #6e7bff; }
+.docxedit-bottombar-btn { display: inline-flex; align-items: center; justify-content: center; padding: 3px 7px; background: var(--rdoc-chrome, #2b2f36); color: var(--rdoc-muted, #cfd3da); border: 1px solid var(--rdoc-btn-border, #4a4f57); border-radius: 6px; cursor: pointer; }
+.docxedit-bottombar-btn:hover { border-color: var(--rdoc-accent, #6e7bff); }
+.docxedit-bottombar-btn.is-on { background: var(--rdoc-accent, #6e7bff); color: #fff; border-color: var(--rdoc-accent, #6e7bff); }
 
 /* Find & replace panel (top-right overlay) + match highlights. */
-.docxedit-find { position: absolute; top: 8px; right: 16px; z-index: 30; background: #2b2f36; color: #e6e8ec; border: 1px solid #4a4f57; border-radius: 8px; box-shadow: 0 8px 28px rgba(0,0,0,.5); padding: 8px; display: flex; flex-direction: column; gap: 6px; font: 13px/1.3 system-ui, sans-serif; }
+.docxedit-find { position: absolute; top: 8px; right: 16px; z-index: 30; background: var(--rdoc-chrome, #2b2f36); color: var(--rdoc-canvas, #e6e8ec); border: 1px solid var(--rdoc-btn-border, #4a4f57); border-radius: 8px; box-shadow: 0 8px 28px rgba(0,0,0,.5); padding: 8px; display: flex; flex-direction: column; gap: 6px; font: 13px/1.3 system-ui, sans-serif; }
 .docxedit-find[hidden] { display: none; }
 .docxedit-find-row { display: flex; align-items: center; gap: 4px; }
 .docxedit-find-ico { display: inline-flex; color: #8b919b; padding: 0 2px; }
-.docxedit-find-input { width: 190px; padding: 5px 7px; border: 1px solid #4a4f57; border-radius: 6px; background: #1f2329; color: #e6e8ec; font: inherit; }
-.docxedit-find-input:focus-visible { outline: 2px solid #6e7bff; outline-offset: -1px; }
-.docxedit-find-count { min-width: 56px; text-align: center; color: #aeb4bd; font-size: 12px; }
+.docxedit-find-input { width: 190px; padding: 5px 7px; border: 1px solid var(--rdoc-btn-border, #4a4f57); border-radius: 6px; background: var(--rdoc-chrome2, #1f2329); color: var(--rdoc-canvas, #e6e8ec); font: inherit; }
+.docxedit-find-input:focus-visible { outline: 2px solid var(--rdoc-accent, #6e7bff); outline-offset: -1px; }
+.docxedit-find-count { min-width: 56px; text-align: center; color: var(--rdoc-muted, #aeb4bd); font-size: 12px; }
 .docxedit-find-count.is-none { color: #ff9d9d; }
 .docxedit-find-opts { display: inline-flex; gap: 2px; }
-.docxedit-find-btn { display: inline-flex; align-items: center; justify-content: center; min-width: 26px; padding: 4px 7px; background: #353a42; color: #cfd3da; border: 1px solid #4a4f57; border-radius: 6px; cursor: pointer; font: inherit; }
-.docxedit-find-btn:hover { border-color: #6e7bff; }
+.docxedit-find-btn { display: inline-flex; align-items: center; justify-content: center; min-width: 26px; padding: 4px 7px; background: #353a42; color: var(--rdoc-muted, #cfd3da); border: 1px solid var(--rdoc-btn-border, #4a4f57); border-radius: 6px; cursor: pointer; font: inherit; }
+.docxedit-find-btn:hover { border-color: var(--rdoc-accent, #6e7bff); }
 .docxedit-find-toggle { font-size: 11px; font-weight: 600; }
-.docxedit-find-toggle.is-on { background: #6e7bff; color: #fff; border-color: #6e7bff; }
+.docxedit-find-toggle.is-on { background: var(--rdoc-accent, #6e7bff); color: #fff; border-color: var(--rdoc-accent, #6e7bff); }
 ::highlight(rdoc-find) { background: #ffe066; color: #000; }
 ::highlight(rdoc-find-current) { background: #ff9b3d; color: #000; }
 
@@ -212,16 +212,16 @@
 .docx-eq { display: inline-block; cursor: pointer; padding: 0 2px; border-radius: 3px; }
 .docx-eq:hover { background: rgba(110,123,255,.14); }
 .docxedit-dialog.docxedit-eq { max-width: 440px; }
-.docxedit-eq-input { width: 100%; box-sizing: border-box; padding: 7px 9px; border: 1px solid #4a4f57; border-radius: 6px; background: #1f2329; color: #e6e8ec; font: 13px/1.45 ui-monospace, SFMono-Regular, Menlo, monospace; resize: vertical; }
-.docxedit-eq-input:focus-visible { outline: 2px solid #6e7bff; outline-offset: -1px; }
+.docxedit-eq-input { width: 100%; box-sizing: border-box; padding: 7px 9px; border: 1px solid var(--rdoc-btn-border, #4a4f57); border-radius: 6px; background: var(--rdoc-chrome2, #1f2329); color: var(--rdoc-canvas, #e6e8ec); font: 13px/1.45 ui-monospace, SFMono-Regular, Menlo, monospace; resize: vertical; }
+.docxedit-eq-input:focus-visible { outline: 2px solid var(--rdoc-accent, #6e7bff); outline-offset: -1px; }
 .docxedit-eq-preview { min-height: 44px; padding: 8px 10px; background: #fff; color: #000; border-radius: 6px; display: flex; align-items: center; justify-content: center; overflow-x: auto; }
 .docxedit-eq-preview math { font-size: 1.25em; }
 /* Special-character picker: a wrapping grid of glyph buttons. */
 .docxedit-dialog.docxedit-symbols { max-width: 392px; }
 .docxedit-symbol-grid { display: grid; grid-template-columns: repeat(10, 1fr); gap: 4px; max-height: 280px; overflow-y: auto; }
-.docxedit-symbol { height: 32px; border: 1px solid #4a4f57; border-radius: 6px; background: #1f2329; color: #e6e8ec; cursor: pointer; font-size: 16px; line-height: 1; padding: 0; }
-.docxedit-symbol:hover { background: #6e7bff; border-color: #6e7bff; color: #fff; }
-.docxedit-symbol:focus-visible { outline: 2px solid #6e7bff; outline-offset: 1px; }
+.docxedit-symbol { height: 32px; border: 1px solid var(--rdoc-btn-border, #4a4f57); border-radius: 6px; background: var(--rdoc-chrome2, #1f2329); color: var(--rdoc-canvas, #e6e8ec); cursor: pointer; font-size: 16px; line-height: 1; padding: 0; }
+.docxedit-symbol:hover { background: var(--rdoc-accent, #6e7bff); border-color: var(--rdoc-accent, #6e7bff); color: #fff; }
+.docxedit-symbol:focus-visible { outline: 2px solid var(--rdoc-accent, #6e7bff); outline-offset: 1px; }
 /* Symmetric margins keep the page centred; the right one holds the comments column. */
 .docxedit-canvas { display: flex; align-items: flex-start; gap: 18px; flex: 0 0 auto; }
 .docxedit-margin { flex: 0 1 250px; min-width: 0; }
@@ -231,13 +231,13 @@
   box-shadow: 0 2px 12px rgba(0, 0, 0, .45); box-sizing: border-box;
   font: 16px/1.5 var(--docxedit-doc-font, "Liberation Serif"), Georgia, serif;
 }
-.docxedit-page:focus-within { box-shadow: 0 0 0 2px #6e7bff, 0 2px 12px rgba(0, 0, 0, .45); }
+.docxedit-page:focus-within { box-shadow: 0 0 0 2px var(--rdoc-accent, #6e7bff), 0 2px 12px rgba(0, 0, 0, .45); }
 /* The page is scaled inside this box, which carries the scaled footprint for layout. */
 .docxedit-pagebox { flex: 0 0 auto; overflow: hidden; }
-.docxedit-zoom-label { width: 54px; height: 28px; box-sizing: border-box; text-align: center; font: inherit; background: #3a3f47; color: #e6e6e6; border: 1px solid #4a4f57; border-radius: 5px; padding: 3px 4px; }
-.docxedit-zoom-label:hover { border-color: #6e7bff; }
-.docxedit-zoom-label:focus { outline: none; border-color: #6e7bff; }
-.docxedit-zoom-slider { width: 96px; flex: 0 0 auto; height: 28px; padding: 0; min-width: 0; background: none; border: none; cursor: pointer; accent-color: #6e7bff; }
+.docxedit-zoom-label { width: 54px; height: 28px; box-sizing: border-box; text-align: center; font: inherit; background: var(--rdoc-btn, #3a3f47); color: var(--rdoc-text, #e6e6e6); border: 1px solid var(--rdoc-btn-border, #4a4f57); border-radius: 5px; padding: 3px 4px; }
+.docxedit-zoom-label:hover { border-color: var(--rdoc-accent, #6e7bff); }
+.docxedit-zoom-label:focus { outline: none; border-color: var(--rdoc-accent, #6e7bff); }
+.docxedit-zoom-slider { width: 96px; flex: 0 0 auto; height: 28px; padding: 0; min-width: 0; background: none; border: none; cursor: pointer; accent-color: var(--rdoc-accent, #6e7bff); }
 .docxedit-zoom-slider:hover { border: none; }
 
 /* Margin rulers (Google-Docs style). The wrapper reserves a strip above and left of the
@@ -248,7 +248,7 @@
 .docxedit-ruler { position: absolute; background: #d7dde4; box-shadow: inset 0 0 0 1px #c2cad3; pointer-events: auto; }
 .docxedit-ruler-tip {
   position: fixed; z-index: 70; pointer-events: none; white-space: nowrap;
-  background: #1c1f24; color: #fff; font: 11px system-ui, sans-serif; padding: 2px 6px; border-radius: 4px;
+  background: var(--rdoc-border, #1c1f24); color: #fff; font: 11px system-ui, sans-serif; padding: 2px 6px; border-radius: 4px;
   box-shadow: 0 2px 8px rgba(0,0,0,.4);
 }
 .docxedit-ruler-tip[hidden] { display: none; }
@@ -265,27 +265,27 @@
 .docxedit-rh-h::before { left: -6px; right: -6px; top: -4px; bottom: -13px; }
 .docxedit-rh-v { left: 4px; margin-top: -5px; border-top: 5px solid transparent; border-bottom: 5px solid transparent; border-left: 9px solid #5b6b7b; cursor: ns-resize; }
 .docxedit-rh-v::before { top: -6px; bottom: -6px; left: -4px; right: -13px; }
-.docxedit-ruler-handle:hover { border-top-color: #2f3c4a; border-left-color: #2f3c4a; }
+.docxedit-ruler-handle:hover { border-top-color: var(--rdoc-panel, #2f3c4a); border-left-color: var(--rdoc-panel, #2f3c4a); }
 /* Tab-stop markers on the horizontal ruler + the corner type selector. Each marker draws a small
    shape per alignment type (L / reversed-L / centred / decimal). The marker's stop edge sits at its
    left offset (left tabs left-aligned, right tabs right-aligned, center/decimal centred). */
 .docxedit-tabmarks { position: absolute; left: 0; right: 0; top: 0; bottom: 0; pointer-events: none; z-index: 2; }
 .docxedit-tabmark { position: absolute; bottom: 1px; width: 9px; height: 9px; box-sizing: border-box; pointer-events: auto; cursor: pointer; }
-.docxedit-tabmark.is-left { transform: translateX(0); border-left: 2px solid #2f3c4a; border-bottom: 2px solid #2f3c4a; }
-.docxedit-tabmark.is-right { transform: translateX(-100%); border-right: 2px solid #2f3c4a; border-bottom: 2px solid #2f3c4a; }
-.docxedit-tabmark.is-center, .docxedit-tabmark.is-decimal { transform: translateX(-50%); border-bottom: 2px solid #2f3c4a; }
-.docxedit-tabmark.is-center::before, .docxedit-tabmark.is-decimal::before { content: ""; position: absolute; left: 50%; top: 0; bottom: 0; border-left: 2px solid #2f3c4a; transform: translateX(-1px); }
-.docxedit-tabmark.is-decimal::after { content: ""; position: absolute; left: 50%; bottom: -1px; width: 2px; height: 2px; border-radius: 50%; background: #2f3c4a; transform: translateX(1.5px); }
+.docxedit-tabmark.is-left { transform: translateX(0); border-left: 2px solid var(--rdoc-panel, #2f3c4a); border-bottom: 2px solid var(--rdoc-panel, #2f3c4a); }
+.docxedit-tabmark.is-right { transform: translateX(-100%); border-right: 2px solid var(--rdoc-panel, #2f3c4a); border-bottom: 2px solid var(--rdoc-panel, #2f3c4a); }
+.docxedit-tabmark.is-center, .docxedit-tabmark.is-decimal { transform: translateX(-50%); border-bottom: 2px solid var(--rdoc-panel, #2f3c4a); }
+.docxedit-tabmark.is-center::before, .docxedit-tabmark.is-decimal::before { content: ""; position: absolute; left: 50%; top: 0; bottom: 0; border-left: 2px solid var(--rdoc-panel, #2f3c4a); transform: translateX(-1px); }
+.docxedit-tabmark.is-decimal::after { content: ""; position: absolute; left: 50%; bottom: -1px; width: 2px; height: 2px; border-radius: 50%; background: var(--rdoc-panel, #2f3c4a); transform: translateX(1.5px); }
 .docxedit-tabmark.is-leader { filter: none; }
-.docxedit-tabmark:hover { border-color: #6e7bff; }
-.docxedit-tabmark.is-center:hover::before, .docxedit-tabmark.is-decimal:hover::before { border-color: #6e7bff; }
+.docxedit-tabmark:hover { border-color: var(--rdoc-accent, #6e7bff); }
+.docxedit-tabmark.is-center:hover::before, .docxedit-tabmark.is-decimal:hover::before { border-color: var(--rdoc-accent, #6e7bff); }
 .docxedit-tabtype { position: absolute; z-index: 3; background: #d7dde4; border: none; box-shadow: inset 0 0 0 1px #c2cad3; padding: 0; cursor: pointer; }
 .docxedit-tabtype:hover { background: #e7ecf1; }
 .docxedit-tabtype::before { content: ""; position: absolute; left: 50%; top: 50%; width: 8px; height: 8px; box-sizing: border-box; transform: translate(-50%, -45%); }
-.docxedit-tabtype.is-left::before { border-left: 2px solid #2f3c4a; border-bottom: 2px solid #2f3c4a; }
-.docxedit-tabtype.is-right::before { border-right: 2px solid #2f3c4a; border-bottom: 2px solid #2f3c4a; }
-.docxedit-tabtype.is-center::before, .docxedit-tabtype.is-decimal::before { border: 2px solid #2f3c4a; border-top: none; }
-.docxedit-tabtype.is-decimal::after { content: ""; position: absolute; left: 50%; top: 50%; width: 2px; height: 2px; border-radius: 50%; background: #2f3c4a; transform: translate(3px, 2px); }
+.docxedit-tabtype.is-left::before { border-left: 2px solid var(--rdoc-panel, #2f3c4a); border-bottom: 2px solid var(--rdoc-panel, #2f3c4a); }
+.docxedit-tabtype.is-right::before { border-right: 2px solid var(--rdoc-panel, #2f3c4a); border-bottom: 2px solid var(--rdoc-panel, #2f3c4a); }
+.docxedit-tabtype.is-center::before, .docxedit-tabtype.is-decimal::before { border: 2px solid var(--rdoc-panel, #2f3c4a); border-top: none; }
+.docxedit-tabtype.is-decimal::after { content: ""; position: absolute; left: 50%; top: 50%; width: 2px; height: 2px; border-radius: 50%; background: var(--rdoc-panel, #2f3c4a); transform: translate(3px, 2px); }
 
 /* Paginated view: the page becomes a positioning context; per-page cards are drawn in a
    layer behind the single continuous body, which carries inert spacer gaps at breaks. */
@@ -308,11 +308,11 @@
    itself lets clicks through, only the clones (in the margins) capture them. */
 .docxedit-hflayer { position: absolute; inset: 0; z-index: 2; pointer-events: none; }
 /* Footnote / endnote reference (in the body) + the notes area below the pages. */
-.docx-fnref { color: #6e7bff; cursor: default; font-feature-settings: "sups"; user-select: none; padding: 0 1px; }
+.docx-fnref { color: var(--rdoc-accent, #6e7bff); cursor: default; font-feature-settings: "sups"; user-select: none; padding: 0 1px; }
 .docxedit-noteslayer { flex: 0 0 auto; width: min(820px, 92%); margin: 4px auto 28px; background: #fff; color: #111; border-top: 2px solid #c2cad3; border-radius: 0 0 4px 4px; padding: 10px 16px; box-shadow: 0 2px 12px rgba(0,0,0,.35); font: 13px/1.5 system-ui, sans-serif; }
 .docxedit-noteslayer[hidden] { display: none; }
 .docxedit-note-row { display: flex; gap: 8px; align-items: baseline; padding: 2px 0; }
-.docxedit-note-num { color: #6e7bff; flex: 0 0 auto; min-width: 18px; text-align: right; user-select: none; }
+.docxedit-note-num { color: var(--rdoc-accent, #6e7bff); flex: 0 0 auto; min-width: 18px; text-align: right; user-select: none; }
 .docxedit-note { flex: 1; min-width: 0; outline: none; }
 .docxedit-note:focus { background: #f3f5ff; }
 /* Per-page footnote area: just above the footer, inside the page, with a separator rule. */
@@ -326,16 +326,16 @@
 .docxedit-fnarea.is-vertical .docxedit-note-row { padding: 0 1px; align-items: flex-start; }
 .docxedit-fnarea.is-vertical .docxedit-note { flex: 0 1 auto; }
 .docxedit-hf-clone { position: absolute; box-sizing: border-box; pointer-events: auto; cursor: text; }
-.docxedit-hf-clone:hover { outline: 1px dashed #6e7bff; outline-offset: -1px; }
+.docxedit-hf-clone:hover { outline: 1px dashed var(--rdoc-accent, #6e7bff); outline-offset: -1px; }
 /* Corner chip toggling a section's header/footer "link to previous". */
 .docxedit-hf-link {
   position: absolute; z-index: 4; width: 18px; height: 18px; padding: 0; display: inline-flex;
   align-items: center; justify-content: center; pointer-events: auto; cursor: pointer;
-  background: #2b2f36; color: #cfd3da; border: 1px solid #4a4f57; border-radius: 4px; opacity: .75;
+  background: var(--rdoc-chrome, #2b2f36); color: var(--rdoc-muted, #cfd3da); border: 1px solid var(--rdoc-btn-border, #4a4f57); border-radius: 4px; opacity: .75;
 }
-.docxedit-hf-link:hover { opacity: 1; border-color: #6e7bff; color: #e6e8ec; }
-.docxedit-hf-link.is-on { color: #6e7bff; opacity: .9; } /* independent (link broken) */
-.docxedit-header.is-editing, .docxedit-footer.is-editing { outline: 2px solid #6e7bff; outline-offset: -2px; border-radius: 2px; }
+.docxedit-hf-link:hover { opacity: 1; border-color: var(--rdoc-accent, #6e7bff); color: var(--rdoc-canvas, #e6e8ec); }
+.docxedit-hf-link.is-on { color: var(--rdoc-accent, #6e7bff); opacity: .9; } /* independent (link broken) */
+.docxedit-header.is-editing, .docxedit-footer.is-editing { outline: 2px solid var(--rdoc-accent, #6e7bff); outline-offset: -2px; border-radius: 2px; }
 .docxedit-doc { padding: var(--rdoc-margin-top, 40px) var(--rdoc-margin-right, 72px) var(--rdoc-margin-bottom, 56px) var(--rdoc-margin-left, 72px); min-height: 200px; outline: none; }
 /* Vertical writing (tategaki): fixed-height page, columns top-to-bottom advancing right-to-left
    so the page grows along x. The padding still maps to the physical margins. */
@@ -358,7 +358,7 @@
 .docxedit-doc p, .docxedit-header p, .docxedit-footer p { margin: 0 0 .6em; }
 .docxedit-doc a { color: #1a56db; }
 .docxedit-doc img { max-width: 100%; height: auto; }
-.docxedit-doc img.sel { outline: 2px solid #6e7bff; outline-offset: 1px; }
+.docxedit-doc img.sel { outline: 2px solid var(--rdoc-accent, #6e7bff); outline-offset: 1px; }
 .docxedit-table td { border: 1px solid #999; }
 .docxedit-img-ph { display: inline-block; padding: 2px 8px; border: 1px dashed #aaa; color: #777; font-size: .85em; }
 /* Tabs: a real tab character whose width is the browser's tab stop by default (every 0.5in via
@@ -402,17 +402,17 @@
 /* Image layout toolbar (shown above a selected image). */
 .docxedit-imgbar {
   position: fixed; z-index: 60; display: flex; align-items: center; gap: 3px; padding: 4px;
-  background: #2b2f36; border: 1px solid #1c1f24; border-radius: 8px; box-shadow: 0 6px 20px rgba(0,0,0,.5);
+  background: var(--rdoc-chrome, #2b2f36); border: 1px solid var(--rdoc-border, #1c1f24); border-radius: 8px; box-shadow: 0 6px 20px rgba(0,0,0,.5);
 }
 .docxedit-imgbar[hidden] { display: none; }
 .docxedit-imgbar-btn {
   display: inline-flex; align-items: center; justify-content: center; min-width: 26px; height: 26px; padding: 0 5px;
-  font: 12px system-ui, sans-serif; background: #3a3f47; color: #e6e6e6; border: 1px solid #4a4f57; border-radius: 5px; cursor: pointer;
+  font: 12px system-ui, sans-serif; background: var(--rdoc-btn, #3a3f47); color: var(--rdoc-text, #e6e6e6); border: 1px solid var(--rdoc-btn-border, #4a4f57); border-radius: 5px; cursor: pointer;
 }
-.docxedit-imgbar-btn:hover { border-color: #6e7bff; }
-.docxedit-imgbar-btn.is-on { background: #6e7bff; border-color: #6e7bff; color: #fff; }
+.docxedit-imgbar-btn:hover { border-color: var(--rdoc-accent, #6e7bff); }
+.docxedit-imgbar-btn.is-on { background: var(--rdoc-accent, #6e7bff); border-color: var(--rdoc-accent, #6e7bff); color: #fff; }
 .docxedit-imgbar-btn[hidden] { display: none; }
-.docxedit-imgbar-sep { width: 1px; align-self: stretch; background: #4a4f57; margin: 0 2px; }
+.docxedit-imgbar-sep { width: 1px; align-self: stretch; background: var(--rdoc-btn-border, #4a4f57); margin: 0 2px; }
 .docxedit-imgbar-sep[hidden] { display: none; }
 /* Inserted fields (page number / count) and the table of contents. */
 .docx-field { background: rgba(110,123,255,.12); border-radius: 2px; padding: 0 1px; cursor: default; }
@@ -449,7 +449,7 @@
   background: #fff; color: #222; border: 1px solid #ddd; border-radius: 8px;
   box-shadow: 0 1px 5px rgba(0, 0, 0, .18); cursor: pointer; transition: top .15s ease;
 }
-.docxedit-cmt-card.active { border-color: #6e7bff; box-shadow: 0 2px 12px rgba(110, 123, 255, .5); }
+.docxedit-cmt-card.active { border-color: var(--rdoc-accent, #6e7bff); box-shadow: 0 2px 12px rgba(110, 123, 255, .5); }
 .docxedit-cmt-card.resolved { opacity: .5; }
 .docxedit-cmt-actions { position: absolute; top: 4px; right: 6px; display: flex; gap: 2px; }
 .docxedit-cmt-action {
@@ -460,7 +460,7 @@
 .docxedit-cmt-replybox { padding: 4px 11px 9px; }
 .docxedit-cmt-replybtn { background: none; border: 0; color: #1a56db; cursor: pointer; padding: 2px 0; font: inherit; font-size: .9em; }
 .docxedit-cmt-replyinput { width: 100%; box-sizing: border-box; resize: vertical; border: 1px solid #ccc; border-radius: 5px; padding: 5px 6px; font: inherit; font-size: .9em; }
-.docxedit-cmt-send { margin-top: 5px; background: #6e7bff; color: #fff; border: 0; border-radius: 5px; padding: 4px 12px; cursor: pointer; font: inherit; font-size: .85em; }
+.docxedit-cmt-send { margin-top: 5px; background: var(--rdoc-accent, #6e7bff); color: #fff; border: 0; border-radius: 5px; padding: 4px 12px; cursor: pointer; font: inherit; font-size: .85em; }
 .docxedit-cmt-item { padding: 8px 11px; font: 13px/1.45 system-ui, sans-serif; }
 .docxedit-cmt-reply { border-top: 1px solid #eee; }
 .docxedit-cmt-item b { display: block; font-size: .82em; color: #555; margin-bottom: 3px; font-weight: 600; }
@@ -471,7 +471,7 @@
 .docxedit-cmt-react-row { display: flex; flex-wrap: wrap; align-items: center; gap: 4px; margin-top: 6px; }
 .docxedit-react { background: #eef0ff; border: 1px solid #dde; border-radius: 10px; padding: 0 6px; font-size: 12px; line-height: 18px; cursor: default; }
 .docxedit-react-add { background: none; border: 1px solid #ddd; border-radius: 10px; padding: 0 6px; cursor: pointer; font-size: 12px; line-height: 18px; color: #666; }
-.docxedit-react-add:hover { border-color: #6e7bff; }
+.docxedit-react-add:hover { border-color: var(--rdoc-accent, #6e7bff); }
 .docxedit-react-pop {
   position: absolute; z-index: 25; background: #fff; border: 1px solid #ccc; border-radius: 8px;
   box-shadow: 0 6px 22px rgba(0, 0, 0, .3); padding: 4px; display: flex; gap: 2px;
@@ -491,7 +491,7 @@
 .docxedit-change-pop button { background: none; border: 0; font-size: 14px; cursor: pointer; padding: 3px 8px; border-radius: 5px; }
 .docxedit-change-pop button:hover { background: #eef0ff; }
 .docx-comment { background: rgba(255, 212, 0, .22); border-bottom: 1px solid #e0a800; cursor: pointer; }
-.docx-comment.active { background: rgba(110, 123, 255, .4); border-bottom-color: #6e7bff; box-shadow: 0 0 0 1px rgba(110, 123, 255, .4); }
+.docx-comment.active { background: rgba(110, 123, 255, .4); border-bottom-color: var(--rdoc-accent, #6e7bff); box-shadow: 0 0 0 1px rgba(110, 123, 255, .4); }
 /* The inline marker is kept for round-trip but no longer shown; the highlight is the cue. */
 .docx-comment-ref, .docx-cmark { display: none; }
 /* Preserved-but-unmodelled content (fields, bookmarks, content controls, math, ...). */
@@ -499,7 +499,7 @@
 .docx-pass-block { margin: 0 0 .6em; }
 
 .docxedit-img-handle {
-  position: absolute; width: 13px; height: 13px; background: #6e7bff; border: 2px solid #fff;
+  position: absolute; width: 13px; height: 13px; background: var(--rdoc-accent, #6e7bff); border: 2px solid #fff;
   border-radius: 50%; cursor: nwse-resize; z-index: 15; box-shadow: 0 1px 3px rgba(0, 0, 0, .45);
 }
 .docxedit-img-handle.is-hidden { display: none; }
