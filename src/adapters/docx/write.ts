@@ -1636,6 +1636,39 @@ function applyDone(files: Record<string, Uint8Array>, done: Map<string, boolean>
 }
 
 /** Remove deleted comments from comments.xml and commentsExtended.xml. */
+/** Rewrite an existing comment's body text in place. The first paragraph keeps its
+    attributes (notably w14:paraId, which threading and resolved-state reference);
+    extra paragraphs are dropped and the new text becomes plain runs, one per line. */
+function applyEditedComments(files: Record<string, Uint8Array>, edited: { id: string; text: string }[]): void {
+  if (!edited.length || !files["word/comments.xml"]) return;
+  const cdoc = new DOMParser().parseFromString(strFromU8(files["word/comments.xml"]), "application/xml");
+  const byId = new Map(edited.map((e) => [e.id, e.text]));
+  for (const c of Array.from(cdoc.getElementsByTagName("w:comment"))) {
+    const text = byId.get(c.getAttribute("w:id") ?? "");
+    if (text == null) continue;
+    const paras = Array.from(c.getElementsByTagName("w:p"));
+    const first = paras[0];
+    for (const p of paras.slice(1)) p.parentNode?.removeChild(p);
+    const lines = text.split("\n");
+    const fillPara = (p: Element, line: string) => {
+      for (const child of Array.from(p.children)) if (child.tagName !== "w:pPr") p.removeChild(child);
+      const r = cdoc.createElementNS(W, "w:r");
+      const t = cdoc.createElementNS(W, "w:t");
+      t.setAttribute("xml:space", "preserve");
+      t.textContent = line;
+      r.appendChild(t);
+      p.appendChild(r);
+    };
+    if (first) fillPara(first, lines[0] ?? "");
+    for (const line of lines.slice(1)) {
+      const p = cdoc.createElementNS(W, "w:p");
+      fillPara(p, line);
+      c.appendChild(p);
+    }
+  }
+  files["word/comments.xml"] = strToU8(new XMLSerializer().serializeToString(cdoc));
+}
+
 function applyDeletedComments(files: Record<string, Uint8Array>, ids: string[]): void {
   if (!ids.length || !files["word/comments.xml"]) return;
   const cdoc = new DOMParser().parseFromString(strFromU8(files["word/comments.xml"]), "application/xml");
@@ -2003,7 +2036,7 @@ export function htmlToDocx(
   html: string,
   original: Uint8Array,
   parts?: { path: string; html: string }[],
-  opts?: { reactions?: ReactionEdit[]; replies?: ReplyEdit[]; done?: Map<string, boolean>; deletedComments?: string[]; pageGeometry?: PageGeometry; newStyles?: NewStyle[]; notes?: Note[] },
+  opts?: { reactions?: ReactionEdit[]; replies?: ReplyEdit[]; done?: Map<string, boolean>; deletedComments?: string[]; edited?: { id: string; text: string }[]; pageGeometry?: PageGeometry; newStyles?: NewStyle[]; notes?: Note[] },
 ): Uint8Array {
   const files = unzipSync(original);
   // Per-section header/footer HTML by key, so buildSectPr can mint a new part for an unlinked
@@ -2024,6 +2057,7 @@ export function htmlToDocx(
   }
   if (opts?.notes) { rebuildNotes(files, "footnotes", "footnote", opts.notes); rebuildNotes(files, "endnotes", "endnote", opts.notes); }
   applyNewComments(files, html);
+  applyEditedComments(files, opts?.edited ?? []);
   applyReactions(files, opts?.reactions ?? []);
   applyReplies(files, opts?.replies ?? []);
   applyDone(files, opts?.done ?? new Map());

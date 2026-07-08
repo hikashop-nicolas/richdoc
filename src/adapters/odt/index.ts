@@ -48,7 +48,7 @@ export function createOdtAdapter(bytes: Uint8Array): Adapter {
       };
     },
     write(bodyHtml: string, parts: { path: string; html: string }[], edits: CommentEdits, page?: PageGeometry, newStyles?: NewStyle[], notes?: Note[]): Uint8Array {
-      return htmlToOdt(bodyHtml, original, { done: edits.done, parts, page, newStyles, notes });
+      return htmlToOdt(bodyHtml, original, { done: edits.done, parts, page, newStyles, notes, edited: edits.edited });
     },
     newCommentMarkers(meta: NewCommentMeta): CommentMarkers {
       const cmark = (): HTMLElement => {

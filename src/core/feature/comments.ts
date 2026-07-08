@@ -40,6 +40,7 @@ export function setupComments(deps: CommentsDeps) {
   let paraSeed = 0x7f000000;
   const freshParaId = () => (paraSeed++).toString(16).toUpperCase().padStart(8, "0");
   const REACT_CHOICES = ["\u{1F44D}", "❤️", "\u{1F602}", "\u{1F389}", "\u{1F440}", "\u{1F64F}"];
+  const pendingEdited: { id: string; text: string }[] = [];
   const metaLine = (c: { author: string; date: string }) => (c.date ? `${c.author} – ${c.date.slice(0, 10)}` : c.author);
 
   const renderReactions = (row: HTMLElement, entry: CommentEntry) => {
@@ -73,7 +74,62 @@ export function setupComments(deps: CommentsDeps) {
       more.classList.add("is-hidden");
       positionCards();
     });
-    item.append(meta, text, more);
+    // Edit in place: swap the text for a textarea; saving records the rewrite
+    // for the adapter and updates the card.
+    const edit = document.createElement("button");
+    edit.type = "button";
+    edit.className = "docxedit-cmt-editbtn";
+    edit.textContent = "✎";
+    edit.title = t("editComment");
+    edit.setAttribute("aria-label", t("editComment"));
+    edit.addEventListener("click", (e) => {
+      e.stopPropagation();
+      if (item.querySelector(".docxedit-cmt-editinput")) return;
+      const ta = document.createElement("textarea");
+      ta.className = "docxedit-cmt-replyinput docxedit-cmt-editinput";
+      ta.rows = 3;
+      ta.value = entry.text;
+      ta.addEventListener("click", (ev) => ev.stopPropagation());
+      const save = document.createElement("button");
+      save.type = "button";
+      save.className = "docxedit-cmt-send";
+      save.textContent = t("send");
+      const commit = () => {
+        const txt = ta.value.trim();
+        ta.remove();
+        save.remove();
+        text.style.display = "";
+        if (!txt || txt === entry.text) return;
+        entry.text = txt;
+        text.textContent = txt;
+        // Last rewrite wins when the same comment is edited twice before a save.
+        const prior = pendingEdited.find((p2) => p2.id === entry.id);
+        if (prior) prior.text = txt;
+        else pendingEdited.push({ id: entry.id, text: txt });
+        mark();
+        positionCards();
+      };
+      save.addEventListener("click", (ev) => {
+        ev.stopPropagation();
+        commit();
+      });
+      ta.addEventListener("keydown", (ev) => {
+        if (ev.key === "Enter" && !ev.shiftKey) {
+          ev.preventDefault();
+          commit();
+        } else if (ev.key === "Escape") {
+          ev.preventDefault();
+          ta.remove();
+          save.remove();
+          text.style.display = "";
+        }
+      });
+      text.style.display = "none";
+      item.insertBefore(ta, more);
+      item.insertBefore(save, more);
+      ta.focus();
+    });
+    item.append(meta, edit, text, more);
     if (caps.commentReactions) {
       const row = document.createElement("div");
       row.className = "docxedit-cmt-react-row";
@@ -323,6 +379,7 @@ export function setupComments(deps: CommentsDeps) {
     replies: pendingReplies,
     done: pendingDone,
     deletedComments,
+    edited: pendingEdited,
   });
 
   return { addThreadCard, positionCards, setActiveComment, allocId, freshParaId, getEdits };

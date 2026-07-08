@@ -121,6 +121,55 @@ export function setupImages(deps: ImagesDeps) {
     document.addEventListener("mouseup", onUp);
   });
 
+  // Dropping an image file onto the document inserts it at the drop point
+  // (stopPropagation keeps a host's global "open this file" drop handler out).
+  const insertAt = (file: File, x: number, y: number) => {
+    void (async () => {
+      const buf = new Uint8Array(await file.arrayBuffer());
+      const dataUrl = `data:${file.type};base64,${bytesToBase64(buf)}`;
+      const probe = new Image();
+      probe.onload = () => {
+        const maxW = 600;
+        let w = probe.naturalWidth || 200;
+        let h = probe.naturalHeight || 200;
+        if (w > maxW) {
+          h = Math.round((h * maxW) / w);
+          w = maxW;
+        }
+        const img = document.createElement("img");
+        img.src = dataUrl;
+        img.setAttribute("width", String(w));
+        img.setAttribute("height", String(h));
+        const caret = document.caretRangeFromPoint?.(x, y);
+        const range = caret ?? (() => {
+          const r = document.createRange();
+          r.selectNodeContents(getActiveEl());
+          r.collapse(false);
+          return r;
+        })();
+        range.collapse(true);
+        range.insertNode(img);
+        mark();
+      };
+      probe.src = dataUrl;
+    })();
+  };
+  for (const r of regions) {
+    r.addEventListener("dragover", (e) => {
+      if ([...(e.dataTransfer?.items ?? [])].some((it) => it.kind === "file" && it.type.startsWith("image/"))) {
+        e.preventDefault();
+        e.stopPropagation();
+      }
+    });
+    r.addEventListener("drop", (e) => {
+      const file = [...(e.dataTransfer?.files ?? [])].find((f) => f.type.startsWith("image/"));
+      if (!file) return;
+      e.preventDefault();
+      e.stopPropagation();
+      insertAt(file, e.clientX, e.clientY);
+    });
+  }
+
   const insertImage = () => {
     const sel = window.getSelection();
     const savedRange = sel && sel.rangeCount ? sel.getRangeAt(0).cloneRange() : null;

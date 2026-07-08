@@ -1286,7 +1286,7 @@ function addOdtStyles(files: Record<string, Uint8Array>, styles: NewStyle[]): vo
 export function htmlToOdt(
   html: string,
   original: Uint8Array,
-  opts?: { done?: Map<string, boolean>; parts?: { path: string; html: string }[]; page?: PageGeometry; newStyles?: NewStyle[]; notes?: Note[] },
+  opts?: { done?: Map<string, boolean>; parts?: { path: string; html: string }[]; page?: PageGeometry; newStyles?: NewStyle[]; notes?: Note[]; edited?: { id: string; text: string }[] },
 ): Uint8Array {
   const files = unzipSync(original);
   const content = files["content.xml"];
@@ -1313,6 +1313,11 @@ export function htmlToOdt(
   const rangedIds = new Set(
     Array.from(htmlDoc.querySelectorAll(".docx-comment[data-comment-id]")).map((s) => s.getAttribute("data-comment-id") ?? ""),
   );
+  // Body text edited in the comments panel overrides the gathered metadata.
+  for (const e of opts?.edited ?? []) {
+    const m = refMeta.get(e.id);
+    if (m) m.text = e.text;
+  }
   const ctx: OdfCtx = { doc, auto: ensureAutoStyles(doc), created: new Map(), files, pics: [], objs: [], refMeta, rangedIds, done: opts?.done ?? new Map(), changes: [], notesById: new Map((opts?.notes ?? []).map((n) => [n.id, n])) };
   for (const node of Array.from(htmlDoc.body.childNodes)) {
     const block = htmlBlockToOdf(node, ctx);

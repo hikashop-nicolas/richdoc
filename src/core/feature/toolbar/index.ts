@@ -245,8 +245,50 @@ export function setupToolbar(deps: ToolbarDeps) {
     mark();
   };
 
-  // Add a comment over the current selection: wrap it in comment-range markers and a
-  // reference marker that carries the text, so the serializer can build comments.xml.
+  // Comment dialog (replaces the old window.prompt flow).
+  const cmtOverlay = document.createElement("div");
+  cmtOverlay.className = "docxedit-dialog-overlay";
+  cmtOverlay.hidden = true;
+  let cmtTa: HTMLTextAreaElement;
+  {
+    const panel = document.createElement("div");
+    panel.className = "docxedit-dialog";
+    const title = document.createElement("div");
+    title.className = "docxedit-dialog-title";
+    title.textContent = t("addComment");
+    const ta = document.createElement("textarea");
+    ta.className = "docxedit-dialog-textarea";
+    ta.rows = 3;
+    const actions = document.createElement("div");
+    actions.className = "docxedit-dialog-row docxedit-dialog-actions";
+    const cancel = document.createElement("button");
+    cancel.type = "button";
+    cancel.className = "docxedit-menu-item";
+    cancel.textContent = t("cancel");
+    const ok = document.createElement("button");
+    ok.type = "button";
+    ok.className = "docxedit-menu-item docxedit-dialog-primary";
+    ok.textContent = t("send");
+    actions.append(cancel, ok);
+    panel.append(title, ta, actions);
+    cmtOverlay.appendChild(panel);
+    wrap.appendChild(cmtOverlay);
+    makeDialogAccessible(cmtOverlay);
+    cancel.addEventListener("click", () => (cmtOverlay.hidden = true));
+    ok.addEventListener("click", () => {
+      cmtOverlay.hidden = true;
+      const text = ta.value.trim();
+      if (text) commitComment(text);
+    });
+    ta.addEventListener("keydown", (e) => {
+      if (e.key === "Enter" && !e.shiftKey) {
+        e.preventDefault();
+        ok.click();
+      }
+    });
+    cmtTa = ta;
+  }
+  let cmtRange: Range | null = null;
   const addComment = () => {
     getActiveEl().focus();
     const sel = window.getSelection();
@@ -258,8 +300,21 @@ export function setupToolbar(deps: ToolbarDeps) {
       setTimeout(() => tip.remove(), 1800);
       return;
     }
-    const text = prompt(t("commentPrompt"));
-    if (!text) return;
+    cmtRange = sel.getRangeAt(0).cloneRange();
+    cmtTa.value = "";
+    cmtOverlay.hidden = false;
+    cmtTa.focus();
+  };
+  const commitComment = (text: string) => {
+    // Restore the captured selection (the dialog moved focus away).
+    if (cmtRange) {
+      const sel0 = window.getSelection();
+      sel0?.removeAllRanges();
+      sel0?.addRange(cmtRange);
+      cmtRange = null;
+    }
+    const sel = window.getSelection();
+    if (!sel || !sel.rangeCount || sel.isCollapsed) return;
     const id = allocId();
     const author = options.author || "Author";
     const date = options.now || new Date().toISOString();

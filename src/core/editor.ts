@@ -410,7 +410,30 @@ export function createRichEditor(container: HTMLElement, adapter: Adapter, optio
   const main = document.createElement("div");
   main.className = "docxedit-main";
   main.append(outline.pane, scroll);
-  bottomLeft.append(outline.toggleBtn, findReplace.toggleBtn);
+  const printBtn = document.createElement("button");
+  printBtn.type = "button";
+  printBtn.className = "docxedit-bottombar-btn";
+  printBtn.textContent = "⎙";
+  printBtn.title = t("printTitle");
+  printBtn.setAttribute("aria-label", t("printTitle"));
+  printBtn.addEventListener("click", () => printDocument());
+  bottomLeft.append(outline.toggleBtn, findReplace.toggleBtn, printBtn);
+  // Live word/character count over the body text.
+  const countEl = document.createElement("span");
+  countEl.className = "docxedit-count";
+  bottomLeft.append(countEl);
+  let countTimer = 0;
+  const updateCount = () => {
+    const text = doc.textContent ?? "";
+    const words = text.match(/[\p{L}\p{N}''-]+/gu)?.length ?? 0;
+    countEl.textContent = t("wordCount", { words, chars: [...text.replace(/\s/gu, "")].length });
+  };
+  const scheduleCount = () => {
+    window.clearTimeout(countTimer);
+    countTimer = window.setTimeout(updateCount, 300);
+  };
+  doc.addEventListener("input", scheduleCount);
+  updateCount();
   if (readFailed) {
     const banner = document.createElement("div");
     banner.className = "docxedit-read-error";
@@ -1549,6 +1572,28 @@ export function createRichEditor(container: HTMLElement, adapter: Adapter, optio
   const { insertImage } = images;
   // External clipboard HTML is normalized onto the editor vocabulary (see feature/paste.ts).
   setupPaste({ wrap, regions, mark });
+
+  // Print / save as PDF: a same-origin print window gets a static clone of the
+  // page cards plus every stylesheet (blob @font-face URLs stay reachable), so
+  // the host app's chrome never prints and any host can offer PDF via print.
+  const printDocument = () => {
+    const win = window.open("", "_blank", "width=900,height=700");
+    if (!win) return;
+    const styles = [...document.querySelectorAll("style, link[rel=stylesheet]")].map((n) => n.outerHTML).join("\n");
+    const clone = page.cloneNode(true) as HTMLElement;
+    for (const el of clone.querySelectorAll("[contenteditable]")) el.removeAttribute("contenteditable");
+    for (const el of clone.querySelectorAll(".docxedit-img-handle, .docxedit-img-del, .docxedit-change-pop")) el.remove();
+    win.document.write(
+      `<!doctype html><html><head><meta charset="utf-8"><title>${t("printTitle")}</title>${styles}` +
+        `<style>body{margin:0;background:#fff;display:flex;flex-direction:column;align-items:center;}` +
+        `.docxedit-page{box-shadow:none !important;margin:0 auto !important;page-break-after:always;}` +
+        `@page{margin:0;}</style></head><body></body></html>`,
+    );
+    win.document.body.appendChild(win.document.importNode(clone, true));
+    win.document.close();
+    // Give the cloned fonts/images a moment to load before the dialog opens.
+    win.addEventListener("load", () => setTimeout(() => win.print(), 150));
+  };
   // Emit inline CSS (text-align, font-weight, ...) the serializer reads back, not legacy tags.
   try {
     document.execCommand("styleWithCSS", false, "true");

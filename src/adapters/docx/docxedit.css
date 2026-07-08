@@ -528,3 +528,13 @@
 }
 
 .docx-cell p:last-child, .docx-cell ul:last-child, .docx-cell ol:last-child { margin-bottom: 0; }
+
+/* Word/character count in the bottom bar */
+.docxedit-count { color: var(--rdoc-muted, #9aa3b0); font-size: 12px; margin-left: 10px; align-self: center; white-space: nowrap; }
+/* Comment edit affordance */
+.docxedit-cmt-editbtn {
+  float: right; background: none; border: 0; cursor: pointer; color: inherit;
+  opacity: 0; font-size: 12px; padding: 0 2px;
+}
+.docxedit-cmt-item:hover .docxedit-cmt-editbtn { opacity: 0.7; }
+.docxedit-cmt-editbtn:hover { opacity: 1; }

@@ -140,6 +140,8 @@ export interface CommentEdits {
   replies: { id: string; paraId: string; parentParaId: string; author: string; date: string; text: string }[];
   done: Map<string, boolean>; // thread paraId -> resolved
   deletedComments: string[]; // comment ids removed from the document
+  /** Existing comments whose body text was rewritten in the editor. */
+  edited: { id: string; text: string }[];
 }
 
 /** Metadata for a comment the user adds in the editor. */
