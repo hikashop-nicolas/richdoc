@@ -1576,55 +1576,40 @@ export function createRichEditor(container: HTMLElement, adapter: Adapter, optio
   // External clipboard HTML is normalized onto the editor vocabulary (see feature/paste.ts).
   setupPaste({ wrap, regions, mark });
 
-  // Print / save as PDF: a same-origin print window gets one fixed-size sheet
-  // per page card, each windowing a full clone of the canvas at that card's
-  // offset. The on-screen 24px gaps between cards therefore never drift the
-  // paper fragmentation (which produced a stray blank page). Cloning the
-  // canvas once per page is heavy for very long documents but exact.
+  // Print / save as PDF: a same-origin print window gets a single static clone
+  // of the canvas. Chrome's print engine paints a flowing box reliably but drops
+  // absolutely-positioned content clipped inside fixed-size sheets, so instead
+  // of one sheet per card the @page box is sized to the card PITCH (card height
+  // plus the on-screen gap, measured from the real card offsets): every paper
+  // page then starts exactly at a card boundary and the gap becomes a hair of
+  // trailing whitespace. Vertical (tategaki) layouts print the canvas as-is
+  // (browsers only fragment vertically).
   const printDocument = () => {
     const win = window.open("", "_blank", "width=900,height=700");
     if (!win) return;
     const styles = [...document.querySelectorAll("style, link[rel=stylesheet]")].map((n) => n.outerHTML).join("\n");
-    const makeClone = (): HTMLElement => {
-      const clone = page.cloneNode(true) as HTMLElement;
-      for (const el of clone.querySelectorAll("[contenteditable]")) el.removeAttribute("contenteditable");
-      for (const el of clone.querySelectorAll(".docxedit-img-handle, .docxedit-img-del, .docxedit-change-pop")) el.remove();
-      return clone;
-    };
+    const clone = page.cloneNode(true) as HTMLElement;
+    for (const el of clone.querySelectorAll("[contenteditable]")) el.removeAttribute("contenteditable");
+    for (const el of clone.querySelectorAll(".docxedit-img-handle, .docxedit-img-del, .docxedit-change-pop")) el.remove();
     const pageRect = page.getBoundingClientRect();
     const cards = [...page.querySelectorAll(".docxedit-pagecard")].map((c) => {
       const r = c.getBoundingClientRect();
-      return { top: r.top - pageRect.top, left: r.left - pageRect.left, w: r.width, h: r.height };
+      return { top: r.top - pageRect.top, w: r.width, h: r.height };
     });
-    const sheetW = cards[0]?.w ?? geometry.widthPx;
-    const sheetH = cards[0]?.h ?? geometry.heightPx;
+    const stacked = cards.length > 1 && cards[1]!.top > cards[0]!.top;
+    const pitch = stacked ? cards[1]!.top - cards[0]!.top : cards[0]?.h ?? geometry.heightPx;
+    const pageRule = cards.length
+      ? `@page{size:${cards[0]!.w}px ${pitch}px;margin:0;}`
+      : `@page{margin:15mm;}`; // unpaginated: one continuous flow on default paper
     win.document.write(
       `<!doctype html><html><head><meta charset="utf-8"><title>${t("printTitle")}</title>${styles}` +
-        `<style>html,body{margin:0;padding:0;background:#fff;}` +
-        `.rdoc-print-sheet{position:relative;overflow:hidden;break-after:page;}` +
-        `.rdoc-print-sheet:last-child{break-after:auto;}` +
-        `.rdoc-print-sheet .docxedit-page{box-shadow:none !important;margin:0 !important;position:absolute;}` +
-        `.rdoc-print-sheet .docxedit-pagecard{box-shadow:none !important;border:none !important;}` +
-        `@page{size:${sheetW}px ${sheetH}px;margin:0;}</style></head><body></body></html>`,
+        `<style>html,body{margin:0;padding:0;height:auto !important;background:#fff;}` +
+        `.docxedit-page{box-shadow:none !important;margin:0 !important;}` +
+        `.docxedit-pagecard{box-shadow:none !important;border:none !important;}` +
+        pageRule +
+        `</style></head><body></body></html>`,
     );
-    if (!cards.length) {
-      // Unpaginated view: one sheet around the whole flow, fragmenting naturally.
-      const sheet = win.document.createElement("div");
-      sheet.appendChild(win.document.importNode(makeClone(), true));
-      win.document.body.appendChild(sheet);
-    } else {
-      for (const card of cards) {
-        const sheet = win.document.createElement("div");
-        sheet.className = "rdoc-print-sheet";
-        sheet.style.width = `${card.w}px`;
-        sheet.style.height = `${card.h}px`;
-        const inner = win.document.importNode(makeClone(), true) as HTMLElement;
-        inner.style.top = `${-card.top}px`;
-        inner.style.left = `${-card.left}px`;
-        sheet.appendChild(inner);
-        win.document.body.appendChild(sheet);
-      }
-    }
+    win.document.body.appendChild(win.document.importNode(clone, true));
     win.document.close();
     // Give the cloned fonts/images a moment to load before the dialog opens.
     win.addEventListener("load", () => setTimeout(() => win.print(), 150));
