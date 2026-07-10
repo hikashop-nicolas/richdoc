@@ -20,6 +20,7 @@ export const FC = {
   clx: 33,
   plcfendRef: 46, // endnote reference CPs (main doc)
   plcfendTxt: 47, // endnote text spans (endnote subdocument)
+  plcftxbxTxt: 56, // textbox story breaks (CPs + FTXBXS) for the textbox subdocument
 } as const;
 
 export interface Fib {
@@ -31,6 +32,7 @@ export interface Fib {
   ccpHdd: number; // header/footer subdocument
   ccpAtn: number; // comment (annotation) subdocument
   ccpEdn: number; // endnote subdocument
+  ccpTxbx: number; // textbox subdocument
   /** Offset of the fc/lcb blob within the WordDocument stream. */
   blobOffset: number;
   wd: Uint8Array;
@@ -55,6 +57,7 @@ export function parseFib(wd: Uint8Array): Fib {
     ccpHdd: lw(5),
     ccpAtn: lw(7),
     ccpEdn: lw(8),
+    ccpTxbx: lw(9),
     blobOffset,
     wd,
     fc(index: number) {

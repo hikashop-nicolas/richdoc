@@ -502,6 +502,33 @@ function parseHeaderFooter(
   return { header: clean(story(7)), footer: clean(story(9)) };
 }
 
+// Parse the textbox subdocument: the story text of every drawn text box, sitting after the
+// endnotes in CP order. PlcfTxbxTxt delimits each box (its FTXBXS-per-box CPs plus a trailing
+// reserved sentinel, so real boxes = elements - 1). Returns each box's rendered HTML in the
+// order Word stores them, which matches the order of the 0x08 drawn-object anchors in the main
+// text; buildHtml pairs them positionally. Anchoring to the exact shape (via FSPA/SPID) is not
+// modelled, so multiple boxes on one paragraph keep document order but not their float layout.
+function parseTextboxes(
+  full: string,
+  fib: ReturnType<typeof parseFib>,
+  table: Uint8Array,
+  cpToFc: (cp: number) => number,
+  charSpans: Span<CharProps>[],
+): string[] {
+  if (fib.ccpTxbx <= 0) return [];
+  const txbxStart = fib.ccpText + fib.ccpFtn + fib.ccpHdd + fib.ccpAtn + fib.ccpEdn;
+  const plc = fib.fc(FC.plcftxbxTxt);
+  const cps = readPlcfCps(table, plc.fc, plc.lcb, 22); // FTXBXS is 22 bytes per element
+  const boxes: string[] = [];
+  // Elements = cps.length - 1; the last element is the reserved sentinel, so drop it.
+  for (let i = 0; i < cps.length - 2; i++) {
+    const a = txbxStart + cps[i];
+    const b = txbxStart + cps[i + 1];
+    if (b > a) boxes.push(renderNoteBody(full, a, b, cpToFc, charSpans));
+  }
+  return boxes;
+}
+
 // Raster image magic numbers we can surface as a browser <img> (Word metafiles, WMF/EMF, are
 // not browser-renderable and are skipped).
 const IMAGE_SIGS: { mime: string; sig: number[] }[] = [
@@ -584,12 +611,13 @@ export function docToParts(bytes: Uint8Array): DocParts {
   ];
   const comments = parseComments(full, fib, table, atnStart, cpToFc, charSpans, cmtRefMap);
   const { header, footer } = parseHeaderFooter(full, fib, table, cpToFc, charSpans);
+  const textboxes = parseTextboxes(full, fib, table, cpToFc, charSpans);
   const dataStream = cfb.get("Data");
   const imageAt = (offset: number) => extractImageHtml(dataStream, offset);
   const rmFc = fib.fc(FC.sttbfRMark);
   const rmAuthors = parseSttbStrings(table, rmFc.fc, rmFc.lcb);
   return {
-    body: buildHtml(text, cpToFc, charSpans, paraSpans, refMap, cmtRefMap, imageAt, rmAuthors, sectionBreaks),
+    body: buildHtml(text, cpToFc, charSpans, paraSpans, refMap, cmtRefMap, imageAt, rmAuthors, sectionBreaks, textboxes),
     page,
     notes: notes.length ? notes : undefined,
     comments: comments.length ? comments : undefined,
@@ -652,8 +680,11 @@ function buildHtml(
   imageAt: (offset: number) => string | null = () => null,
   rmAuthors: string[] = [],
   sectionBreaks: Map<number, string> = new Map(),
+  textboxes: string[] = [],
 ): string {
   const blocks: { tag: string; attr: string; inner: string }[] = [];
+  let textboxIdx = 0; // next textbox story to place (they follow the order of 0x08 anchors)
+  const pendingTextboxes: string[] = []; // boxes anchored in the current paragraph, emitted after it
   let runHtml = ""; // accumulated inline HTML of the current paragraph
   let curStyle: string | null = null;
   let curText = "";
@@ -725,6 +756,11 @@ function buildHtml(
     const attr = (styles.length ? ` style="${styles.join(";")}"` : "") + secAttr;
     const tag = curHeading >= 1 && curHeading <= 6 ? `h${curHeading}` : "p";
     blocks.push({ tag, attr, inner: runHtml || "<br>" });
+    // A text box anchored in this paragraph renders as a bordered block right after it (its
+    // float position is not modelled; on save it degrades to a plain paragraph).
+    for (const box of pendingTextboxes)
+      blocks.push({ tag: "div", attr: ' class="doc-textbox" style="border:1px solid #888;padding:6px;margin:6px 0;display:inline-block;min-width:120px"', inner: box });
+    pendingTextboxes.length = 0;
     runHtml = "";
     curStyle = null;
     curHeading = headingAt(cp + 1);
@@ -829,7 +865,12 @@ function buildHtml(
       }
       continue;
     }
-    if (c === 0x1f || c === 0x00 || c === 0x03 || c === 0x08) continue;
+    if (c === 0x08) {
+      // A drawn-object anchor: pair it with the next textbox story, placed after this paragraph.
+      if (textboxIdx < textboxes.length) pendingTextboxes.push(textboxes[textboxIdx++]);
+      continue;
+    }
+    if (c === 0x1f || c === 0x00 || c === 0x03) continue;
     if (c === 0x09) {
       curText += "\t";
       continue;
@@ -848,10 +889,14 @@ function buildHtml(
     }
     curText += text[cp];
   }
-  if (curText || runHtml) flushPara(text.length);
+  if (curText || runHtml || pendingTextboxes.length) flushPara(text.length);
   flushTable();
   while (blocks.length > 1 && blocks[blocks.length - 1].inner === "<br>" && blocks[blocks.length - 1].tag === "p")
     blocks.pop();
+  // Any textbox whose anchor we could not place (e.g. anchored outside the main story) is
+  // appended so its content is never silently dropped.
+  for (; textboxIdx < textboxes.length; textboxIdx++)
+    blocks.push({ tag: "div", attr: ' class="doc-textbox" style="border:1px solid #888;padding:6px;margin:6px 0;display:inline-block;min-width:120px"', inner: textboxes[textboxIdx] });
   return blocksToHtml(blocks) || "<p><br></p>";
 }
 

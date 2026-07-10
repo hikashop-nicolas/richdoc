@@ -1,7 +1,9 @@
+import { gunzipSync } from "fflate";
 import { describe, expect, it } from "vitest";
 import type { Note } from "../../core/types";
 import { isCfb, readCfb, writeCfb } from "./cfb";
 import { docToHtml, docToParts } from "./read";
+import { TEXTBOX_DOC_GZ_B64 } from "./textbox.fixture";
 import { htmlToDoc } from "./write";
 
 describe("cfb", () => {
@@ -210,6 +212,16 @@ describe("doc write -> read round trip", () => {
     const parts = docToParts(htmlToDoc(body, page as unknown as Parameters<typeof htmlToDoc>[1]));
     expect(parts.page?.widthPx).toBe(1123); // last section = landscape
     expect(parts.body).toMatch(/data-rdoc-secbreak="[^"]*&quot;w&quot;:794/); // first section = portrait
+  });
+
+  it("reads text boxes and places them after their anchor paragraph", () => {
+    const bytes = gunzipSync(Uint8Array.from(atob(TEXTBOX_DOC_GZ_B64), (c) => c.charCodeAt(0)));
+    const html = docToParts(bytes).body;
+    // Each box renders as a bordered div in document order, right after its anchor paragraph.
+    expect(html).toMatch(/Anchor one\.<\/p><div class="doc-textbox"[^>]*><p>Box ALPHA content\.<\/p><\/div>/);
+    expect(html).toMatch(/Anchor two\.<\/p><div class="doc-textbox"[^>]*><p>Box BETA content\.<\/p><\/div>/);
+    // Body text around the boxes is preserved in order.
+    expect(html).toMatch(/First body line\..*Middle body line\..*Last body line\./);
   });
 
   it("is idempotent across a second round trip", () => {
