@@ -202,6 +202,15 @@ describe("doc write -> read round trip", () => {
     expect(html).toMatch(/<del class="docx-del"[^>]*>old<\/del>/);
   });
 
+  it("round-trips a multi-section document (per-section geometry)", () => {
+    const sec1 = JSON.stringify({ w: 794, h: 1123, mt: 76, mr: 76, mb: 76, ml: 76 }).replace(/"/g, "&quot;");
+    const body = `<p data-rdoc-secbreak="${sec1}">portrait</p><p>landscape</p>`;
+    const page = { widthPx: 1123, heightPx: 794, margin: { top: 76, right: 76, bottom: 76, left: 76 } };
+    const parts = docToParts(htmlToDoc(body, page as unknown as Parameters<typeof htmlToDoc>[1]));
+    expect(parts.page?.widthPx).toBe(1123); // last section = landscape
+    expect(parts.body).toMatch(/data-rdoc-secbreak="[^"]*&quot;w&quot;:794/); // first section = portrait
+  });
+
   it("is idempotent across a second round trip", () => {
     const once = docToHtml(htmlToDoc('<p><b>x</b> y <i>z</i> <a href="http://a.b/c">L</a></p>'));
     const twice = docToHtml(htmlToDoc(once));

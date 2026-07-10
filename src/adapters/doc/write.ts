@@ -50,6 +50,22 @@ interface Para {
   table?: { cell?: boolean; ttp?: boolean; cols?: number };
   noteBoundary?: SubKind; // first para of a note/comment (or its subdoc's trailing mark)
   hddFooter?: boolean; // first paragraph of the footer story inside the header/footer subdoc
+  secBreak?: PageGeometry; // this paragraph ends a section with this geometry
+}
+
+// The engine's SecGeom JSON (px) on a section-boundary paragraph -> a PageGeometry for buildSepx.
+function secGeomToPage(json: string): PageGeometry | undefined {
+  try {
+    const s = JSON.parse(json) as Record<string, number | undefined>;
+    if (s.w == null || s.h == null) return undefined;
+    const g: PageGeometry = { widthPx: s.w, heightPx: s.h, margin: { top: s.mt ?? 96, right: s.mr ?? 96, bottom: s.mb ?? 96, left: s.ml ?? 96 } };
+    if (s.cols) { g.columns = s.cols; g.columnGapPx = s.colGap; }
+    if (s.vertical) g.vertical = true;
+    if (s.rtl) g.rtl = true;
+    return g;
+  } catch {
+    return undefined;
+  }
 }
 
 const HEADING_SIZE = [48, 36, 28, 24, 22, 20]; // h1..h6 in half-points
@@ -280,7 +296,11 @@ function parseHtml(bodyHtml: string): Para[] {
           prefix = [{ text: marker, b: false, i: false, u: false, strike: false }];
           indent = 360; // 0.25" hanging indent, like textutil
         }
-        paras.push({ align: blockAlign(child), runs: [...prefix, ...runs], istd: level, indentTwips: indent });
+        // A section-boundary paragraph: its mark is a section break (0x0C) and it carries the
+        // ending section's geometry.
+        const secAttr = child.getAttribute("data-rdoc-secbreak");
+        const secBreak = secAttr ? secGeomToPage(secAttr) : undefined;
+        paras.push({ align: blockAlign(child), runs: [...prefix, ...runs], istd: level, indentTwips: indent, secBreak, endChar: secBreak ? 0x0c : undefined });
       }
     }
   };
@@ -847,6 +867,7 @@ export function htmlToDoc(bodyHtml: string, page?: PageGeometry, notes?: Note[],
   const txtCps: Record<SubKind, number[]> = { footnote: [], comment: [], endnote: [] }; // text-span starts within each subdoc
   const regionBaseCp = new Map<SubKind, number>(); // CP where each subdocument starts
   const fieldChars: { cp: number; ch: number; flt: number }[] = []; // every field char (0x13/0x14/0x15)
+  const sectionEnds: { endCp: number; geom: PageGeometry }[] = []; // section-boundary paragraphs
   let hddBaseCp = -1; // CP where the header/footer subdocument starts
   let footerStoryCp = -1; // CP where the footer story starts inside the header/footer subdoc
   for (let pi = 0; pi < paras.length; pi++) {
@@ -869,6 +890,7 @@ export function htmlToDoc(bodyHtml: string, page?: PageGeometry, notes?: Note[],
     // The paragraph's CHPX must also cover its mark; extend the last run to include it.
     charRuns[charRuns.length - 1].fcEnd = fcAt(chars.length);
     paraRuns.push({ fcStart: fcAt(paraStartCp), fcEnd: fcAt(chars.length), grpprl: papxGrpprl(p), istd: p.istd });
+    if (p.secBreak) sectionEnds.push({ endCp: chars.length, geom: p.secBreak });
   }
   const total = chars.length;
   // Each subdocument's char count is the gap to the next present subdocument, in Word's CP
@@ -924,20 +946,33 @@ export function htmlToDoc(bodyHtml: string, page?: PageGeometry, notes?: Note[],
   const fkpBase = Math.ceil(textEnd / 512) * 512;
   const chpxPage = fkpBase / 512;
   const papxPage = chpxPage + 1;
-  // A section-properties exception is emitted for an explicit page geometry, and also whenever
-  // there is a header/footer: Word only renders the header/footer stories when the section has
-  // its own SEPX (a bare 0xFFFFFFFF section is ignored). Fall back to a default page then.
-  const needSepx = page || ccpHdd > 0;
-  const sepx = needSepx ? buildSepx(page ?? { widthPx: 816, heightPx: 1056, margin: { top: 96, right: 96, bottom: 96, left: 96 } }) : null;
-  const sepxOffset = (papxPage + 1) * 512;
-  const wdEnd = sepx ? sepxOffset + sepx.length : (papxPage + 1) * 512;
+  // Sections: each boundary paragraph ends a section carrying its geometry; the final section
+  // uses the document page. A SEPX is emitted for an explicit page geometry, whenever there is a
+  // header/footer (Word ignores the header/footer stories without one), or for every section of
+  // a multi-section document. Each present section's SEPX is a blob placed after the PAPX page.
+  const defaultPage: PageGeometry = { widthPx: 816, heightPx: 1056, margin: { top: 96, right: 96, bottom: 96, left: 96 } };
+  const needSepx = !!page || ccpHdd > 0 || sectionEnds.length > 0;
+  const sections: { endCp: number; geom: PageGeometry | null }[] = sectionEnds.length
+    ? [...sectionEnds.map((s) => ({ endCp: s.endCp, geom: s.geom as PageGeometry | null })), { endCp: ccpText, geom: page ?? defaultPage }]
+    : [{ endCp: ccpText, geom: needSepx ? page ?? defaultPage : null }];
+  let sepxCursor = (papxPage + 1) * 512;
+  const sepxBlobs: { off: number; bytes: Uint8Array }[] = [];
+  const sedFcSepx = sections.map((s) => {
+    if (!s.geom) return 0xffffffff;
+    const bytes = buildSepx(s.geom);
+    const off = sepxCursor;
+    sepxBlobs.push({ off, bytes });
+    sepxCursor += bytes.length;
+    return off;
+  });
+  const wdEnd = sepxBlobs.length ? sepxCursor : (papxPage + 1) * 512;
   const wdLen = Math.max(4096, Math.ceil(wdEnd / 512) * 512);
   const wd = new Uint8Array(wdLen);
   wd.set(fib, 0);
   wd.set(textBytes, TEXT_START);
   wd.set(chpxFkp, chpxPage * 512);
   wd.set(papxFkp, papxPage * 512);
-  if (sepx) wd.set(sepx, sepxOffset);
+  for (const b of sepxBlobs) wd.set(b.bytes, b.off);
 
   // 3. 1Table = STSH + PlcfSed + PlcfBteChpx + PlcfBtePapx + Clx + Sttbfffn.
   const stsh = buildStshWithHeadings();
@@ -947,13 +982,15 @@ export function htmlToDoc(bodyHtml: string, page?: PageGeometry, notes?: Note[],
   tbl.bytes(stsh);
 
   const fcSed = tbl.length;
-  // PlcfSed: aCP[2] = {0, ccpText}; aSed[1] = {fn:0, fcSepx:0xFFFFFFFF, fnMpr:0, fcMpr:0xFFFFFFFF}
+  // PlcfSed: aCP[nSec+1] = {0, sec0End, sec1End, ...}; a Sed per section (fn, fcSepx, fnMpr, fcMpr).
   tbl.u32(0);
-  tbl.u32(ccpText);
-  tbl.u16(0);
-  tbl.u32(sepx ? sepxOffset : 0xffffffff);
-  tbl.u16(0);
-  tbl.u32(0xffffffff);
+  for (const s of sections) tbl.u32(s.endCp);
+  for (const fcSepx of sedFcSepx) {
+    tbl.u16(0);
+    tbl.u32(fcSepx);
+    tbl.u16(0);
+    tbl.u32(0xffffffff);
+  }
   const lcbSed = tbl.length - fcSed;
 
   const fcChpxBte = tbl.length;

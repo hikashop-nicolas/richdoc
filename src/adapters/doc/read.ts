@@ -259,13 +259,9 @@ function parseStyleHeadings(table: Uint8Array, fc: number, lcb: number): Map<num
   return map;
 }
 
-// Parse the first section's properties (SEPX) into richdoc page geometry.
-function parseSection(wd: Uint8Array, table: Uint8Array, fcSed: number, lcbSed: number): PageGeometry | undefined {
-  if (lcbSed < 16) return undefined;
-  const nSed = (lcbSed - 4) / 16; // PLCF: 4*(n+1) CPs + 12*n Sed = 16n+4
-  const sedBase = 4 * (nSed + 1);
-  const sdv = new DataView(table.buffer, table.byteOffset + fcSed, lcbSed);
-  const fcSepx = sdv.getUint32(sedBase + 2, true); // Sed: fn(2) then fcSepx(4)
+// Parse one SEPX (section properties) at fcSepx into richdoc page geometry (undefined if it
+// declares nothing recognisable).
+function parseSepx(wd: Uint8Array, fcSepx: number): PageGeometry | undefined {
   if (fcSepx === 0xffffffff || fcSepx + 2 > wd.length) return undefined;
   const cb = wd[fcSepx] | (wd[fcSepx + 1] << 8);
   const g = wd.subarray(fcSepx + 2, fcSepx + 2 + cb);
@@ -294,6 +290,31 @@ function parseSection(wd: Uint8Array, table: Uint8Array, fcSed: number, lcbSed: 
     else if (op === 0x5228) { if (u16() !== 0) { page.rtl = true; any = true; } }
   }
   return any ? page : undefined;
+}
+
+// Parse every section from the PlcfSed: its end CP and its geometry. A single-section document
+// yields one entry; a multi-section one yields a geometry per section, in document order.
+function parseSections(wd: Uint8Array, table: Uint8Array, fcSed: number, lcbSed: number): { endCp: number; geom?: PageGeometry }[] {
+  if (lcbSed < 16) return [];
+  const nSed = (lcbSed - 4) / 16; // PLCF: 4*(n+1) CPs + 12*n Sed = 16n+4
+  const sedBase = 4 * (nSed + 1);
+  const sdv = new DataView(table.buffer, table.byteOffset + fcSed, lcbSed);
+  const out: { endCp: number; geom?: PageGeometry }[] = [];
+  for (let k = 0; k < nSed; k++) {
+    const endCp = sdv.getUint32((k + 1) * 4, true);
+    const fcSepx = sdv.getUint32(sedBase + k * 12 + 2, true); // Sed: fn(2) then fcSepx(4)
+    out.push({ endCp, geom: parseSepx(wd, fcSepx) });
+  }
+  return out;
+}
+
+// PageGeometry -> the engine's SecGeom JSON carried on a section-boundary paragraph.
+function secGeomJson(g: PageGeometry): string {
+  const s: Record<string, unknown> = { w: g.widthPx, h: g.heightPx, mt: g.margin.top, mr: g.margin.right, mb: g.margin.bottom, ml: g.margin.left };
+  if (g.columns) { s.cols = g.columns; s.colGap = g.columnGapPx; }
+  if (g.vertical) s.vertical = true;
+  if (g.rtl) s.rtl = true;
+  return JSON.stringify(s);
 }
 
 // Read a PLCF's CPs: (lcb-4)/(4+dataSize) elements, so n+1 CPs of 4 bytes each. Footnote/
@@ -538,7 +559,15 @@ export function docToParts(bytes: Uint8Array): DocParts {
   const cpToFc = makeCpToFc(pieces);
 
   const sedFc = fib.fc(FC.plcfSed);
-  const page = parseSection(wd, table, sedFc.fc, sedFc.lcb);
+  const sections = parseSections(wd, table, sedFc.fc, sedFc.lcb);
+  // The last section's geometry is the document page; earlier sections mark a break (with their
+  // own geometry) on the paragraph holding their section-break char (at endCp - 1).
+  const page = sections.length ? sections[sections.length - 1].geom : undefined;
+  const sectionBreaks = new Map<number, string>();
+  for (let k = 0; k < sections.length - 1; k++) {
+    const g = sections[k].geom;
+    if (g) sectionBreaks.set(sections[k].endCp - 1, secGeomJson(g));
+  }
 
   // Footnote / endnote subdocuments follow the main text in CP order: main, footnote,
   // header, comment, endnote. Their references are 0x02 chars in the main text.
@@ -558,7 +587,7 @@ export function docToParts(bytes: Uint8Array): DocParts {
   const rmFc = fib.fc(FC.sttbfRMark);
   const rmAuthors = parseSttbStrings(table, rmFc.fc, rmFc.lcb);
   return {
-    body: buildHtml(text, cpToFc, charSpans, paraSpans, refMap, cmtRefMap, imageAt, rmAuthors),
+    body: buildHtml(text, cpToFc, charSpans, paraSpans, refMap, cmtRefMap, imageAt, rmAuthors, sectionBreaks),
     page,
     notes: notes.length ? notes : undefined,
     comments: comments.length ? comments : undefined,
@@ -620,6 +649,7 @@ function buildHtml(
   cmtRefMap: Map<number, string> = new Map(),
   imageAt: (offset: number) => string | null = () => null,
   rmAuthors: string[] = [],
+  sectionBreaks: Map<number, string> = new Map(),
 ): string {
   const blocks: { tag: string; attr: string; inner: string }[] = [];
   let runHtml = ""; // accumulated inline HTML of the current paragraph
@@ -630,6 +660,7 @@ function buildHtml(
   let anchorOpen = false; // an <a> from a HYPERLINK field is open
   let fieldClose = ""; // HTML to append at the field end (e.g. "</a>" or "</span>")
   let suppressResult = false; // skip the field result text (a live field span replaces it)
+  let pendingSecBreak = ""; // SecGeom JSON to attach to the next paragraph (a section boundary)
   let curRev: { tag: "ins" | "del"; key: string } | null = null; // an open tracked-change wrapper
   const revAt = (cp: number): { tag: "ins" | "del"; key: string; open: string } | null => {
     const p = lookup(charSpans, cpToFc(cp));
@@ -687,7 +718,9 @@ function buildHtml(
       return;
     }
     flushTable();
-    const attr = styles.length ? ` style="${styles.join(";")}"` : "";
+    const secAttr = pendingSecBreak ? ` data-rdoc-secbreak="${esc(pendingSecBreak).replace(/"/g, "&quot;")}"` : "";
+    pendingSecBreak = "";
+    const attr = (styles.length ? ` style="${styles.join(";")}"` : "") + secAttr;
     const tag = curHeading >= 1 && curHeading <= 6 ? `h${curHeading}` : "p";
     blocks.push({ tag, attr, inner: runHtml || "<br>" });
     runHtml = "";
@@ -746,10 +779,16 @@ function buildHtml(
       continue;
     }
     if (c === SECTION) {
-      // manual page break: an inline marker richdoc renders in the pageless view
-      flushRun();
-      runHtml +=
-        '<span class="docx-pagebreak" contenteditable="false" data-docx-pagebreak="manual"></span>';
+      const secGeom = sectionBreaks.get(cp);
+      if (secGeom) {
+        // A section break: it also ends the paragraph, which carries the section's geometry.
+        pendingSecBreak = secGeom;
+        flushPara(cp);
+      } else {
+        // A plain manual page break: an inline marker richdoc renders in the pageless view.
+        flushRun();
+        runHtml += '<span class="docx-pagebreak" contenteditable="false" data-docx-pagebreak="manual"></span>';
+      }
       continue;
     }
     if (c === LINEBREAK) {
