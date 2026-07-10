@@ -16,6 +16,38 @@ interface CharProps {
   strike?: boolean;
   sizeHalf?: number;
   color?: string; // #rrggbb
+  font?: string; // font family name
+  highlight?: string; // background colour #rrggbb
+}
+
+// Word's 16-entry text-highlight palette (sprmCHighlight ico).
+const HIGHLIGHT: Record<number, string> = {
+  1: "#000000", 2: "#0000ff", 3: "#00ffff", 4: "#00ff00", 5: "#ff00ff", 6: "#ff0000",
+  7: "#ffff00", 8: "#ffffff", 9: "#000080", 10: "#008080", 11: "#008000", 12: "#800080",
+  13: "#800000", 14: "#808000", 15: "#808080", 16: "#c0c0c0",
+};
+
+// Parse the font table (Sttbfffn) into a name-by-index array. Each entry is an FFN whose
+// name (UTF-16, null-terminated) sits at offset 40 after the 1-byte cbFfnM1.
+function parseFontTable(table: Uint8Array, fc: number, lcb: number): string[] {
+  const names: string[] = [];
+  if (lcb < 6) return names;
+  const dv = new DataView(table.buffer, table.byteOffset + fc, lcb);
+  const cData = dv.getUint16(0, true); // font count
+  let pos = 4; // cData(2) + cbExtra(2)
+  for (let f = 0; f < cData && pos < lcb; f++) {
+    const cb = table[fc + pos];
+    const nameStart = fc + pos + 1 + 39; // after cbFfnM1 + fixed FFN fields
+    let name = "";
+    for (let j = nameStart; j + 1 < fc + pos + 1 + cb; j += 2) {
+      const ch = table[j] | (table[j + 1] << 8);
+      if (ch === 0) break;
+      name += String.fromCharCode(ch);
+    }
+    names.push(name);
+    pos += 1 + cb;
+  }
+  return names;
 }
 interface ParaProps {
   align?: number; // 0..3
@@ -27,7 +59,7 @@ function esc(s: string): string {
 }
 
 // Decode a CHPX grpprl (a run of sprms) into character properties.
-function decodeCharSprms(g: Uint8Array): CharProps {
+function decodeCharSprms(g: Uint8Array, fonts: string[] = []): CharProps {
   const dv = new DataView(g.buffer, g.byteOffset, g.byteLength);
   const p: CharProps = {};
   let i = 0;
@@ -53,6 +85,12 @@ function decodeCharSprms(g: Uint8Array): CharProps {
         break;
       case 0x4a43:
         p.sizeHalf = v[0] | (v[1] << 8);
+        break;
+      case 0x4a4f: // sprmCRgFtc0: font index into the font table
+        p.font = fonts[v[0] | (v[1] << 8)] || undefined;
+        break;
+      case 0x2a0c: // sprmCHighlight: highlight palette index
+        if (v[0] && HIGHLIGHT[v[0]]) p.highlight = HIGHLIGHT[v[0]];
         break;
       case 0x6870: // sprmCCv: RR GG BB shade
         p.color = "#" + [v[0], v[1], v[2]].map((x) => x.toString(16).padStart(2, "0")).join("");
@@ -165,9 +203,11 @@ export function docToParts(bytes: Uint8Array): DocParts {
   const ccp = fib.ccpText > 0 ? fib.ccpText : full.length;
   const text = full.slice(0, ccp);
 
+  const sttb = fib.fc(FC.sttbfffn);
+  const fonts = parseFontTable(table, sttb.fc, sttb.lcb);
   const chpxPlc = fib.fc(FC.plcfBteChpx);
   const papxPlc = fib.fc(FC.plcfBtePapx);
-  const charSpans = readFkpSpans(wd, table, chpxPlc.fc, chpxPlc.lcb, false, decodeCharSprms);
+  const charSpans = readFkpSpans(wd, table, chpxPlc.fc, chpxPlc.lcb, false, (g) => decodeCharSprms(g, fonts));
   const paraSpans = readFkpSpans(wd, table, papxPlc.fc, papxPlc.lcb, true, decodeParaSprms);
   const cpToFc = makeCpToFc(pieces);
 
@@ -195,6 +235,8 @@ function runStyle(p: CharProps | undefined): string {
   if (deco) s.push(`text-decoration:${deco}`);
   if (p.sizeHalf) s.push(`font-size:${p.sizeHalf / 2}pt`);
   if (p.color && p.color !== "#000000") s.push(`color:${p.color}`);
+  if (p.font) s.push(`font-family:${/\s/.test(p.font) ? `'${p.font}'` : p.font}`);
+  if (p.highlight) s.push(`background-color:${p.highlight}`);
   return s.join(";");
 }
 
@@ -208,7 +250,9 @@ function buildHtml(
   let runHtml = ""; // accumulated inline HTML of the current paragraph
   let curStyle: string | null = null;
   let curText = "";
-  let fieldDepth = 0;
+  let inInstr = false; // between a field's begin (0x13) and separator (0x14)
+  let instr = "";
+  let anchorOpen = false; // an <a> from a HYPERLINK field is open
 
   const flushRun = (): void => {
     if (!curText) return;
@@ -235,15 +279,33 @@ function buildHtml(
     const c = text.charCodeAt(cp);
     if (c === FIELD_BEGIN) {
       flushRun();
-      fieldDepth++;
+      inInstr = true;
+      instr = "";
       continue;
     }
     if (c === FIELD_SEP) {
-      if (fieldDepth > 0) fieldDepth--;
+      inInstr = false;
+      const m = instr.match(/HYPERLINK\s+"([^"]+)"|HYPERLINK\s+(\S+)/i);
+      const url = m && (m[1] || m[2]);
+      if (url) {
+        flushRun();
+        runHtml += `<a href="${esc(url).replace(/"/g, "&quot;")}">`;
+        anchorOpen = true;
+      }
       continue;
     }
-    if (c === FIELD_END) continue;
-    if (fieldDepth > 0) continue;
+    if (c === FIELD_END) {
+      if (anchorOpen) {
+        flushRun();
+        runHtml += "</a>";
+        anchorOpen = false;
+      }
+      continue;
+    }
+    if (inInstr) {
+      instr += text[cp];
+      continue;
+    }
     if (c === PARA || c === CELL || c === SECTION) {
       flushPara(cp);
       continue;

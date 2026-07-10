@@ -18,7 +18,9 @@ interface Run {
   u: boolean;
   strike: boolean;
   sizeHalf?: number; // font size in half-points
-  color?: number; // 0x00BBGGRR-ish COLORREF (we store RR,GG,BB)
+  color?: number; // packed RR | GG<<8 | BB<<16
+  font?: string; // font family name
+  highlight?: number; // highlight palette index (1..16)
 }
 interface Para {
   align: number; // 0 left, 1 center, 2 right, 3 justify
@@ -36,6 +38,33 @@ interface Fmt {
   strike: boolean;
   sizeHalf?: number;
   color?: number;
+  font?: string;
+  highlight?: number;
+}
+
+// Word's 16-entry highlight palette (index -> #rrggbb), for nearest-colour matching.
+const HIGHLIGHT_PALETTE: [number, number][] = [
+  [1, 0x000000], [2, 0x0000ff], [3, 0x00ffff], [4, 0x00ff00], [5, 0xff00ff], [6, 0xff0000],
+  [7, 0xffff00], [8, 0xffffff], [9, 0x000080], [10, 0x008080], [11, 0x008000], [12, 0x800080],
+  [13, 0x800000], [14, 0x808000], [15, 0x808080], [16, 0xc0c0c0],
+];
+function nearestHighlight(rgb: number): number {
+  const r = (rgb >> 16) & 0xff;
+  const g = (rgb >> 8) & 0xff;
+  const b = rgb & 0xff;
+  let best = 7;
+  let bestD = Infinity;
+  for (const [idx, c] of HIGHLIGHT_PALETTE) {
+    const d = ((c >> 16) & 0xff) - r;
+    const d2 = ((c >> 8) & 0xff) - g;
+    const d3 = (c & 0xff) - b;
+    const dist = d * d + d2 * d2 + d3 * d3;
+    if (dist < bestD) {
+      bestD = dist;
+      best = idx;
+    }
+  }
+  return best;
 }
 
 function parseColor(v: string): number | undefined {
@@ -69,19 +98,40 @@ function applyInlineStyle(f: Fmt, el: Element): Fmt {
     const c = parseColor(col[1]);
     if (c !== undefined) out.color = c;
   }
+  const fam = style.match(/font-family:\s*([^;]+)/i);
+  if (fam) out.font = fam[1].trim().replace(/^['"]|['"]$/g, "").split(",")[0].trim();
+  const bg = style.match(/(?:background-color|background):\s*([^;]+)/i);
+  if (bg) {
+    const c = parseColor(bg[1]);
+    if (c !== undefined) out.highlight = nearestHighlight(((c & 0xff) << 16) | (c & 0xff00) | ((c >> 16) & 0xff));
+  }
+  if (tag === "mark") out.highlight = out.highlight ?? 7;
   return out;
+}
+
+function mkRun(text: string, f: Fmt): Run {
+  return { text, b: f.b, i: f.i, u: f.u, strike: f.strike, sizeHalf: f.sizeHalf, color: f.color, font: f.font, highlight: f.highlight };
 }
 
 function collectRuns(node: Node, f: Fmt, runs: Run[]): void {
   for (const child of Array.from(node.childNodes)) {
     if (child.nodeType === 3) {
       const text = child.textContent ?? "";
-      if (text) runs.push({ text, b: f.b, i: f.i, u: f.u, strike: f.strike, sizeHalf: f.sizeHalf, color: f.color });
+      if (text) runs.push(mkRun(text, f));
     } else if (child.nodeType === 1) {
       const el = child as Element;
       const tag = el.tagName.toLowerCase();
       if (tag === "br") {
         runs.push({ text: "", b: f.b, i: f.i, u: f.u, strike: f.strike, sizeHalf: f.sizeHalf, color: f.color });
+        continue;
+      }
+      if (tag === "a" && el.getAttribute("href")) {
+        const href = el.getAttribute("href") || "";
+        runs.push(mkRun("\x13", f));
+        runs.push(mkRun(`HYPERLINK "${href.replace(/"/g, "%22")}" `, f));
+        runs.push(mkRun("\x14", f));
+        collectRuns(el, { ...f, u: true, color: 0xee0000 }, runs);
+        runs.push(mkRun("\x15", f));
         continue;
       }
       collectRuns(el, applyInlineStyle(f, el), runs);
@@ -146,8 +196,9 @@ class Buf {
   }
 }
 
-// Character sprms (grpprl) for a run's formatting.
-function chpxGrpprl(r: Run): Uint8Array {
+// Character sprms (grpprl) for a run's formatting. fontFtc resolves a font name to its
+// index in the font table (or -1 to omit).
+function chpxGrpprl(r: Run, fontFtc: (name: string) => number): Uint8Array {
   const b = new Buf();
   if (r.b) {
     b.u16(0x0835);
@@ -165,9 +216,22 @@ function chpxGrpprl(r: Run): Uint8Array {
     b.u16(0x0837);
     b.u8(1);
   }
+  if (r.font) {
+    const ftc = fontFtc(r.font);
+    if (ftc >= 0) {
+      b.u16(0x4a4f);
+      b.u16(ftc);
+      b.u16(0x4a51);
+      b.u16(ftc);
+    }
+  }
   if (r.sizeHalf) {
     b.u16(0x4a43);
     b.u16(r.sizeHalf);
+  }
+  if (r.highlight) {
+    b.u16(0x2a0c);
+    b.u8(r.highlight);
   }
   if (r.color !== undefined) {
     b.u16(0x6870);
@@ -187,6 +251,25 @@ function papxGrpprl(p: Para): Uint8Array {
     b.u8(p.align);
   }
   return b.done();
+}
+
+// Build a Sttbfffn (font table) from font names, with a name->ftc resolver.
+function buildFontTable(names: string[]): { bytes: Uint8Array; ftc: (name: string) => number } {
+  const lower = names.map((n) => n.toLowerCase());
+  const b = new Buf();
+  b.u16(names.length);
+  b.u16(0);
+  for (const name of names) {
+    b.u8(39 + (name.length + 1) * 2);
+    b.u8(0);
+    b.u16(400);
+    b.u8(0);
+    b.u8(0);
+    for (let i = 0; i < 34; i++) b.u8(0);
+    for (const ch of name) b.u16(ch.charCodeAt(0));
+    b.u16(0);
+  }
+  return { bytes: b.done(), ftc: (name: string) => lower.indexOf(name.toLowerCase()) };
 }
 
 // ---------------------------------------------------------------------------
@@ -256,6 +339,13 @@ function buildPapxFkp(paras: ParaRun[]): Uint8Array {
 export function htmlToDoc(bodyHtml: string): Uint8Array {
   const paras = parseHtml(bodyHtml);
 
+  // Collect fonts (base four match the template order) + any run fonts, build the table.
+  const fontNames = ["Times New Roman", "Symbol", "Arial", "Times"];
+  for (const p of paras) for (const r of p.runs) {
+    if (r.font && !fontNames.some((n) => n.toLowerCase() === r.font!.toLowerCase())) fontNames.push(r.font);
+  }
+  const fontTable = buildFontTable(fontNames);
+
   // 1. Build the text stream (UTF-16LE) and record run/para fc boundaries.
   const chars: number[] = [];
   const charRuns: CharRun[] = [];
@@ -267,7 +357,7 @@ export function htmlToDoc(bodyHtml: string): Uint8Array {
     for (const r of runList) {
       const startCp = chars.length;
       for (const ch of r.text) chars.push(ch.codePointAt(0)!);
-      charRuns.push({ fcStart: fcAt(startCp), fcEnd: fcAt(chars.length), grpprl: chpxGrpprl(r) });
+      charRuns.push({ fcStart: fcAt(startCp), fcEnd: fcAt(chars.length), grpprl: chpxGrpprl(r, fontTable.ftc) });
     }
     chars.push(0x0d); // paragraph mark
     // The paragraph's CHPX must also cover its mark; extend the last run to include it.
@@ -298,7 +388,7 @@ export function htmlToDoc(bodyHtml: string): Uint8Array {
 
   // 3. 1Table = STSH + PlcfSed + PlcfBteChpx + PlcfBtePapx + Clx + Sttbfffn.
   const stsh = b64(B64.STSH);
-  const sttb = b64(B64.STTBFFFN);
+  const sttb = fontTable.bytes;
   const tbl = new Buf();
   const fcStshf = 0;
   tbl.bytes(stsh);

@@ -45,8 +45,23 @@ describe("doc write -> read round trip", () => {
     expect(html).toContain("color:#cc0000");
   });
 
+  it("preserves font family and highlight", () => {
+    const html = docToHtml(
+      htmlToDoc('<p><span style="font-family:Arial">a</span> <span style="background-color:#ffff00">b</span></p>'),
+    );
+    expect(html).toMatch(/font-family:Arial/);
+    expect(html).toContain("background-color:#ffff00");
+  });
+
+  it("preserves hyperlinks as HYPERLINK fields", () => {
+    const html = docToHtml(htmlToDoc('<p>see <a href="https://ex.com/p">here</a> ok</p>'));
+    expect(html).toMatch(/<a href="https:\/\/ex\.com\/p">/);
+    expect(html).toContain("here");
+    expect(html).toContain("ok");
+  });
+
   it("is idempotent across a second round trip", () => {
-    const once = docToHtml(htmlToDoc("<p><b>x</b> y <i>z</i></p>"));
+    const once = docToHtml(htmlToDoc('<p><b>x</b> y <i>z</i> <a href="http://a.b/c">L</a></p>'));
     const twice = docToHtml(htmlToDoc(once));
     expect(twice).toBe(once);
   });
