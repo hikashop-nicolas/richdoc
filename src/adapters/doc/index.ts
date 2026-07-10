@@ -89,7 +89,7 @@ export function createDocAdapter(bytes: Uint8Array): Adapter {
       commentReplies: false,
       commentReactions: false,
       trackChanges: false,
-      images: false,
+      images: true,
       tables: true,
       headerFooter: true,
       pageBreak: true,

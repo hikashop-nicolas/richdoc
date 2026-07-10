@@ -34,6 +34,8 @@ interface Run {
   highlight?: number; // highlight palette index (1..16)
   special?: boolean; // sprmCFSpec: a special character (footnote/endnote ref auto-number)
   fnRef?: { id: string; kind: SubKind }; // an inline reference (note or comment) in the main text
+  image?: { bytes: Uint8Array; mime: string; wTwips: number; hTwips: number }; // an inline picture
+  picLoc?: number; // sprmCPicLocation: this picture's offset in the Data stream (set during assembly)
 }
 interface Para {
   align: number; // 0 left, 1 center, 2 right, 3 justify
@@ -134,6 +136,22 @@ function mkRun(text: string, f: Fmt): Run {
   return { text, b: f.b, i: f.i, u: f.u, strike: f.strike, sizeHalf: f.sizeHalf, color: f.color, font: f.font, highlight: f.highlight };
 }
 
+// An <img> becomes a picture placeholder run (0x01, special) carrying the decoded image bytes
+// and its display size in twips. Only embeddable raster blips (PNG/JPEG) are kept; anything
+// else (an external URL, a metafile) is dropped, as the reader cannot round-trip it either.
+function imageRun(el: HTMLImageElement, f: Fmt): Run | null {
+  const dec = decodeDataUrl(el.getAttribute("src") || "");
+  if (!dec) return null;
+  const kind = BLIP_KINDS[dec.mime];
+  if (!kind || dec.mime === "image/gif") return null; // GIF has no valid MS blip slot
+  const [wPx, hPx] = imageSizePx(dec.bytes);
+  const styleW = parseFloat((el.getAttribute("style")?.match(/width:\s*([\d.]+)px/) || [])[1] || "");
+  const styleH = parseFloat((el.getAttribute("style")?.match(/height:\s*([\d.]+)px/) || [])[1] || "");
+  const w = styleW || Number(el.getAttribute("width")) || wPx || 96;
+  const h = styleH || Number(el.getAttribute("height")) || hPx || 96;
+  return { ...mkRun("\x01", f), special: true, image: { bytes: dec.bytes, mime: dec.mime, wTwips: Math.round(w * 15), hTwips: Math.round(h * 15) } };
+}
+
 function collectRuns(node: Node, f: Fmt, runs: Run[]): void {
   for (const child of Array.from(node.childNodes)) {
     if (child.nodeType === 3) {
@@ -164,6 +182,11 @@ function collectRuns(node: Node, f: Fmt, runs: Run[]): void {
       if (el.classList.contains("docx-cmark")) continue; // bookmark markers carry no text
       if (el.classList.contains("docx-comment")) {
         collectRuns(el, f, runs); // a comment range wrapper: keep the text it spans
+        continue;
+      }
+      if (tag === "img") {
+        const img = imageRun(el as HTMLImageElement, f);
+        if (img) runs.push(img);
         continue;
       }
       if (tag === "a" && el.getAttribute("href")) {
@@ -262,6 +285,10 @@ function chpxGrpprl(r: Run, fontFtc: (name: string) => number): Uint8Array {
   if (r.special) {
     b.u16(0x0855); // sprmCFSpec
     b.u8(1);
+  }
+  if (r.picLoc !== undefined) {
+    b.u16(0x6a03); // sprmCPicLocation: this picture's byte offset in the Data stream
+    b.u32(r.picLoc);
   }
   if (r.b) {
     b.u16(0x0835);
@@ -571,6 +598,128 @@ function buildHddParas(header?: string, footer?: string): Para[] {
 }
 
 // ---------------------------------------------------------------------------
+// Inline pictures (Data stream: PICF + a self-contained OfficeArt blip)
+// ---------------------------------------------------------------------------
+
+// Blip kinds we can embed: [data-URL mime, BSE btWin32, blip record type, blip inst (one uid)].
+const BLIP_KINDS: Record<string, { bt: number; type: number; inst: number }> = {
+  "image/png": { bt: 6, type: 0xf01e, inst: 0x6e0 },
+  "image/jpeg": { bt: 5, type: 0xf01d, inst: 0x46a },
+  "image/gif": { bt: 6, type: 0xf01e, inst: 0x6e0 }, // GIF re-tagged as PNG-slot is not valid; handled by caller
+};
+
+// Decode a "data:mime;base64,..." URL into its bytes + mime; null if not a data URL.
+function decodeDataUrl(src: string): { bytes: Uint8Array; mime: string } | null {
+  const m = /^data:([^;,]+)(;base64)?,(.*)$/s.exec(src);
+  if (!m) return null;
+  const mime = m[1] || "application/octet-stream";
+  const body = m[3];
+  if (m[2]) {
+    const bin = atob(body);
+    const bytes = new Uint8Array(bin.length);
+    for (let i = 0; i < bin.length; i++) bytes[i] = bin.charCodeAt(i);
+    return { bytes, mime };
+  }
+  return { bytes: new TextEncoder().encode(decodeURIComponent(body)), mime };
+}
+
+// Pixel dimensions of a PNG (IHDR) or JPEG (SOF marker); [0,0] if unknown.
+function imageSizePx(bytes: Uint8Array): [number, number] {
+  const be16 = (o: number) => (bytes[o]! << 8) | bytes[o + 1]!;
+  const be32 = (o: number) => (bytes[o]! << 24) | (bytes[o + 1]! << 16) | (bytes[o + 2]! << 8) | bytes[o + 3]!;
+  if (bytes[0] === 0x89 && bytes[1] === 0x50) return [be32(16), be32(20)]; // PNG IHDR
+  if (bytes[0] === 0xff && bytes[1] === 0xd8) {
+    let o = 2;
+    while (o + 9 < bytes.length) {
+      if (bytes[o] !== 0xff) { o++; continue; }
+      const marker = bytes[o + 1]!;
+      if (marker >= 0xc0 && marker <= 0xcf && marker !== 0xc4 && marker !== 0xc8 && marker !== 0xcc)
+        return [be16(o + 7), be16(o + 5)]; // SOFn: height@+5, width@+7
+      o += 2 + be16(o + 2);
+    }
+  }
+  return [0, 0];
+}
+
+// An OfficeArt/Escher record header: (inst<<4 | ver) as u16, type as u16, length as u32.
+function escherHeader(b: Buf, inst: number, ver: number, type: number, len: number): void {
+  b.u16((inst << 4) | ver);
+  b.u16(type);
+  b.u32(len);
+}
+
+// Build one inline picture's Data-stream blob: a PICF header, an OfficeArt shape container that
+// references blip #1, and a self-contained BSE holding the image. Mirrors the layout Word and
+// LibreOffice emit (validated by reading it back), so no global drawing group is needed.
+function buildPictureData(bytes: Uint8Array, blip: { bt: number; type: number; inst: number }, wTwips: number, hTwips: number): Uint8Array {
+  const uid = new Uint8Array(16); // a 16-byte blip id; Word uses an MD5 but only for dedup
+  for (let i = 0; i < 16; i++) uid[i] = (bytes[(i * 37) % bytes.length] ?? i) & 0xff;
+
+  // Blip record: header + rgbUid(16) + bTag(1) + the image bytes.
+  const blipData = new Buf();
+  escherHeader(blipData, blip.inst, 0, blip.type, 16 + 1 + bytes.length);
+  blipData.bytes(uid);
+  blipData.u8(0xff); // bTag
+  blipData.bytes(bytes);
+  const blipRec = blipData.done();
+
+  // BSE (blip store entry): 36-byte record data then the blip record.
+  const bse = new Buf();
+  escherHeader(bse, blip.bt, 2, 0xf007, 36 + blipRec.length);
+  bse.u8(blip.bt); // btWin32
+  bse.u8(blip.bt); // btMacOS
+  bse.bytes(uid); // rgbUid
+  bse.u16(0xff); // tag
+  bse.u32(blipRec.length); // size of the blip
+  bse.u32(1); // cRef
+  bse.u32(0); // foDelay
+  bse.u8(0); // usage
+  bse.u8(0); // cbName
+  bse.u16(0); // unused
+  bse.bytes(blipRec);
+  const bseRec = bse.done();
+
+  // Shape container: Sp (picture frame) + OPT (pib -> blip #1 + fill defaults) + ClientAnchor.
+  const opt = new Buf();
+  escherHeader(opt, 11, 3, 0xf00b, 66);
+  const prop = (id: number, val: number) => { opt.u16(id); opt.u32(val >>> 0); };
+  prop(0x0081, 0); prop(0x0082, 0); prop(0x0083, 0); prop(0x0084, 0);
+  prop(0x4104, 1); // pib | fBid: blip is BSE #1
+  prop(0x0106, 0); prop(0x013f, 0);
+  prop(0x0181, 0x00ffffff); prop(0x0183, 0); prop(0x01bf, 0x00100010); prop(0x01ff, 0x00080000);
+  const optRec = opt.done();
+
+  const sp = new Buf();
+  const spContentLen = 16 + optRec.length + 12; // Sp(8+8) + OPT + ClientAnchor(8+4)
+  escherHeader(sp, 0, 0xf, 0xf004, spContentLen);
+  escherHeader(sp, 0x4b2, 2, 0xf00a, 8); // Sp: picture-frame shape type 0x4b
+  sp.u32(0x401); // spid
+  sp.u32(0x00000a00); // fHaveShapeType | fHaveAnchor
+  sp.bytes(optRec);
+  escherHeader(sp, 0, 0, 0xf010, 4); // ClientAnchor
+  sp.u32(0x80000000);
+  const spRec = sp.done();
+
+  // PICF header (68 bytes): total length, cbHeader, mm = MM_SHAPEFILE, goal dimensions.
+  const lcb = 68 + spRec.length + bseRec.length;
+  const picf = new Uint8Array(68);
+  const pv = new DataView(picf.buffer);
+  pv.setUint32(0, lcb, true);
+  pv.setUint16(4, 68, true); // cbHeader
+  pv.setUint16(6, 100, true); // mm = MM_SHAPEFILE (OfficeArt)
+  pv.setUint16(0x1c, Math.max(1, wTwips), true); // dxaGoal
+  pv.setUint16(0x1e, Math.max(1, hTwips), true); // dyaGoal
+  pv.setUint16(0x20, 1000, true); // mx (100%)
+  pv.setUint16(0x22, 1000, true); // my (100%)
+
+  const out = new Buf();
+  out.bytes(picf);
+  out.bytes(spRec);
+  out.bytes(bseRec);
+  return out.done();
+}
+
+// ---------------------------------------------------------------------------
 // Assemble
 // ---------------------------------------------------------------------------
 
@@ -616,6 +765,18 @@ export function htmlToDoc(bodyHtml: string, page?: PageGeometry, notes?: Note[],
     if (r.font && !fontNames.some((n) => n.toLowerCase() === r.font!.toLowerCase())) fontNames.push(r.font);
   }
   const fontTable = buildFontTable(fontNames);
+
+  // Inline pictures: build a self-contained Data-stream blob per image and record each one's
+  // byte offset, which its CHPX then points at via sprmCPicLocation.
+  const dataBuf = new Buf();
+  for (const p of paras) for (const r of p.runs) {
+    if (!r.image) continue;
+    const kind = BLIP_KINDS[r.image.mime];
+    if (!kind) continue;
+    r.picLoc = dataBuf.length;
+    dataBuf.bytes(buildPictureData(r.image.bytes, kind, r.image.wTwips, r.image.hTwips));
+  }
+  const dataStream = dataBuf.length ? dataBuf.done() : null;
 
   // 1. Build the text stream (UTF-16LE) and record run/para fc boundaries.
   const chars: number[] = [];
@@ -837,6 +998,7 @@ export function htmlToDoc(bodyHtml: string, page?: PageGeometry, notes?: Note[],
   return writeCfb([
     { name: "WordDocument", data: wd },
     { name: "1Table", data: table },
+    ...(dataStream ? [{ name: "Data", data: dataStream }] : []),
     { name: "SummaryInformation", data: b64(B64.SUMMARY) },
     { name: "DocumentSummaryInformation", data: b64(B64.DOCSUMMARY) },
   ]);

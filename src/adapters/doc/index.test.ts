@@ -174,6 +174,15 @@ describe("doc write -> read round trip", () => {
     expect(docToHtml(htmlToDoc("<p>no image here</p>"))).not.toContain("<img");
   });
 
+  it("round-trips an embedded PNG image (Data stream blip)", () => {
+    // A 1x1 PNG as a data URL, written into the Data stream and read back as an <img>.
+    const png =
+      "iVBORw0KGgoAAAANSUhEUgAAAAEAAAABCAQAAAC1HAwCAAAAC0lEQVR42mNk+M8AAAMBAQDJ/pLvAAAAAElFTkSuQmCC";
+    const body = `<p>x</p><p><img src="data:image/png;base64,${png}" style="width:16px;height:16px"></p>`;
+    const html = docToHtml(htmlToDoc(body));
+    expect(html).toMatch(/<img src="data:image\/png;base64,iVBORw0KGgo/);
+  });
+
   it("is idempotent across a second round trip", () => {
     const once = docToHtml(htmlToDoc('<p><b>x</b> y <i>z</i> <a href="http://a.b/c">L</a></p>'));
     const twice = docToHtml(htmlToDoc(once));
