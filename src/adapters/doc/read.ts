@@ -1,6 +1,6 @@
 import { readCfb } from "./cfb";
 import { parseFib, parsePieceTable, readPieceText, FC, type Piece } from "./fib";
-import type { PageGeometry } from "../../core/types";
+import type { Note, PageGeometry } from "../../core/types";
 
 // Read half of the .doc adapter: bytes -> HTML in richdoc's vocabulary. It extracts the
 // text (piece table) and the character/paragraph formatting (CHPX/PAPX formatted-disk
@@ -9,6 +9,13 @@ import type { PageGeometry } from "../../core/types";
 export interface DocParts {
   body: string;
   page?: PageGeometry;
+  notes?: Note[];
+}
+
+/** A footnote / endnote reference found in the main text, keyed by its character position. */
+interface NoteRef {
+  id: string;
+  kind: "footnote" | "endnote";
 }
 
 interface CharProps {
@@ -255,6 +262,95 @@ function parseSection(wd: Uint8Array, table: Uint8Array, fcSed: number, lcbSed: 
   return any ? page : undefined;
 }
 
+// Read a PLCF's CPs: (lcb-4)/(4+dataSize) elements, so n+1 CPs of 4 bytes each. Footnote/
+// endnote ref PLCFs carry a 2-byte FRD per element; the text PLCFs carry none.
+function readPlcfCps(table: Uint8Array, fc: number, lcb: number, dataSize: number): number[] {
+  if (lcb < 8) return [];
+  const dv = new DataView(table.buffer, table.byteOffset + fc, lcb);
+  const n = Math.floor((lcb - 4) / (4 + dataSize));
+  const cps: number[] = [];
+  for (let k = 0; k <= n; k++) cps.push(dv.getUint32(k * 4, true));
+  return cps;
+}
+
+// Render one note's subdocument text (a CP range in `full`) into note-body HTML: strip the
+// leading auto-number ref char (0x02) and its tab, split on paragraph marks, and carry each
+// character's run styling. Produces one <p> per paragraph, matching the editor's note bands.
+function renderNoteBody(
+  full: string,
+  start: number,
+  end: number,
+  cpToFc: (cp: number) => number,
+  charSpans: Span<CharProps>[],
+): string {
+  const paras: string[] = [];
+  let runHtml = "";
+  let curStyle: string | null = null;
+  let curText = "";
+  const flushRun = () => {
+    if (!curText) return;
+    const body = esc(curText).replace(/\n/g, "<br>");
+    runHtml += curStyle ? `<span style="${curStyle}">${body}</span>` : body;
+    curText = "";
+  };
+  const flushPara = () => {
+    flushRun();
+    paras.push(`<p>${runHtml || "<br>"}</p>`);
+    runHtml = "";
+    curStyle = null;
+  };
+  let leadStripped = false; // the leading 0x02 + optional tab is the auto-number, not body text
+  for (let cp = start; cp < end && cp < full.length; cp++) {
+    const c = full.charCodeAt(cp);
+    if (!leadStripped) {
+      if (c === 0x02) continue;
+      if (c === 0x09) { leadStripped = true; continue; }
+      leadStripped = true;
+    }
+    if (c === PARA) { flushPara(); continue; }
+    if (c === 0x09) { curText += "\t"; continue; }
+    if (c === 0x0b) { curText += "\n"; continue; }
+    if (c === 0x02 || c < 0x09) continue;
+    const style = runStyle(lookup(charSpans, cpToFc(cp))) || null;
+    if (style !== curStyle) { flushRun(); curStyle = style; }
+    curText += full[cp];
+  }
+  if (curText || runHtml) flushPara();
+  while (paras.length > 1 && paras[paras.length - 1] === "<p><br></p>") paras.pop();
+  return paras.join("") || "<p><br></p>";
+}
+
+// Parse one kind of note subdocument: match each reference CP in the main text to the note
+// whose text span sits at the same ordinal in the text PLCF. Returns the notes plus a
+// cp -> ref map so buildHtml can drop an inline reference marker at each ref position.
+function parseNotes(
+  full: string,
+  fib: ReturnType<typeof parseFib>,
+  table: Uint8Array,
+  kind: "footnote" | "endnote",
+  subStart: number,
+  ccpSub: number,
+  refIdx: number,
+  txtIdx: number,
+  cpToFc: (cp: number) => number,
+  charSpans: Span<CharProps>[],
+  refMap: Map<number, NoteRef>,
+): Note[] {
+  if (ccpSub <= 0) return [];
+  const ref = fib.fc(refIdx);
+  const txt = fib.fc(txtIdx);
+  const refCps = readPlcfCps(table, ref.fc, ref.lcb, 2); // n+1 CPs; last is a terminator
+  const txtCps = readPlcfCps(table, txt.fc, txt.lcb, 0); // cNotes+2 CPs (spans + trailing mark)
+  const cNotes = Math.max(0, Math.min(refCps.length - 1, txtCps.length - 2));
+  const notes: Note[] = [];
+  for (let i = 0; i < cNotes; i++) {
+    const id = `${kind === "footnote" ? "fn" : "en"}${i + 1}`;
+    refMap.set(refCps[i], { id, kind });
+    notes.push({ id, kind, html: renderNoteBody(full, subStart + txtCps[i], subStart + txtCps[i + 1], cpToFc, charSpans) });
+  }
+  return notes;
+}
+
 export function docToParts(bytes: Uint8Array): DocParts {
   const cfb = readCfb(bytes);
   const wd = cfb.get("WordDocument");
@@ -282,7 +378,17 @@ export function docToParts(bytes: Uint8Array): DocParts {
 
   const sedFc = fib.fc(FC.plcfSed);
   const page = parseSection(wd, table, sedFc.fc, sedFc.lcb);
-  return { body: buildHtml(text, cpToFc, charSpans, paraSpans), page };
+
+  // Footnote / endnote subdocuments follow the main text in CP order: main, footnote,
+  // header, comment, endnote. Their references are 0x02 chars in the main text.
+  const refMap = new Map<number, NoteRef>();
+  const ftnStart = ccp;
+  const ednStart = ccp + fib.ccpFtn + fib.ccpHdd + fib.ccpAtn;
+  const notes = [
+    ...parseNotes(full, fib, table, "footnote", ftnStart, fib.ccpFtn, FC.plcffndRef, FC.plcffndTxt, cpToFc, charSpans, refMap),
+    ...parseNotes(full, fib, table, "endnote", ednStart, fib.ccpEdn, FC.plcfendRef, FC.plcfendTxt, cpToFc, charSpans, refMap),
+  ];
+  return { body: buildHtml(text, cpToFc, charSpans, paraSpans, refMap), page, notes: notes.length ? notes : undefined };
 }
 
 export function docToHtml(bytes: Uint8Array): string {
@@ -316,6 +422,7 @@ function buildHtml(
   cpToFc: (cp: number) => number,
   charSpans: Span<CharProps>[],
   paraSpans: Span<ParaProps>[],
+  refMap: Map<number, NoteRef> = new Map(),
 ): string {
   const blocks: { tag: string; attr: string; inner: string }[] = [];
   let runHtml = ""; // accumulated inline HTML of the current paragraph
@@ -355,6 +462,10 @@ function buildHtml(
     if (pp?.indentTwips && pp.indentTwips > 0) styles.push(`margin-left:${Math.round(pp.indentTwips / 15)}px`);
     if (pp?.inTable) {
       if (pp.ttp) {
+        // The row terminator: Word/LibreOffice put the last cell's content on the ttp
+        // paragraph itself (no separate row mark), so add it before closing the row. Our
+        // own writer emits an empty ttp paragraph, which contributes no extra cell.
+        if (runHtml) rowCells.push(runHtml);
         tableRows.push(rowCells);
         rowCells = [];
       } else {
@@ -424,7 +535,17 @@ function buildHtml(
       curText += "‑";
       continue;
     }
-    if (c === 0x1f || c === 0x00 || c === 0x01 || c === 0x02 || c === 0x03 || c === 0x08) continue;
+    if (c === 0x02) {
+      // A footnote / endnote reference mark: emit the engine's inline reference (the visible
+      // number is filled at render time). Non-note 0x02 chars are dropped.
+      const r = refMap.get(cp);
+      if (r) {
+        flushRun();
+        runHtml += `<sup class="docx-fnref" data-fn-id="${r.id}" data-fn-kind="${r.kind}" contenteditable="false"></sup>`;
+      }
+      continue;
+    }
+    if (c === 0x1f || c === 0x00 || c === 0x01 || c === 0x03 || c === 0x08) continue;
     if (c === 0x09) {
       curText += "\t";
       continue;

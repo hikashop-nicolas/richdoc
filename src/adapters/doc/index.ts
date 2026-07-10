@@ -39,12 +39,13 @@ export function createDocAdapter(bytes: Uint8Array): Adapter {
         footer: "",
         comments: [],
         page: parts.page,
+        notes: parts.notes,
       };
     },
-    // The .doc writer regenerates the whole file from the edited body HTML; parts, comment
-    // edits, page geometry and styles are not part of the binary subset we round-trip yet.
-    write(bodyHtml: string, _parts, _edits: CommentEdits, page): Uint8Array {
-      return htmlToDoc(bodyHtml, page);
+    // The .doc writer regenerates the whole file from the edited body HTML plus footnote /
+    // endnote bodies; comment edits and styles are not part of the binary subset we round-trip.
+    write(bodyHtml: string, _parts, _edits: CommentEdits, page, _styles, notes): Uint8Array {
+      return htmlToDoc(bodyHtml, page, notes);
     },
     newCommentMarkers(meta: NewCommentMeta): CommentMarkers {
       const cmark = (): HTMLElement => {

@@ -1,7 +1,7 @@
 import { writeCfb } from "./cfb";
 import { FC } from "./fib";
 import { B64, b64 } from "./templates";
-import type { PageGeometry } from "../../core/types";
+import type { Note, PageGeometry } from "../../core/types";
 
 // Write half of the .doc adapter: richdoc's edited HTML -> a from-scratch Word 97-2003
 // binary. We reuse a known-good FIB and the content-independent stylesheet / font table /
@@ -22,6 +22,8 @@ interface Run {
   color?: number; // packed RR | GG<<8 | BB<<16
   font?: string; // font family name
   highlight?: number; // highlight palette index (1..16)
+  special?: boolean; // sprmCFSpec: a special character (footnote/endnote ref auto-number)
+  fnRef?: { id: string; kind: "footnote" | "endnote" }; // an inline note reference
 }
 interface Para {
   align: number; // 0 left, 1 center, 2 right, 3 justify
@@ -30,6 +32,7 @@ interface Para {
   indentTwips?: number; // left indent in twips
   endChar?: number; // paragraph terminator (0x0D normally, 0x07 for table cells/rows)
   table?: { cell?: boolean; ttp?: boolean; cols?: number };
+  noteBoundary?: "footnote" | "endnote"; // first para of a note (or its subdoc's trailing mark)
 }
 
 const HEADING_SIZE = [48, 36, 28, 24, 22, 20]; // h1..h6 in half-points
@@ -136,6 +139,12 @@ function collectRuns(node: Node, f: Fmt, runs: Run[]): void {
         runs.push(mkRun("\f", f)); // 0x0C page break
         continue;
       }
+      if (tag === "sup" && el.classList.contains("docx-fnref")) {
+        const kind = el.getAttribute("data-fn-kind") === "endnote" ? "endnote" : "footnote";
+        const id = el.getAttribute("data-fn-id") || "";
+        runs.push({ ...mkRun("\x02", f), special: true, fnRef: { id, kind } });
+        continue;
+      }
       if (tag === "a" && el.getAttribute("href")) {
         const href = el.getAttribute("href") || "";
         runs.push(mkRun("\x13", f));
@@ -229,6 +238,10 @@ class Buf {
 // index in the font table (or -1 to omit).
 function chpxGrpprl(r: Run, fontFtc: (name: string) => number): Uint8Array {
   const b = new Buf();
+  if (r.special) {
+    b.u16(0x0855); // sprmCFSpec
+    b.u8(1);
+  }
   if (r.b) {
     b.u16(0x0835);
     b.u8(1);
@@ -502,12 +515,40 @@ function buildSepx(page: PageGeometry): Uint8Array {
   return b.done();
 }
 
+// Build a note's subdocument paragraphs from its body HTML: the note text as paragraphs,
+// with the first prefixed by the auto-number reference char (0x02, special) and a tab, and
+// tagged as a note boundary so the assembler can record its text-span start.
+function buildNoteParas(html: string, kind: "footnote" | "endnote"): Para[] {
+  const sub = parseHtml(html || "<p><br></p>");
+  if (!sub.length) sub.push({ align: 0, runs: [], istd: 0 });
+  const noNo: Fmt = { b: false, i: false, u: false, strike: false };
+  sub[0].runs = [{ ...mkRun("\x02", noNo), special: true }, mkRun("\t", noNo), ...sub[0].runs];
+  sub[0].noteBoundary = kind;
+  return sub;
+}
+
 // ---------------------------------------------------------------------------
 // Assemble
 // ---------------------------------------------------------------------------
 
-export function htmlToDoc(bodyHtml: string, page?: PageGeometry): Uint8Array {
-  const paras = parseHtml(bodyHtml);
+export function htmlToDoc(bodyHtml: string, page?: PageGeometry, notes?: Note[]): Uint8Array {
+  const mainParas = parseHtml(bodyHtml);
+
+  // Order the note subdocuments by the order their references appear in the body, so ref[i]
+  // lines up with note[i] in the PLCFs. Orphan refs (no matching note) get an empty body.
+  const refSeq: { id: string; kind: "footnote" | "endnote" }[] = [];
+  for (const p of mainParas) for (const r of p.runs) if (r.fnRef) refSeq.push(r.fnRef);
+  const noteById = new Map((notes ?? []).map((n) => [n.id, n]));
+  const orderedNotes = (kind: "footnote" | "endnote") =>
+    refSeq.filter((r) => r.kind === kind).map((r) => buildNoteParas(noteById.get(r.id)?.html ?? "", kind));
+  const fnParaGroups = orderedNotes("footnote");
+  const enParaGroups = orderedNotes("endnote");
+  const emptyPara = (kind: "footnote" | "endnote"): Para => ({ align: 0, runs: [], istd: 0, noteBoundary: kind });
+  const ftnParas = fnParaGroups.length ? [...fnParaGroups.flat(), emptyPara("footnote")] : [];
+  const ednParas = enParaGroups.length ? [...enParaGroups.flat(), emptyPara("endnote")] : [];
+  const firstFtnIdx = mainParas.length;
+  const firstEdnIdx = mainParas.length + ftnParas.length;
+  const paras = [...mainParas, ...ftnParas, ...ednParas];
 
   // Collect fonts (base four match the template order) + any run fonts, build the table.
   const fontNames = ["Times New Roman", "Symbol", "Arial", "Times"];
@@ -521,11 +562,23 @@ export function htmlToDoc(bodyHtml: string, page?: PageGeometry): Uint8Array {
   const charRuns: CharRun[] = [];
   const paraRuns: ParaRun[] = [];
   const fcAt = (cp: number) => TEXT_START + cp * 2;
-  for (const p of paras) {
+  const ftnRefCps: number[] = []; // CP of each footnote reference char in the main doc
+  const ednRefCps: number[] = [];
+  const ftnTxtCps: number[] = []; // text-span starts within the footnote subdocument
+  const ednTxtCps: number[] = [];
+  let ccpTextCp = -1; // CP where the main doc ends (start of the footnote subdocument)
+  let ednBaseCp = -1; // CP where the endnote subdocument starts
+  for (let pi = 0; pi < paras.length; pi++) {
+    const p = paras[pi];
     const paraStartCp = chars.length;
+    if (pi === firstFtnIdx) ccpTextCp = paraStartCp;
+    if (pi === firstEdnIdx) ednBaseCp = paraStartCp;
+    if (p.noteBoundary === "footnote") ftnTxtCps.push(paraStartCp);
+    else if (p.noteBoundary === "endnote") ednTxtCps.push(paraStartCp);
     const runList = p.runs.length ? p.runs : [{ text: "", b: false, i: false, u: false, strike: false } as Run];
     for (const r of runList) {
       const startCp = chars.length;
+      if (r.fnRef) (r.fnRef.kind === "footnote" ? ftnRefCps : ednRefCps).push(startCp);
       for (const ch of r.text) chars.push(ch.codePointAt(0)!);
       charRuns.push({ fcStart: fcAt(startCp), fcEnd: fcAt(chars.length), grpprl: chpxGrpprl(r, fontTable.ftc) });
     }
@@ -534,11 +587,21 @@ export function htmlToDoc(bodyHtml: string, page?: PageGeometry): Uint8Array {
     charRuns[charRuns.length - 1].fcEnd = fcAt(chars.length);
     paraRuns.push({ fcStart: fcAt(paraStartCp), fcEnd: fcAt(chars.length), grpprl: papxGrpprl(p), istd: p.istd });
   }
-  const ccpText = chars.length;
-  const textBytes = new Uint8Array(ccpText * 2);
+  const total = chars.length;
+  const ccpText = ccpTextCp >= 0 ? ccpTextCp : total;
+  const ednBase = ednBaseCp >= 0 ? ednBaseCp : total;
+  const ccpFtn = ednBase - ccpText;
+  const ccpEdn = total - ednBase;
+  // PLCF CPs: refs are absolute in the main doc (terminated at ccpText); text spans are
+  // relative to each subdocument and terminate at its char count.
+  const plcffndRef = ccpFtn ? [...ftnRefCps, ccpText] : [];
+  const plcfendRef = ccpEdn ? [...ednRefCps, ccpText] : [];
+  const plcffndTxt = ccpFtn ? [...ftnTxtCps.map((c) => c - ccpText), ccpFtn] : [];
+  const plcfendTxt = ccpEdn ? [...ednTxtCps.map((c) => c - ednBase), ccpEdn] : [];
+  const textBytes = new Uint8Array(total * 2);
   {
     const dv = new DataView(textBytes.buffer);
-    for (let i = 0; i < ccpText; i++) dv.setUint16(i * 2, chars[i] > 0xffff ? 0x3f : chars[i], true);
+    for (let i = 0; i < total; i++) dv.setUint16(i * 2, chars[i] > 0xffff ? 0x3f : chars[i], true);
   }
 
   // 2. WordDocument = FIB template + text + CHPX FKP + PAPX FKP.
@@ -589,11 +652,32 @@ export function htmlToDoc(bodyHtml: string, page?: PageGeometry): Uint8Array {
   tbl.u32(papxPage);
   const lcbPapxBte = tbl.length - fcPapxBte;
 
+  // Footnote / endnote PLCFs: reference CPs (each with a 2-byte FRD of 0 = auto-numbered)
+  // and text-span CPs (no per-element data). Empty when the doc has no notes of that kind.
+  const writeRefPlc = (cps: number[]): { fc: number; lcb: number } => {
+    const fc = tbl.length;
+    if (!cps.length) return { fc: 0, lcb: 0 };
+    for (const cp of cps) tbl.u32(cp);
+    for (let k = 0; k < cps.length - 1; k++) tbl.u16(0); // FRD per reference
+    return { fc, lcb: tbl.length - fc };
+  };
+  const writeTxtPlc = (cps: number[]): { fc: number; lcb: number } => {
+    const fc = tbl.length;
+    if (!cps.length) return { fc: 0, lcb: 0 };
+    for (const cp of cps) tbl.u32(cp);
+    return { fc, lcb: tbl.length - fc };
+  };
+  const fndRef = writeRefPlc(plcffndRef);
+  const fndTxt = writeTxtPlc(plcffndTxt);
+  const endRef = writeRefPlc(plcfendRef);
+  const endTxt = writeTxtPlc(plcfendTxt);
+
   const fcClx = tbl.length;
-  // Clx = Pcdt(0x02) + lcb(4) + PlcPcd{ aCP[2]={0,ccpText}, aPcd[1]{flags:0, fc, prm:0} }
+  // Clx = Pcdt(0x02) + lcb(4) + PlcPcd{ aCP[2]={0,total}, aPcd[1]{flags:0, fc, prm:0} }. The
+  // single piece spans the whole text (main + note subdocuments).
   const plcPcd = new Buf();
   plcPcd.u32(0);
-  plcPcd.u32(ccpText);
+  plcPcd.u32(total);
   plcPcd.u16(0); // PCD flags
   plcPcd.u32(TEXT_START); // FcCompressed: fCompressed=0, fc = byte offset of text
   plcPcd.u16(0); // prm
@@ -609,17 +693,23 @@ export function htmlToDoc(bodyHtml: string, page?: PageGeometry): Uint8Array {
 
   const table = tbl.done();
 
-  // 4. Patch the FIB: ccpText, cbMac, and the fc/lcb pointers into the new table stream.
+  // 4. Patch the FIB: ccpText, the subdocument char counts, cbMac, and the fc/lcb pointers.
   patchFib(wd, {
     ccpText,
+    ccpFtn,
+    ccpEdn,
     cbMac: wdLen,
     pointers: [
       [FC.stshf, fcStshf, stsh.length],
+      [FC.plcffndRef, fndRef.fc, fndRef.lcb],
+      [FC.plcffndTxt, fndTxt.fc, fndTxt.lcb],
       [FC.plcfSed, fcSed, lcbSed],
       [FC.plcfBteChpx, fcChpxBte, lcbChpxBte],
       [FC.plcfBtePapx, fcPapxBte, lcbPapxBte],
       [FC.clx, fcClx, lcbClx],
       [FC.sttbfffn, fcSttb, lcbSttb],
+      [FC.plcfendRef, endRef.fc, endRef.lcb],
+      [FC.plcfendTxt, endTxt.fc, endTxt.lcb],
     ],
   });
 
@@ -633,7 +723,7 @@ export function htmlToDoc(bodyHtml: string, page?: PageGeometry): Uint8Array {
 
 function patchFib(
   wd: Uint8Array,
-  opts: { ccpText: number; cbMac: number; pointers: [number, number, number][] },
+  opts: { ccpText: number; ccpFtn?: number; ccpEdn?: number; cbMac: number; pointers: [number, number, number][] },
 ): void {
   const dv = new DataView(wd.buffer, wd.byteOffset, wd.byteLength);
   const csw = dv.getUint16(32, true);
@@ -642,6 +732,8 @@ function patchFib(
   const blobOffset = rgLwOff + cslw * 4 + 2;
   dv.setUint32(rgLwOff + 0, opts.cbMac, true); // cbMac (fibRgLw[0])
   dv.setInt32(rgLwOff + 12, opts.ccpText, true); // ccpText (fibRgLw[3])
+  dv.setInt32(rgLwOff + 16, opts.ccpFtn ?? 0, true); // ccpFtn (fibRgLw[4])
+  dv.setInt32(rgLwOff + 32, opts.ccpEdn ?? 0, true); // ccpEdn (fibRgLw[8])
   for (const [idx, fc, lcb] of opts.pointers) {
     dv.setUint32(blobOffset + idx * 8, fc, true);
     dv.setUint32(blobOffset + idx * 8 + 4, lcb, true);

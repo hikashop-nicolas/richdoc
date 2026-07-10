@@ -40,6 +40,8 @@ export interface PaginationResult {
   cardCount: number;
   /** the page each block landed on (same length as `heights`). */
   pageOfBlock: number[];
+  /** each block's top offset from its page's content top, in px (same length as `heights`). */
+  offsetInPage: number[];
 }
 
 const EPS = 1; // sub-pixel overflow tolerance
@@ -53,7 +55,9 @@ const EPS = 1; // sub-pixel overflow tolerance
 export function paginate(heights: number[], m: PageMetrics, forceBreakBefore?: ReadonlySet<number>): PaginationResult {
   const spacerBefore = new Map<number, number>();
   const pageOfBlock: number[] = [];
-  if (m.contentHeight <= 0 || m.pageStep <= 0) return { spacerBefore, cardCount: 1, pageOfBlock: heights.map(() => 0) };
+  const offsetInPage: number[] = [];
+  if (m.contentHeight <= 0 || m.pageStep <= 0)
+    return { spacerBefore, cardCount: 1, pageOfBlock: heights.map(() => 0), offsetInPage: heights.map(() => 0) };
 
   let localY = 0; // doc-local y where the next block goes (y=0 is page 0 content top)
   let page = 0;
@@ -73,8 +77,9 @@ export function paginate(heights: number[], m: PageMetrics, forceBreakBefore?: R
       localY = page * m.pageStep;
     }
     pageOfBlock[i] = page;
+    offsetInPage[i] = localY - page * m.pageStep;
     localY += h;
   }
   const cardCount = Math.max(page + 1, Math.ceil(localY / m.pageStep) || 1);
-  return { spacerBefore, cardCount, pageOfBlock };
+  return { spacerBefore, cardCount, pageOfBlock, offsetInPage };
 }

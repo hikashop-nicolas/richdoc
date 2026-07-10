@@ -5,18 +5,27 @@
 // Indices into FibRgFcLcb97 (each entry is an fc/lcb pair of two uint32s).
 export const FC = {
   stshf: 1,
+  plcffndRef: 2, // footnote reference CPs (main doc)
+  plcffndTxt: 3, // footnote text spans (footnote subdocument)
   plcfSed: 6,
   plcfHdd: 11,
   plcfBteChpx: 12,
   plcfBtePapx: 13,
   sttbfffn: 15,
   clx: 33,
+  plcfendRef: 46, // endnote reference CPs (main doc)
+  plcfendTxt: 47, // endnote text spans (endnote subdocument)
 } as const;
 
 export interface Fib {
   /** "0Table" or "1Table", per fWhichTblStm. */
   tableStream: "0Table" | "1Table";
   ccpText: number;
+  /** Char counts of the appended subdocuments, in CP order after the main text. */
+  ccpFtn: number; // footnote subdocument
+  ccpHdd: number; // header/footer subdocument
+  ccpAtn: number; // comment (annotation) subdocument
+  ccpEdn: number; // endnote subdocument
   /** Offset of the fc/lcb blob within the WordDocument stream. */
   blobOffset: number;
   wd: Uint8Array;
@@ -30,12 +39,17 @@ export function parseFib(wd: Uint8Array): Fib {
   const csw = dv.getUint16(32, true);
   const rgLwOff = 34 + csw * 2 + 2; // fibRgW (csw words) then cslw (2 bytes)
   const cslw = dv.getUint16(34 + csw * 2, true);
-  const ccpText = dv.getInt32(rgLwOff + 12, true); // fibRgLw index 3
+  const lw = (i: number) => dv.getInt32(rgLwOff + i * 4, true);
+  const ccpText = lw(3); // fibRgLw index 3
   const cbRgFcLcbOff = rgLwOff + cslw * 4;
   const blobOffset = cbRgFcLcbOff + 2; // after the cbRgFcLcb count
   return {
     tableStream,
     ccpText,
+    ccpFtn: lw(4),
+    ccpHdd: lw(5),
+    ccpAtn: lw(7),
+    ccpEdn: lw(8),
     blobOffset,
     wd,
     fc(index: number) {
@@ -65,7 +79,10 @@ export function parsePieceTable(table: Uint8Array, fcClx: number, lcbClx: number
     const cb = dv.getUint16(i + 1, true);
     i += 3 + cb;
   }
-  if (clx[i] !== 0x02) throw new Error("no Pcdt in piece table");
+  // Some real-world files (e.g. a doc that is mostly an embedded OLE object with a couple of
+  // text chars) carry a Clx we can't recognise a Pcdt in. Rather than fail the whole open,
+  // return no pieces: the reader then treats the body as empty instead of throwing.
+  if (clx[i] !== 0x02) return [];
   const lcbPlcPcd = dv.getUint32(i + 1, true);
   i += 5;
   const plc = clx.subarray(i, i + lcbPlcPcd);

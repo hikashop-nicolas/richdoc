@@ -20,6 +20,80 @@ import { setupHistory } from "./feature/history";
 import { setupPaste } from "./feature/paste";
 import "../adapters/docx/docxedit.css";
 
+// --- Table pagination across page boundaries ---------------------------------------------
+// The paginator fills whole blocks and never slices one, so a table taller than a page would
+// otherwise render continuously across the page-card boundary (a row cut in half by the page
+// edge). To avoid that, a too-tall table is split at row boundaries into sibling <table>
+// fragments (each at most one content page), which the block-level paginator then places
+// cleanly. Fragments of one original table share a data-rdoc-tsplit group id; they are merged
+// back before every measurement and before saving so the model always sees one whole table.
+const TSPLIT_ATTR = "data-rdoc-tsplit";
+function tableRowContainer(t: HTMLTableElement): HTMLElement {
+  return (t.tBodies[0] as HTMLElement | undefined) ?? t;
+}
+function mergeSplitTables(root: HTMLElement): void {
+  const groups = new Map<string, HTMLTableElement[]>();
+  for (const t of Array.from(root.querySelectorAll<HTMLTableElement>(`table[${TSPLIT_ATTR}]`))) {
+    const gid = t.getAttribute(TSPLIT_ATTR)!;
+    const arr = groups.get(gid) ?? [];
+    arr.push(t);
+    groups.set(gid, arr);
+  }
+  for (const frags of groups.values()) {
+    const dst = tableRowContainer(frags[0]!);
+    for (let k = 1; k < frags.length; k++) {
+      const src = tableRowContainer(frags[k]!);
+      while (src.firstChild) dst.appendChild(src.firstChild); // appendChild keeps the caret's node connected
+      frags[k]!.remove();
+    }
+    frags[0]!.removeAttribute(TSPLIT_ATTR);
+  }
+}
+// Split each too-tall direct-child table of `parent` into row-boundary fragments no taller
+// than `contentHeight`. Rows are moved (not cloned) so a caret inside one is preserved.
+// `firstBudget` optionally gives a table's first fragment less room than a full page, so it
+// fills out the space left on the page where the table starts before continuing overleaf.
+function splitTallTables(parent: HTMLElement, contentHeight: number, firstBudget?: Map<HTMLElement, number>): void {
+  const EPS = 2;
+  const MIN_FRAG = 40; // don't bother filling a sliver at the page foot; start clean instead
+  for (const el of Array.from(parent.children)) {
+    if (el.tagName !== "TABLE") continue;
+    const t = el as HTMLTableElement;
+    if (t.offsetHeight <= contentHeight + EPS) continue;
+    const rc = tableRowContainer(t);
+    const rows = Array.from(rc.children) as HTMLElement[];
+    if (rows.length < 2) continue; // one giant row cannot be split further
+    const gid = "ts" + Math.random().toString(36).slice(2, 9);
+    t.setAttribute(TSPLIT_ATTR, gid);
+    const hasTbody = !!t.tBodies[0];
+    const first = firstBudget?.get(t);
+    let limit = first != null && first >= MIN_FRAG ? first : contentHeight;
+    let curRc = rc;
+    let curTable: HTMLTableElement = t;
+    let acc = 0;
+    for (const row of rows) {
+      const rh = row.offsetHeight;
+      if (acc > 0 && acc + rh > limit - EPS) {
+        const frag = t.cloneNode(false) as HTMLTableElement; // <table> shell only (attrs + style)
+        frag.setAttribute(TSPLIT_ATTR, gid);
+        let fragRc: HTMLElement = frag;
+        if (hasTbody) {
+          const tb = document.createElement("tbody");
+          frag.appendChild(tb);
+          fragRc = tb;
+        }
+        curTable.after(frag);
+        curTable = frag;
+        curRc = fragRc;
+        acc = 0;
+        limit = contentHeight; // fragments after the first get a whole page
+      }
+      curRc.appendChild(row);
+      acc += rh;
+    }
+  }
+}
+
 export function createRichEditor(container: HTMLElement, adapter: Adapter, options: EditorOptions = {}): RichEditor {
   const original = adapter.original;
   const caps = adapter.capabilities;
@@ -1337,6 +1411,7 @@ export function createRichEditor(container: HTMLElement, adapter: Adapter, optio
   const repaginate = () => {
     if (!paginated || editingBand) return;
     footnotesPerPage = false; // only the single-section path places footnotes per page
+    mergeSplitTables(doc); // undo a prior table split so every path measures whole tables
     if (doc.querySelector("[data-rdoc-secbreak], [data-rdoc-secstart]")) return repaginateSections();
     if (isVertical()) return (geometry.columns ?? 0) > 1 ? repaginateVerticalColumns() : repaginateVertical();
     // Unwrap any vertical band wrappers left by a prior vertical-columns layout + reset doc sizing.
@@ -1373,22 +1448,42 @@ export function createRichEditor(container: HTMLElement, adapter: Adapter, optio
     for (const el of Array.from(doc.querySelectorAll(".docxedit-pagetop"))) el.classList.remove("docxedit-pagetop");
 
     // delta of offsetTop captures each block's height plus its collapsed inter-block margin
-    const kids = Array.from(doc.children).filter((c) => !c.classList.contains("docxedit-pagespacer")) as HTMLElement[];
-    const tops = kids.map((k) => k.offsetTop);
-    const heights = kids.map((k, i) => (i < kids.length - 1 ? tops[i + 1]! - tops[i]! : k.offsetHeight));
-
+    const measureKids = () => {
+      const ks = Array.from(doc.children).filter((c) => !c.classList.contains("docxedit-pagespacer")) as HTMLElement[];
+      const ts = ks.map((k) => k.offsetTop);
+      const hs = ks.map((k, i) => (i < ks.length - 1 ? ts[i + 1]! - ts[i]! : k.offsetHeight));
+      return { ks, hs };
+    };
     // honor explicit page breaks. A manual break renders either as its own marker element
     // (break before the next block) or inside a block (break before that block).
-    const forceBreakBefore = new Set<number>();
     const isManualMarker = (el: Element) =>
       el.classList.contains("docx-pagebreak") && el.getAttribute("data-docx-pagebreak") === "manual";
-    kids.forEach((k, i) => {
-      if (isManualMarker(k)) {
-        if (i + 1 < kids.length) forceBreakBefore.add(i + 1);
-      } else if (i > 0 && k.querySelector('.docx-pagebreak[data-docx-pagebreak="manual"]')) {
-        forceBreakBefore.add(i);
-      }
-    });
+    const forceBreaksOf = (ks: HTMLElement[]) => {
+      const set = new Set<number>();
+      ks.forEach((k, i) => {
+        if (isManualMarker(k)) { if (i + 1 < ks.length) set.add(i + 1); }
+        else if (i > 0 && k.querySelector('.docx-pagebreak[data-docx-pagebreak="manual"]')) set.add(i);
+      });
+      return set;
+    };
+
+    let { ks: kids, hs: heights } = measureKids();
+    // Tables taller than a page are split at row boundaries so a break lands between rows. A
+    // positioning pass (tables whole) tells us how much room is left on the page each tall
+    // table starts on, so its first fragment fills that space before continuing on the next.
+    const tallTables = kids.filter((k) => k.tagName === "TABLE" && k.offsetHeight > contentHeight + 2);
+    if (tallTables.length) {
+      // Position the tall tables as if they were zero-height, so paginate reports where each
+      // one's top naturally lands (an oversized whole block would otherwise be bumped to the
+      // next page top, reporting offset 0 and losing the room left on its starting page).
+      const posHeights = heights.map((h, i) => (tallTables.includes(kids[i]!) ? 0 : h));
+      const pre = paginate(posHeights, { pageStep, contentHeight }, forceBreaksOf(kids));
+      const firstBudget = new Map<HTMLElement, number>();
+      kids.forEach((k, i) => { if (tallTables.includes(k)) firstBudget.set(k, contentHeight - pre.offsetInPage[i]!); });
+      splitTallTables(doc, contentHeight, firstBudget);
+      ({ ks: kids, hs: heights } = measureKids());
+    }
+    const forceBreakBefore = forceBreaksOf(kids);
 
     // Footnotes: measure each referenced footnote body at content width, then reserve that space at
     // the bottom of the page its reference lands on (paginate accounts for it). Endnotes go to the
@@ -1442,8 +1537,9 @@ export function createRichEditor(container: HTMLElement, adapter: Adapter, optio
   // Body HTML for saving: the live doc minus pagination artifacts (inert spacers and the
   // transient page-top class the engine adds for alignment).
   const cleanBody = (): string => {
-    if (!doc.querySelector(".docxedit-pagespacer, .docxedit-pagetop, .docxedit-colpage, .docxedit-secpage, .docxedit-vband")) return doc.innerHTML;
+    if (!doc.querySelector(`.docxedit-pagespacer, .docxedit-pagetop, .docxedit-colpage, .docxedit-secpage, .docxedit-vband, table[${TSPLIT_ATTR}]`)) return doc.innerHTML;
     const tmp = doc.cloneNode(true) as HTMLElement;
+    mergeSplitTables(tmp); // rejoin any split table so the saved HTML has one whole table
     for (const s of Array.from(tmp.querySelectorAll(".docxedit-pagespacer"))) s.remove();
     for (const el of Array.from(tmp.querySelectorAll(".docxedit-pagetop"))) el.classList.remove("docxedit-pagetop");
     // Unwrap the per-page column / per-section page / vertical band boxes, lifting blocks to the body.

@@ -1,4 +1,5 @@
 import { describe, expect, it } from "vitest";
+import type { Note } from "../../core/types";
 import { isCfb, readCfb, writeCfb } from "./cfb";
 import { docToHtml, docToParts } from "./read";
 import { htmlToDoc } from "./write";
@@ -94,6 +95,32 @@ describe("doc write -> read round trip", () => {
     expect(pg.margin.left).toBe(70);
     expect(pg.columns).toBe(2);
     expect(pg.vertical).toBe(true);
+  });
+
+  it("preserves footnotes and endnotes as note subdocuments", () => {
+    const body =
+      '<p>Intro<sup class="docx-fnref" data-fn-id="fn1" data-fn-kind="footnote"></sup> and' +
+      '<sup class="docx-fnref" data-fn-id="fn2" data-fn-kind="footnote"></sup> then an' +
+      '<sup class="docx-fnref" data-fn-id="en1" data-fn-kind="endnote"></sup> end.</p>';
+    const notes: Note[] = [
+      { id: "fn1", kind: "footnote", html: "<p>First note.</p>" },
+      { id: "fn2", kind: "footnote", html: "<p>Second note.</p>" },
+      { id: "en1", kind: "endnote", html: "<p>End note.</p>" },
+    ];
+    const parts = docToParts(htmlToDoc(body, undefined, notes));
+    // Three inline references survive, tagged by kind.
+    expect((parts.body.match(/docx-fnref/g) || []).length).toBe(3);
+    expect(parts.body).toContain('data-fn-kind="endnote"');
+    // Note bodies come back in reference order, footnotes before endnotes.
+    expect(parts.notes?.map((n) => n.kind)).toEqual(["footnote", "footnote", "endnote"]);
+    expect(parts.notes?.map((n) => n.html.replace(/<[^>]+>/g, ""))).toEqual(["First note.", "Second note.", "End note."]);
+  });
+
+  it("keeps run formatting inside a footnote body", () => {
+    const body = '<p>x<sup class="docx-fnref" data-fn-id="fn1" data-fn-kind="footnote"></sup></p>';
+    const notes: Note[] = [{ id: "fn1", kind: "footnote", html: "<p>plain <b>bold</b> tail</p>" }];
+    const parts = docToParts(htmlToDoc(body, undefined, notes));
+    expect(parts.notes?.[0]?.html).toMatch(/font-weight:bold[^<]*>bold/);
   });
 
   it("is idempotent across a second round trip", () => {
