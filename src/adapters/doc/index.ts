@@ -51,19 +51,21 @@ export function createDocAdapter(bytes: Uint8Array): Adapter {
       const parts = docToParts(bytes);
       return {
         body: parts.body || "<p><br></p>",
-        header: "",
-        footer: "",
+        header: parts.header ?? "",
+        footer: parts.footer ?? "",
         comments: parts.comments ?? [],
         page: parts.page,
         notes: parts.notes,
       };
     },
     // The .doc writer regenerates the whole file from the edited body HTML plus the footnote /
-    // endnote bodies and comments. Comments are rebuilt from the original file, overlaid with
-    // any in-session additions (their data lives on the ref markers) and text edits.
-    write(bodyHtml: string, _parts, edits: CommentEdits, page, _styles, notes): Uint8Array {
+    // endnote bodies, comments and the header/footer. Comments are rebuilt from the original
+    // file, overlaid with any in-session additions (data on the ref markers) and text edits.
+    write(bodyHtml: string, editedParts, edits: CommentEdits, page, _styles, notes): Uint8Array {
       const comments = rebuildComments(original, bodyHtml, edits);
-      return htmlToDoc(bodyHtml, page, notes, comments);
+      const partBy = (path: string) => editedParts.find((p) => p.path === path)?.html;
+      const hf = { header: partBy("header"), footer: partBy("footer") };
+      return htmlToDoc(bodyHtml, page, notes, comments, hf);
     },
     newCommentMarkers(meta: NewCommentMeta): CommentMarkers {
       const cmark = (): HTMLElement => {
@@ -89,7 +91,7 @@ export function createDocAdapter(bytes: Uint8Array): Adapter {
       trackChanges: false,
       images: false,
       tables: true,
-      headerFooter: false,
+      headerFooter: true,
       pageBreak: true,
       textColor: true,
       fontControls: true,

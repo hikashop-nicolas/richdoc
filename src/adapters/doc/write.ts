@@ -43,6 +43,7 @@ interface Para {
   endChar?: number; // paragraph terminator (0x0D normally, 0x07 for table cells/rows)
   table?: { cell?: boolean; ttp?: boolean; cols?: number };
   noteBoundary?: SubKind; // first para of a note/comment (or its subdoc's trailing mark)
+  hddFooter?: boolean; // first paragraph of the footer story inside the header/footer subdoc
 }
 
 const HEADING_SIZE = [48, 36, 28, 24, 22, 20]; // h1..h6 in half-points
@@ -556,11 +557,29 @@ function buildCommentParas(text: string): Para[] {
   return [{ align: 0, runs, istd: 0, noteBoundary: "comment" }];
 }
 
+// The header/footer subdocument holds the primary header story then the primary footer story,
+// each a content paragraph group plus a trailing empty paragraph (matching Word's layout). The
+// footer story's first paragraph is flagged so the assembler can split ccpHdd into the two
+// story lengths for PlcfHdd. Empty when there is neither a header nor a footer.
+function buildHddParas(header?: string, footer?: string): Para[] {
+  const trail = (): Para => ({ align: 0, runs: [], istd: 0 });
+  const story = (html?: string): Para[] => (html && html.trim() ? [...parseHtml(html), trail()] : []);
+  const h = story(header);
+  const f = story(footer);
+  if (f[0]) f[0].hddFooter = true;
+  return [...h, ...f];
+}
+
 // ---------------------------------------------------------------------------
 // Assemble
 // ---------------------------------------------------------------------------
 
-export function htmlToDoc(bodyHtml: string, page?: PageGeometry, notes?: Note[], comments?: DocComment[]): Uint8Array {
+export interface HeaderFooter {
+  header?: string;
+  footer?: string;
+}
+
+export function htmlToDoc(bodyHtml: string, page?: PageGeometry, notes?: Note[], comments?: DocComment[], hf?: HeaderFooter): Uint8Array {
   const mainParas = parseHtml(bodyHtml);
 
   // Subdocuments follow the main text in a fixed CP order (footnote, comment, endnote). Each
@@ -578,10 +597,18 @@ export function htmlToDoc(bodyHtml: string, page?: PageGeometry, notes?: Note[],
     const groups = groupsFor(kind);
     return groups.length ? { kind, paras: [...groups.flat(), { align: 0, runs: [], istd: 0, noteBoundary: kind }] } : null;
   };
-  const regions = (["footnote", "comment", "endnote"] as SubKind[]).map(mkRegion).filter((r): r is { kind: SubKind; paras: Para[] } => !!r);
+  // Subdocuments in Word's CP order: main, footnote, header/footer, comment, endnote.
+  const hddParas = buildHddParas(hf?.header, hf?.footer);
   const paras = [...mainParas];
   const regionStartIdx = new Map<SubKind, number>();
-  for (const reg of regions) { regionStartIdx.set(reg.kind, paras.length); paras.push(...reg.paras); }
+  let hddStartIdx = -1;
+  const pushRegion = (reg: { kind: SubKind; paras: Para[] } | null) => {
+    if (reg) { regionStartIdx.set(reg.kind, paras.length); paras.push(...reg.paras); }
+  };
+  pushRegion(mkRegion("footnote"));
+  if (hddParas.length) { hddStartIdx = paras.length; paras.push(...hddParas); }
+  pushRegion(mkRegion("comment"));
+  pushRegion(mkRegion("endnote"));
 
   // Collect fonts (base four match the template order) + any run fonts, build the table.
   const fontNames = ["Times New Roman", "Symbol", "Arial", "Times"];
@@ -598,10 +625,14 @@ export function htmlToDoc(bodyHtml: string, page?: PageGeometry, notes?: Note[],
   const refCps: Record<SubKind, number[]> = { footnote: [], comment: [], endnote: [] }; // ref char CPs in the main doc
   const txtCps: Record<SubKind, number[]> = { footnote: [], comment: [], endnote: [] }; // text-span starts within each subdoc
   const regionBaseCp = new Map<SubKind, number>(); // CP where each subdocument starts
+  let hddBaseCp = -1; // CP where the header/footer subdocument starts
+  let footerStoryCp = -1; // CP where the footer story starts inside the header/footer subdoc
   for (let pi = 0; pi < paras.length; pi++) {
     const p = paras[pi];
     const paraStartCp = chars.length;
     for (const [kind, idx] of regionStartIdx) if (pi === idx) regionBaseCp.set(kind, paraStartCp);
+    if (pi === hddStartIdx) hddBaseCp = paraStartCp;
+    if (p.hddFooter) footerStoryCp = paraStartCp;
     if (p.noteBoundary) txtCps[p.noteBoundary].push(paraStartCp);
     const runList = p.runs.length ? p.runs : [{ text: "", b: false, i: false, u: false, strike: false } as Run];
     for (const r of runList) {
@@ -616,17 +647,27 @@ export function htmlToDoc(bodyHtml: string, page?: PageGeometry, notes?: Note[],
     paraRuns.push({ fcStart: fcAt(paraStartCp), fcEnd: fcAt(chars.length), grpprl: papxGrpprl(p), istd: p.istd });
   }
   const total = chars.length;
-  // Each subdocument's char count is the gap to the next one (main, then footnote, comment,
-  // endnote in that order); a missing subdocument contributes nothing.
+  // Each subdocument's char count is the gap to the next present subdocument, in Word's CP
+  // order: main, footnote, header/footer, comment, endnote.
   const baseOf = (kind: SubKind) => regionBaseCp.get(kind) ?? -1;
   const ftnBase = baseOf("footnote");
   const cmtBase = baseOf("comment");
   const ednBase = baseOf("endnote");
-  const ccpText = ftnBase >= 0 ? ftnBase : cmtBase >= 0 ? cmtBase : ednBase >= 0 ? ednBase : total;
-  const nextAfter = (cp: number) => [cmtBase, ednBase, total].filter((c) => c > cp).sort((a, b) => a - b)[0] ?? total;
-  const ccpFtn = ftnBase >= 0 ? nextAfter(ftnBase) - ftnBase : 0;
-  const ccpAtn = cmtBase >= 0 ? (ednBase >= 0 ? ednBase : total) - cmtBase : 0;
-  const ccpEdn = ednBase >= 0 ? total - ednBase : 0;
+  const present = [
+    ["ftn", ftnBase], ["hdd", hddBaseCp], ["atn", cmtBase], ["edn", ednBase],
+  ].filter(([, cp]) => (cp as number) >= 0).sort((a, b) => (a[1] as number) - (b[1] as number)) as [string, number][];
+  const ccpText = present.length ? present[0][1] : total;
+  const ccpOf = (tag: string): number => {
+    const i = present.findIndex(([t]) => t === tag);
+    if (i < 0) return 0;
+    return (i + 1 < present.length ? present[i + 1][1] : total) - present[i][1];
+  };
+  const ccpFtn = ccpOf("ftn"), ccpHdd = ccpOf("hdd"), ccpAtn = ccpOf("atn"), ccpEdn = ccpOf("edn");
+  const headerLen = footerStoryCp >= 0 ? footerStoryCp - hddBaseCp : ccpHdd;
+  const footerLen = ccpHdd - headerLen;
+  // PlcfHdd: 6 footnote/endnote separator stories (empty) + section 0's six stories; the primary
+  // header is the odd-header (index 7), the primary footer the odd-footer (index 9).
+  const plcfHdd = ccpHdd ? [0, 0, 0, 0, 0, 0, 0, 0, headerLen, headerLen, headerLen + footerLen, headerLen + footerLen, headerLen + footerLen, headerLen + footerLen] : [];
   const relTo = (base: number, cps: number[]) => cps.map((c) => c - base);
   const ftnRefCps = refCps.footnote, ednRefCps = refCps.endnote, atnRefCps = refCps.comment;
   const ftnTxtCps = relTo(ftnBase, txtCps.footnote), ednTxtCps = relTo(ednBase, txtCps.endnote), atnTxtCps = relTo(cmtBase, txtCps.comment);
@@ -656,7 +697,11 @@ export function htmlToDoc(bodyHtml: string, page?: PageGeometry, notes?: Note[],
   const fkpBase = Math.ceil(textEnd / 512) * 512;
   const chpxPage = fkpBase / 512;
   const papxPage = chpxPage + 1;
-  const sepx = page ? buildSepx(page) : null;
+  // A section-properties exception is emitted for an explicit page geometry, and also whenever
+  // there is a header/footer: Word only renders the header/footer stories when the section has
+  // its own SEPX (a bare 0xFFFFFFFF section is ignored). Fall back to a default page then.
+  const needSepx = page || ccpHdd > 0;
+  const sepx = needSepx ? buildSepx(page ?? { widthPx: 816, heightPx: 1056, margin: { top: 96, right: 96, bottom: 96, left: 96 } }) : null;
   const sepxOffset = (papxPage + 1) * 512;
   const wdEnd = sepx ? sepxOffset + sepx.length : (papxPage + 1) * 512;
   const wdLen = Math.max(4096, Math.ceil(wdEnd / 512) * 512);
@@ -730,6 +775,7 @@ export function htmlToDoc(bodyHtml: string, page?: PageGeometry, notes?: Note[],
     return { fc, lcb: tbl.length - fc };
   })();
   const andTxt = writeTxtPlc(plcfandTxt);
+  const hddPlc = writeTxtPlc(plcfHdd); // PlcfHdd is just a CP array (story boundaries)
   // GrpXstAtnOwners: the author names as back-to-back Xst (cch u16 + UTF-16 chars).
   const grpXst = ((): { fc: number; lcb: number } => {
     const fc = tbl.length;
@@ -766,6 +812,7 @@ export function htmlToDoc(bodyHtml: string, page?: PageGeometry, notes?: Note[],
   patchFib(wd, {
     ccpText,
     ccpFtn,
+    ccpHdd,
     ccpAtn,
     ccpEdn,
     cbMac: wdLen,
@@ -775,6 +822,7 @@ export function htmlToDoc(bodyHtml: string, page?: PageGeometry, notes?: Note[],
       [FC.plcffndTxt, fndTxt.fc, fndTxt.lcb],
       [FC.plcfandRef, andRef.fc, andRef.lcb],
       [FC.plcfandTxt, andTxt.fc, andTxt.lcb],
+      [FC.plcfHdd, hddPlc.fc, hddPlc.lcb],
       [FC.plcfSed, fcSed, lcbSed],
       [FC.plcfBteChpx, fcChpxBte, lcbChpxBte],
       [FC.plcfBtePapx, fcPapxBte, lcbPapxBte],
@@ -796,7 +844,7 @@ export function htmlToDoc(bodyHtml: string, page?: PageGeometry, notes?: Note[],
 
 function patchFib(
   wd: Uint8Array,
-  opts: { ccpText: number; ccpFtn?: number; ccpAtn?: number; ccpEdn?: number; cbMac: number; pointers: [number, number, number][] },
+  opts: { ccpText: number; ccpFtn?: number; ccpHdd?: number; ccpAtn?: number; ccpEdn?: number; cbMac: number; pointers: [number, number, number][] },
 ): void {
   const dv = new DataView(wd.buffer, wd.byteOffset, wd.byteLength);
   const csw = dv.getUint16(32, true);
@@ -806,6 +854,7 @@ function patchFib(
   dv.setUint32(rgLwOff + 0, opts.cbMac, true); // cbMac (fibRgLw[0])
   dv.setInt32(rgLwOff + 12, opts.ccpText, true); // ccpText (fibRgLw[3])
   dv.setInt32(rgLwOff + 16, opts.ccpFtn ?? 0, true); // ccpFtn (fibRgLw[4])
+  dv.setInt32(rgLwOff + 20, opts.ccpHdd ?? 0, true); // ccpHdd (fibRgLw[5])
   dv.setInt32(rgLwOff + 28, opts.ccpAtn ?? 0, true); // ccpAtn (fibRgLw[7])
   dv.setInt32(rgLwOff + 32, opts.ccpEdn ?? 0, true); // ccpEdn (fibRgLw[8])
   for (const [idx, fc, lcb] of opts.pointers) {

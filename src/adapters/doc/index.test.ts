@@ -154,6 +154,20 @@ describe("doc write -> read round trip", () => {
     expect((parts.body.match(/docx-comment-ref/g) || []).length).toBe(1);
   });
 
+  it("preserves a header and footer (header/footer subdocument)", () => {
+    const bytes = htmlToDoc("<p>Body.</p>", undefined, undefined, undefined, { header: "<p>My header</p>", footer: "<p>My footer</p>" });
+    const parts = docToParts(bytes);
+    expect(parts.header).toBe("<p>My header</p>");
+    expect(parts.footer).toBe("<p>My footer</p>");
+    expect(parts.body).toContain("Body.");
+  });
+
+  it("supports a footer without a header", () => {
+    const parts = docToParts(htmlToDoc("<p>x</p>", undefined, undefined, undefined, { footer: "<p>just a footer</p>" }));
+    expect(parts.header).toBeUndefined();
+    expect(parts.footer).toBe("<p>just a footer</p>");
+  });
+
   it("is idempotent across a second round trip", () => {
     const once = docToHtml(htmlToDoc('<p><b>x</b> y <i>z</i> <a href="http://a.b/c">L</a></p>'));
     const twice = docToHtml(htmlToDoc(once));

@@ -11,6 +11,8 @@ export interface DocParts {
   page?: PageGeometry;
   notes?: Note[];
   comments?: CommentThread[];
+  header?: string;
+  footer?: string;
 }
 
 /** A footnote / endnote reference found in the main text, keyed by its character position. */
@@ -402,6 +404,30 @@ function parseComments(
   return out;
 }
 
+// The header/footer subdocument (HDD) stores stories delimited by PlcfHdd: 6 footnote/endnote
+// separator stories, then 6 per section [even header, odd header, even footer, odd footer,
+// first header, first footer]. The primary header/footer are section 0's odd stories (index 7
+// and 9). Returns their HTML (empty when the story is empty).
+function parseHeaderFooter(
+  full: string,
+  fib: ReturnType<typeof parseFib>,
+  table: Uint8Array,
+  cpToFc: (cp: number) => number,
+  charSpans: Span<CharProps>[],
+): { header: string; footer: string } {
+  const empty = { header: "", footer: "" };
+  if (fib.ccpHdd <= 0) return empty;
+  const hdd = fib.fc(FC.plcfHdd);
+  if (hdd.lcb < 44) return empty; // need at least the 6 separators + section-0 header/footer
+  const dv = new DataView(table.buffer, table.byteOffset + hdd.fc, hdd.lcb);
+  const n = hdd.lcb / 4;
+  const cp = (k: number) => (k < n ? dv.getUint32(k * 4, true) : dv.getUint32((n - 1) * 4, true));
+  const base = fib.ccpText + fib.ccpFtn;
+  const story = (i: number) => (cp(i + 1) > cp(i) ? renderNoteBody(full, base + cp(i), base + cp(i + 1), cpToFc, charSpans) : "");
+  const clean = (h: string) => (h === "<p><br></p>" ? "" : h);
+  return { header: clean(story(7)), footer: clean(story(9)) };
+}
+
 export function docToParts(bytes: Uint8Array): DocParts {
   const cfb = readCfb(bytes);
   const wd = cfb.get("WordDocument");
@@ -442,11 +468,14 @@ export function docToParts(bytes: Uint8Array): DocParts {
     ...parseNotes(full, fib, table, "endnote", ednStart, fib.ccpEdn, FC.plcfendRef, FC.plcfendTxt, cpToFc, charSpans, refMap),
   ];
   const comments = parseComments(full, fib, table, atnStart, cpToFc, charSpans, cmtRefMap);
+  const { header, footer } = parseHeaderFooter(full, fib, table, cpToFc, charSpans);
   return {
     body: buildHtml(text, cpToFc, charSpans, paraSpans, refMap, cmtRefMap),
     page,
     notes: notes.length ? notes : undefined,
     comments: comments.length ? comments : undefined,
+    header: header || undefined,
+    footer: footer || undefined,
   };
 }
 
