@@ -17,7 +17,7 @@ import type {
   RichEditor,
 } from "../../core/types";
 import { docToParts } from "./read";
-import { htmlToDoc } from "./write";
+import { htmlToDoc, type DocComment } from "./write";
 
 export { docToHtml, docToParts } from "./read";
 export { htmlToDoc } from "./write";
@@ -25,6 +25,22 @@ export { isCfb } from "./cfb";
 
 export type DocEditorOptions = EditorOptions;
 export type DocEditor = RichEditor;
+
+// Reconstruct the comment set to write: start from the original file's comments, add any
+// authored in-session (their author/text ride on the ref markers in the body), apply text
+// edits, and drop deleted ones. htmlToDoc only emits those whose ref survives in the body.
+function rebuildComments(original: Uint8Array, bodyHtml: string, edits: CommentEdits): DocComment[] {
+  const byId = new Map<string, DocComment>();
+  for (const c of docToParts(original).comments ?? []) byId.set(c.id, { id: c.id, author: c.author, text: c.text });
+  const dom = new DOMParser().parseFromString(`<body>${bodyHtml}</body>`, "text/html");
+  for (const ref of Array.from(dom.querySelectorAll(".docx-comment-ref[data-comment-new]"))) {
+    const id = ref.getAttribute("data-comment-id") || "";
+    if (id) byId.set(id, { id, author: ref.getAttribute("data-comment-author") || "Author", text: ref.getAttribute("data-comment-text") || "" });
+  }
+  for (const e of edits.edited) { const c = byId.get(e.id); if (c) c.text = e.text; }
+  for (const id of edits.deletedComments) byId.delete(id);
+  return [...byId.values()];
+}
 
 /** Wrap a .doc byte array as an engine adapter: parse, serialize, capabilities. */
 export function createDocAdapter(bytes: Uint8Array): Adapter {
@@ -37,15 +53,17 @@ export function createDocAdapter(bytes: Uint8Array): Adapter {
         body: parts.body || "<p><br></p>",
         header: "",
         footer: "",
-        comments: [],
+        comments: parts.comments ?? [],
         page: parts.page,
         notes: parts.notes,
       };
     },
-    // The .doc writer regenerates the whole file from the edited body HTML plus footnote /
-    // endnote bodies; comment edits and styles are not part of the binary subset we round-trip.
-    write(bodyHtml: string, _parts, _edits: CommentEdits, page, _styles, notes): Uint8Array {
-      return htmlToDoc(bodyHtml, page, notes);
+    // The .doc writer regenerates the whole file from the edited body HTML plus the footnote /
+    // endnote bodies and comments. Comments are rebuilt from the original file, overlaid with
+    // any in-session additions (their data lives on the ref markers) and text edits.
+    write(bodyHtml: string, _parts, edits: CommentEdits, page, _styles, notes): Uint8Array {
+      const comments = rebuildComments(original, bodyHtml, edits);
+      return htmlToDoc(bodyHtml, page, notes, comments);
     },
     newCommentMarkers(meta: NewCommentMeta): CommentMarkers {
       const cmark = (): HTMLElement => {
@@ -59,10 +77,13 @@ export function createDocAdapter(bytes: Uint8Array): Adapter {
       ref.contentEditable = "false";
       ref.textContent = "\u{1F4AC}";
       ref.setAttribute("data-comment-id", meta.id);
+      ref.setAttribute("data-comment-new", "1");
+      ref.setAttribute("data-comment-author", meta.author);
+      ref.setAttribute("data-comment-text", meta.text);
       return { start: cmark(), end: cmark(), ref };
     },
     capabilities: {
-      comments: false,
+      comments: true,
       commentReplies: false,
       commentReactions: false,
       trackChanges: false,

@@ -1,6 +1,6 @@
 import { readCfb } from "./cfb";
 import { parseFib, parsePieceTable, readPieceText, FC, type Piece } from "./fib";
-import type { Note, PageGeometry } from "../../core/types";
+import type { CommentThread, Note, PageGeometry } from "../../core/types";
 
 // Read half of the .doc adapter: bytes -> HTML in richdoc's vocabulary. It extracts the
 // text (piece table) and the character/paragraph formatting (CHPX/PAPX formatted-disk
@@ -10,6 +10,7 @@ export interface DocParts {
   body: string;
   page?: PageGeometry;
   notes?: Note[];
+  comments?: CommentThread[];
 }
 
 /** A footnote / endnote reference found in the main text, keyed by its character position. */
@@ -351,6 +352,56 @@ function parseNotes(
   return notes;
 }
 
+// Parse GrpXstAtnOwners: back-to-back Xst (cch u16 + UTF-16 chars) of comment author names.
+function parseAtnOwners(table: Uint8Array, fc: number, lcb: number): string[] {
+  const names: string[] = [];
+  if (lcb < 2) return names;
+  const dv = new DataView(table.buffer, table.byteOffset + fc, lcb);
+  let i = 0;
+  while (i + 2 <= lcb) {
+    const cch = dv.getUint16(i, true);
+    i += 2;
+    let name = "";
+    for (let j = 0; j < cch && i + 2 <= lcb; j++, i += 2) name += String.fromCharCode(dv.getUint16(i, true));
+    names.push(name);
+  }
+  return names;
+}
+
+// Parse the comment (annotation) subdocument: PlcfandRef gives the 0x05 reference CPs in the
+// main text plus a 30-byte ATRD each (ibst = author index); PlcfandTxt gives each comment's
+// text span in the subdocument. Returns flat threads (Word 97 comments are unthreaded) plus a
+// cp -> id map so buildHtml drops an inline reference marker at each anchor.
+function parseComments(
+  full: string,
+  fib: ReturnType<typeof parseFib>,
+  table: Uint8Array,
+  subStart: number,
+  cpToFc: (cp: number) => number,
+  charSpans: Span<CharProps>[],
+  refMap: Map<number, string>,
+): CommentThread[] {
+  if (fib.ccpAtn <= 0) return [];
+  const ref = fib.fc(FC.plcfandRef);
+  const txt = fib.fc(FC.plcfandTxt);
+  const refCps = readPlcfCps(table, ref.fc, ref.lcb, 30);
+  const txtCps = readPlcfCps(table, txt.fc, txt.lcb, 0);
+  const owners = parseAtnOwners(table, fib.fc(FC.grpXstAtnOwners).fc, fib.fc(FC.grpXstAtnOwners).lcb);
+  const cAtn = Math.max(0, Math.min(refCps.length - 1, txtCps.length - 2));
+  const atrdBase = ref.fc + refCps.length * 4;
+  const dv = new DataView(table.buffer, table.byteOffset, table.byteLength);
+  const out: CommentThread[] = [];
+  for (let i = 0; i < cAtn; i++) {
+    const id = `dc${i + 1}`;
+    const ibst = dv.getUint16(atrdBase + i * 30 + 20, true);
+    refMap.set(refCps[i], id);
+    const raw = renderNoteBody(full, subStart + txtCps[i], subStart + txtCps[i + 1], cpToFc, charSpans);
+    const text = raw.replace(/<[^>]+>/g, "").trim(); // comment bodies are stored as plain text
+    out.push({ id, author: owners[ibst] ?? "Author", date: "", text, reactions: [], paraId: id, replies: [], resolved: false });
+  }
+  return out;
+}
+
 export function docToParts(bytes: Uint8Array): DocParts {
   const cfb = readCfb(bytes);
   const wd = cfb.get("WordDocument");
@@ -382,13 +433,21 @@ export function docToParts(bytes: Uint8Array): DocParts {
   // Footnote / endnote subdocuments follow the main text in CP order: main, footnote,
   // header, comment, endnote. Their references are 0x02 chars in the main text.
   const refMap = new Map<number, NoteRef>();
+  const cmtRefMap = new Map<number, string>();
   const ftnStart = ccp;
+  const atnStart = ccp + fib.ccpFtn + fib.ccpHdd;
   const ednStart = ccp + fib.ccpFtn + fib.ccpHdd + fib.ccpAtn;
   const notes = [
     ...parseNotes(full, fib, table, "footnote", ftnStart, fib.ccpFtn, FC.plcffndRef, FC.plcffndTxt, cpToFc, charSpans, refMap),
     ...parseNotes(full, fib, table, "endnote", ednStart, fib.ccpEdn, FC.plcfendRef, FC.plcfendTxt, cpToFc, charSpans, refMap),
   ];
-  return { body: buildHtml(text, cpToFc, charSpans, paraSpans, refMap), page, notes: notes.length ? notes : undefined };
+  const comments = parseComments(full, fib, table, atnStart, cpToFc, charSpans, cmtRefMap);
+  return {
+    body: buildHtml(text, cpToFc, charSpans, paraSpans, refMap, cmtRefMap),
+    page,
+    notes: notes.length ? notes : undefined,
+    comments: comments.length ? comments : undefined,
+  };
 }
 
 export function docToHtml(bytes: Uint8Array): string {
@@ -423,6 +482,7 @@ function buildHtml(
   charSpans: Span<CharProps>[],
   paraSpans: Span<ParaProps>[],
   refMap: Map<number, NoteRef> = new Map(),
+  cmtRefMap: Map<number, string> = new Map(),
 ): string {
   const blocks: { tag: string; attr: string; inner: string }[] = [];
   let runHtml = ""; // accumulated inline HTML of the current paragraph
@@ -542,6 +602,15 @@ function buildHtml(
       if (r) {
         flushRun();
         runHtml += `<sup class="docx-fnref" data-fn-id="${r.id}" data-fn-kind="${r.kind}" contenteditable="false"></sup>`;
+      }
+      continue;
+    }
+    if (c === 0x05) {
+      // A comment (annotation) reference mark: emit the engine's inline comment reference.
+      const cid = cmtRefMap.get(cp);
+      if (cid) {
+        flushRun();
+        runHtml += `<span class="docx-comment-ref" data-comment-id="${cid}" contenteditable="false">\u{1F4AC}</span>`;
       }
       continue;
     }

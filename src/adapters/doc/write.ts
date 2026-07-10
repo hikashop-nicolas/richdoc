@@ -3,6 +3,16 @@ import { FC } from "./fib";
 import { B64, b64 } from "./templates";
 import type { Note, PageGeometry } from "../../core/types";
 
+// A comment reduced to what the binary stores: an author name plus plain-text body.
+export interface DocComment {
+  id: string;
+  author: string;
+  text: string;
+}
+
+// The subdocuments appended after the main text, in the CP order Word lays them out.
+type SubKind = "footnote" | "comment" | "endnote";
+
 // Write half of the .doc adapter: richdoc's edited HTML -> a from-scratch Word 97-2003
 // binary. We reuse a known-good FIB and the content-independent stylesheet / font table /
 // property-set streams captured from a real `textutil` file, and build the content-
@@ -23,7 +33,7 @@ interface Run {
   font?: string; // font family name
   highlight?: number; // highlight palette index (1..16)
   special?: boolean; // sprmCFSpec: a special character (footnote/endnote ref auto-number)
-  fnRef?: { id: string; kind: "footnote" | "endnote" }; // an inline note reference
+  fnRef?: { id: string; kind: SubKind }; // an inline reference (note or comment) in the main text
 }
 interface Para {
   align: number; // 0 left, 1 center, 2 right, 3 justify
@@ -32,7 +42,7 @@ interface Para {
   indentTwips?: number; // left indent in twips
   endChar?: number; // paragraph terminator (0x0D normally, 0x07 for table cells/rows)
   table?: { cell?: boolean; ttp?: boolean; cols?: number };
-  noteBoundary?: "footnote" | "endnote"; // first para of a note (or its subdoc's trailing mark)
+  noteBoundary?: SubKind; // first para of a note/comment (or its subdoc's trailing mark)
 }
 
 const HEADING_SIZE = [48, 36, 28, 24, 22, 20]; // h1..h6 in half-points
@@ -143,6 +153,16 @@ function collectRuns(node: Node, f: Fmt, runs: Run[]): void {
         const kind = el.getAttribute("data-fn-kind") === "endnote" ? "endnote" : "footnote";
         const id = el.getAttribute("data-fn-id") || "";
         runs.push({ ...mkRun("\x02", f), special: true, fnRef: { id, kind } });
+        continue;
+      }
+      if (el.classList.contains("docx-comment-ref")) {
+        const id = el.getAttribute("data-comment-id") || "";
+        runs.push({ ...mkRun("\x05", f), special: true, fnRef: { id, kind: "comment" } });
+        continue; // the emoji glyph inside the ref is not part of the text
+      }
+      if (el.classList.contains("docx-cmark")) continue; // bookmark markers carry no text
+      if (el.classList.contains("docx-comment")) {
+        collectRuns(el, f, runs); // a comment range wrapper: keep the text it spans
         continue;
       }
       if (tag === "a" && el.getAttribute("href")) {
@@ -527,28 +547,41 @@ function buildNoteParas(html: string, kind: "footnote" | "endnote"): Para[] {
   return sub;
 }
 
+// A comment's annotation-subdocument paragraph: the reference mark (0x05, special) then the
+// plain comment text. One paragraph per comment (Word 97 comments are unthreaded plain text).
+function buildCommentParas(text: string): Para[] {
+  const noNo: Fmt = { b: false, i: false, u: false, strike: false };
+  const runs: Run[] = [{ ...mkRun("\x05", noNo), special: true }];
+  if (text) runs.push(mkRun(text, noNo));
+  return [{ align: 0, runs, istd: 0, noteBoundary: "comment" }];
+}
+
 // ---------------------------------------------------------------------------
 // Assemble
 // ---------------------------------------------------------------------------
 
-export function htmlToDoc(bodyHtml: string, page?: PageGeometry, notes?: Note[]): Uint8Array {
+export function htmlToDoc(bodyHtml: string, page?: PageGeometry, notes?: Note[], comments?: DocComment[]): Uint8Array {
   const mainParas = parseHtml(bodyHtml);
 
-  // Order the note subdocuments by the order their references appear in the body, so ref[i]
-  // lines up with note[i] in the PLCFs. Orphan refs (no matching note) get an empty body.
-  const refSeq: { id: string; kind: "footnote" | "endnote" }[] = [];
+  // Subdocuments follow the main text in a fixed CP order (footnote, comment, endnote). Each
+  // one's bodies are ordered to match the order their references appear in the body, so ref[i]
+  // lines up with body[i] in the PLCFs. Orphan refs (no matching body) get an empty body.
+  const refSeq: { id: string; kind: SubKind }[] = [];
   for (const p of mainParas) for (const r of p.runs) if (r.fnRef) refSeq.push(r.fnRef);
   const noteById = new Map((notes ?? []).map((n) => [n.id, n]));
-  const orderedNotes = (kind: "footnote" | "endnote") =>
-    refSeq.filter((r) => r.kind === kind).map((r) => buildNoteParas(noteById.get(r.id)?.html ?? "", kind));
-  const fnParaGroups = orderedNotes("footnote");
-  const enParaGroups = orderedNotes("endnote");
-  const emptyPara = (kind: "footnote" | "endnote"): Para => ({ align: 0, runs: [], istd: 0, noteBoundary: kind });
-  const ftnParas = fnParaGroups.length ? [...fnParaGroups.flat(), emptyPara("footnote")] : [];
-  const ednParas = enParaGroups.length ? [...enParaGroups.flat(), emptyPara("endnote")] : [];
-  const firstFtnIdx = mainParas.length;
-  const firstEdnIdx = mainParas.length + ftnParas.length;
-  const paras = [...mainParas, ...ftnParas, ...ednParas];
+  const cmtById = new Map((comments ?? []).map((c) => [c.id, c]));
+  const groupsFor = (kind: SubKind): Para[][] =>
+    refSeq.filter((r) => r.kind === kind).map((r) =>
+      kind === "comment" ? buildCommentParas(cmtById.get(r.id)?.text ?? "") : buildNoteParas(noteById.get(r.id)?.html ?? "", kind));
+  // Each present subdocument = its bodies plus a trailing empty paragraph (Word's subdoc mark).
+  const mkRegion = (kind: SubKind): { kind: SubKind; paras: Para[] } | null => {
+    const groups = groupsFor(kind);
+    return groups.length ? { kind, paras: [...groups.flat(), { align: 0, runs: [], istd: 0, noteBoundary: kind }] } : null;
+  };
+  const regions = (["footnote", "comment", "endnote"] as SubKind[]).map(mkRegion).filter((r): r is { kind: SubKind; paras: Para[] } => !!r);
+  const paras = [...mainParas];
+  const regionStartIdx = new Map<SubKind, number>();
+  for (const reg of regions) { regionStartIdx.set(reg.kind, paras.length); paras.push(...reg.paras); }
 
   // Collect fonts (base four match the template order) + any run fonts, build the table.
   const fontNames = ["Times New Roman", "Symbol", "Arial", "Times"];
@@ -562,23 +595,18 @@ export function htmlToDoc(bodyHtml: string, page?: PageGeometry, notes?: Note[])
   const charRuns: CharRun[] = [];
   const paraRuns: ParaRun[] = [];
   const fcAt = (cp: number) => TEXT_START + cp * 2;
-  const ftnRefCps: number[] = []; // CP of each footnote reference char in the main doc
-  const ednRefCps: number[] = [];
-  const ftnTxtCps: number[] = []; // text-span starts within the footnote subdocument
-  const ednTxtCps: number[] = [];
-  let ccpTextCp = -1; // CP where the main doc ends (start of the footnote subdocument)
-  let ednBaseCp = -1; // CP where the endnote subdocument starts
+  const refCps: Record<SubKind, number[]> = { footnote: [], comment: [], endnote: [] }; // ref char CPs in the main doc
+  const txtCps: Record<SubKind, number[]> = { footnote: [], comment: [], endnote: [] }; // text-span starts within each subdoc
+  const regionBaseCp = new Map<SubKind, number>(); // CP where each subdocument starts
   for (let pi = 0; pi < paras.length; pi++) {
     const p = paras[pi];
     const paraStartCp = chars.length;
-    if (pi === firstFtnIdx) ccpTextCp = paraStartCp;
-    if (pi === firstEdnIdx) ednBaseCp = paraStartCp;
-    if (p.noteBoundary === "footnote") ftnTxtCps.push(paraStartCp);
-    else if (p.noteBoundary === "endnote") ednTxtCps.push(paraStartCp);
+    for (const [kind, idx] of regionStartIdx) if (pi === idx) regionBaseCp.set(kind, paraStartCp);
+    if (p.noteBoundary) txtCps[p.noteBoundary].push(paraStartCp);
     const runList = p.runs.length ? p.runs : [{ text: "", b: false, i: false, u: false, strike: false } as Run];
     for (const r of runList) {
       const startCp = chars.length;
-      if (r.fnRef) (r.fnRef.kind === "footnote" ? ftnRefCps : ednRefCps).push(startCp);
+      if (r.fnRef) refCps[r.fnRef.kind].push(startCp);
       for (const ch of r.text) chars.push(ch.codePointAt(0)!);
       charRuns.push({ fcStart: fcAt(startCp), fcEnd: fcAt(chars.length), grpprl: chpxGrpprl(r, fontTable.ftc) });
     }
@@ -588,16 +616,32 @@ export function htmlToDoc(bodyHtml: string, page?: PageGeometry, notes?: Note[])
     paraRuns.push({ fcStart: fcAt(paraStartCp), fcEnd: fcAt(chars.length), grpprl: papxGrpprl(p), istd: p.istd });
   }
   const total = chars.length;
-  const ccpText = ccpTextCp >= 0 ? ccpTextCp : total;
-  const ednBase = ednBaseCp >= 0 ? ednBaseCp : total;
-  const ccpFtn = ednBase - ccpText;
-  const ccpEdn = total - ednBase;
+  // Each subdocument's char count is the gap to the next one (main, then footnote, comment,
+  // endnote in that order); a missing subdocument contributes nothing.
+  const baseOf = (kind: SubKind) => regionBaseCp.get(kind) ?? -1;
+  const ftnBase = baseOf("footnote");
+  const cmtBase = baseOf("comment");
+  const ednBase = baseOf("endnote");
+  const ccpText = ftnBase >= 0 ? ftnBase : cmtBase >= 0 ? cmtBase : ednBase >= 0 ? ednBase : total;
+  const nextAfter = (cp: number) => [cmtBase, ednBase, total].filter((c) => c > cp).sort((a, b) => a - b)[0] ?? total;
+  const ccpFtn = ftnBase >= 0 ? nextAfter(ftnBase) - ftnBase : 0;
+  const ccpAtn = cmtBase >= 0 ? (ednBase >= 0 ? ednBase : total) - cmtBase : 0;
+  const ccpEdn = ednBase >= 0 ? total - ednBase : 0;
+  const relTo = (base: number, cps: number[]) => cps.map((c) => c - base);
+  const ftnRefCps = refCps.footnote, ednRefCps = refCps.endnote, atnRefCps = refCps.comment;
+  const ftnTxtCps = relTo(ftnBase, txtCps.footnote), ednTxtCps = relTo(ednBase, txtCps.endnote), atnTxtCps = relTo(cmtBase, txtCps.comment);
   // PLCF CPs: refs are absolute in the main doc (terminated at ccpText); text spans are
-  // relative to each subdocument and terminate at its char count.
+  // already relative to each subdocument and terminate at its char count.
   const plcffndRef = ccpFtn ? [...ftnRefCps, ccpText] : [];
   const plcfendRef = ccpEdn ? [...ednRefCps, ccpText] : [];
-  const plcffndTxt = ccpFtn ? [...ftnTxtCps.map((c) => c - ccpText), ccpFtn] : [];
-  const plcfendTxt = ccpEdn ? [...ednTxtCps.map((c) => c - ednBase), ccpEdn] : [];
+  const plcfandRef = ccpAtn ? [...atnRefCps, ccpText] : [];
+  const plcffndTxt = ccpFtn ? [...ftnTxtCps, ccpFtn] : [];
+  const plcfendTxt = ccpEdn ? [...ednTxtCps, ccpEdn] : [];
+  const plcfandTxt = ccpAtn ? [...atnTxtCps, ccpAtn] : [];
+  // Comment authors: a group of Xst (cch + UTF-16) indexed by each ATRD's ibst.
+  const commentList = ccpAtn ? atnRefCps.map((_, i) => cmtById.get(refSeq.filter((r) => r.kind === "comment")[i]!.id)) : [];
+  const authorNames = [...new Set(commentList.map((c) => c?.author || "Author"))];
+  const authorIbst = commentList.map((c) => Math.max(0, authorNames.indexOf(c?.author || "Author")));
   const textBytes = new Uint8Array(total * 2);
   {
     const dv = new DataView(textBytes.buffer);
@@ -671,6 +715,31 @@ export function htmlToDoc(bodyHtml: string, page?: PageGeometry, notes?: Note[])
   const fndTxt = writeTxtPlc(plcffndTxt);
   const endRef = writeRefPlc(plcfendRef);
   const endTxt = writeTxtPlc(plcfendTxt);
+  // Comment reference PLCF: CPs of the 0x05 marks + a 30-byte ATRD each (ibst = author index,
+  // lTagBkmk = -1 for no bookmark range; all other fields zero).
+  const andRef = ((): { fc: number; lcb: number } => {
+    const fc = tbl.length;
+    if (!plcfandRef.length) return { fc: 0, lcb: 0 };
+    for (const cp of plcfandRef) tbl.u32(cp);
+    for (let k = 0; k < plcfandRef.length - 1; k++) {
+      const atrd = new Uint8Array(30);
+      new DataView(atrd.buffer).setUint16(20, authorIbst[k] ?? 0, true); // ibst
+      atrd[26] = atrd[27] = atrd[28] = atrd[29] = 0xff; // lTagBkmk = -1
+      tbl.bytes(atrd);
+    }
+    return { fc, lcb: tbl.length - fc };
+  })();
+  const andTxt = writeTxtPlc(plcfandTxt);
+  // GrpXstAtnOwners: the author names as back-to-back Xst (cch u16 + UTF-16 chars).
+  const grpXst = ((): { fc: number; lcb: number } => {
+    const fc = tbl.length;
+    if (!authorNames.length) return { fc: 0, lcb: 0 };
+    for (const name of authorNames) {
+      tbl.u16(name.length);
+      for (const ch of name) tbl.u16(ch.charCodeAt(0));
+    }
+    return { fc, lcb: tbl.length - fc };
+  })();
 
   const fcClx = tbl.length;
   // Clx = Pcdt(0x02) + lcb(4) + PlcPcd{ aCP[2]={0,total}, aPcd[1]{flags:0, fc, prm:0} }. The
@@ -697,17 +766,21 @@ export function htmlToDoc(bodyHtml: string, page?: PageGeometry, notes?: Note[])
   patchFib(wd, {
     ccpText,
     ccpFtn,
+    ccpAtn,
     ccpEdn,
     cbMac: wdLen,
     pointers: [
       [FC.stshf, fcStshf, stsh.length],
       [FC.plcffndRef, fndRef.fc, fndRef.lcb],
       [FC.plcffndTxt, fndTxt.fc, fndTxt.lcb],
+      [FC.plcfandRef, andRef.fc, andRef.lcb],
+      [FC.plcfandTxt, andTxt.fc, andTxt.lcb],
       [FC.plcfSed, fcSed, lcbSed],
       [FC.plcfBteChpx, fcChpxBte, lcbChpxBte],
       [FC.plcfBtePapx, fcPapxBte, lcbPapxBte],
       [FC.clx, fcClx, lcbClx],
       [FC.sttbfffn, fcSttb, lcbSttb],
+      [FC.grpXstAtnOwners, grpXst.fc, grpXst.lcb],
       [FC.plcfendRef, endRef.fc, endRef.lcb],
       [FC.plcfendTxt, endTxt.fc, endTxt.lcb],
     ],
@@ -723,7 +796,7 @@ export function htmlToDoc(bodyHtml: string, page?: PageGeometry, notes?: Note[])
 
 function patchFib(
   wd: Uint8Array,
-  opts: { ccpText: number; ccpFtn?: number; ccpEdn?: number; cbMac: number; pointers: [number, number, number][] },
+  opts: { ccpText: number; ccpFtn?: number; ccpAtn?: number; ccpEdn?: number; cbMac: number; pointers: [number, number, number][] },
 ): void {
   const dv = new DataView(wd.buffer, wd.byteOffset, wd.byteLength);
   const csw = dv.getUint16(32, true);
@@ -733,6 +806,7 @@ function patchFib(
   dv.setUint32(rgLwOff + 0, opts.cbMac, true); // cbMac (fibRgLw[0])
   dv.setInt32(rgLwOff + 12, opts.ccpText, true); // ccpText (fibRgLw[3])
   dv.setInt32(rgLwOff + 16, opts.ccpFtn ?? 0, true); // ccpFtn (fibRgLw[4])
+  dv.setInt32(rgLwOff + 28, opts.ccpAtn ?? 0, true); // ccpAtn (fibRgLw[7])
   dv.setInt32(rgLwOff + 32, opts.ccpEdn ?? 0, true); // ccpEdn (fibRgLw[8])
   for (const [idx, fc, lcb] of opts.pointers) {
     dv.setUint32(blobOffset + idx * 8, fc, true);

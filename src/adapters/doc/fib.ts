@@ -7,11 +7,14 @@ export const FC = {
   stshf: 1,
   plcffndRef: 2, // footnote reference CPs (main doc)
   plcffndTxt: 3, // footnote text spans (footnote subdocument)
+  plcfandRef: 4, // comment (annotation) reference CPs + ATRD (main doc)
+  plcfandTxt: 5, // comment text spans (annotation subdocument)
   plcfSed: 6,
   plcfHdd: 11,
   plcfBteChpx: 12,
   plcfBtePapx: 13,
   sttbfffn: 15,
+  grpXstAtnOwners: 36, // comment author names (group of Xst), indexed by ATRD.ibst
   clx: 33,
   plcfendRef: 46, // endnote reference CPs (main doc)
   plcfendTxt: 47, // endnote text spans (endnote subdocument)

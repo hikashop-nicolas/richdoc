@@ -123,6 +123,37 @@ describe("doc write -> read round trip", () => {
     expect(parts.notes?.[0]?.html).toMatch(/font-weight:bold[^<]*>bold/);
   });
 
+  it("preserves comments (author + body) as an annotation subdocument", () => {
+    const body =
+      '<p>Alpha <span class="docx-comment-ref" data-comment-id="dc1"></span>beta ' +
+      '<span class="docx-comment-ref" data-comment-id="dc2"></span>gamma.</p>';
+    const comments = [
+      { id: "dc1", author: "Alice Smith", text: "First remark." },
+      { id: "dc2", author: "Bob Jones", text: "Second remark." },
+    ];
+    const parts = docToParts(htmlToDoc(body, undefined, undefined, comments));
+    expect((parts.body.match(/docx-comment-ref/g) || []).length).toBe(2);
+    expect(parts.comments?.map((c) => c.author)).toEqual(["Alice Smith", "Bob Jones"]);
+    expect(parts.comments?.map((c) => c.text)).toEqual(["First remark.", "Second remark."]);
+  });
+
+  it("keeps footnotes and comments together in the right subdocument order", () => {
+    const body =
+      '<p>x<sup class="docx-fnref" data-fn-id="fn1" data-fn-kind="footnote"></sup>' +
+      '<span class="docx-comment-ref" data-comment-id="dc1"></span>' +
+      'y<sup class="docx-fnref" data-fn-id="en1" data-fn-kind="endnote"></sup>z</p>';
+    const notes: Note[] = [
+      { id: "fn1", kind: "footnote", html: "<p>a note</p>" },
+      { id: "en1", kind: "endnote", html: "<p>an endnote</p>" },
+    ];
+    const comments = [{ id: "dc1", author: "Al", text: "a comment" }];
+    const parts = docToParts(htmlToDoc(body, undefined, notes, comments));
+    expect(parts.notes?.map((n) => `${n.kind}:${n.html.replace(/<[^>]+>/g, "")}`)).toEqual(["footnote:a note", "endnote:an endnote"]);
+    expect(parts.comments?.[0]?.text).toBe("a comment");
+    expect((parts.body.match(/docx-fnref/g) || []).length).toBe(2);
+    expect((parts.body.match(/docx-comment-ref/g) || []).length).toBe(1);
+  });
+
   it("is idempotent across a second round trip", () => {
     const once = docToHtml(htmlToDoc('<p><b>x</b> y <i>z</i> <a href="http://a.b/c">L</a></p>'));
     const twice = docToHtml(htmlToDoc(once));
