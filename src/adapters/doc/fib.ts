@@ -15,6 +15,7 @@ export const FC = {
   plcfBtePapx: 13,
   sttbfffn: 15,
   plcffldMom: 16, // field boundaries in the main document (CPs + FLD per field char)
+  sttbfRMark: 51, // revision (tracked-change) author names
   grpXstAtnOwners: 36, // comment author names (group of Xst), indexed by ATRD.ibst
   clx: 33,
   plcfendRef: 46, // endnote reference CPs (main doc)

@@ -32,6 +32,20 @@ interface CharProps {
   font?: string; // font family name
   highlight?: string; // background colour #rrggbb
   picOffset?: number; // sprmCPicLocation: byte offset of this run's picture in the Data stream
+  rev?: "ins" | "del"; // a tracked insertion / deletion
+  rmIbst?: number; // revision author index into SttbfRMark
+  rmDate?: string; // revision date (YYYY-MM-DD)
+}
+
+// Decode a Word DTTM (packed 32-bit date) to YYYY-MM-DD; empty if zero.
+function decodeDttm(v: Uint8Array): string {
+  const n = v[0]! | (v[1]! << 8) | (v[2]! << 16) | (v[3]! << 24);
+  if (!n) return "";
+  const dom = (n >>> 11) & 0x1f;
+  const mon = (n >>> 16) & 0xf;
+  const yr = ((n >>> 20) & 0x1ff) + 1900;
+  if (!mon || !dom) return "";
+  return `${yr}-${String(mon).padStart(2, "0")}-${String(dom).padStart(2, "0")}`;
 }
 
 // Word's 16-entry text-highlight palette (sprmCHighlight ico).
@@ -115,6 +129,18 @@ function decodeCharSprms(g: Uint8Array, fonts: string[] = []): CharProps {
         break;
       case 0x6a03: // sprmCPicLocation: offset into the Data stream of this picture char's PICF
         p.picOffset = v[0] | (v[1] << 8) | (v[2] << 16) | (v[3] << 24);
+        break;
+      case 0x0801: // sprmCFRMark: a tracked insertion
+        if (v[0]) p.rev = "ins";
+        break;
+      case 0x0800: // sprmCFRMarkDel: a tracked deletion
+        if (v[0]) p.rev = "del";
+        break;
+      case 0x4804: // sprmCIbstRMark: revision author index into SttbfRMark
+        p.rmIbst = v[0] | (v[1] << 8);
+        break;
+      case 0x6805: // sprmCDttmRMark: revision date
+        p.rmDate = decodeDttm(v);
         break;
     }
   }
@@ -359,6 +385,26 @@ function parseNotes(
   return notes;
 }
 
+// Parse an (extended) Sttbf of double-byte strings, e.g. SttbfRMark revision author names.
+function parseSttbStrings(table: Uint8Array, fc: number, lcb: number): string[] {
+  if (lcb < 4) return [];
+  const dv = new DataView(table.buffer, table.byteOffset + fc, lcb);
+  const ext = dv.getUint16(0, true) === 0xffff;
+  const cData = ext ? dv.getUint16(2, true) : dv.getUint16(0, true);
+  const cbExtra = ext ? dv.getUint16(4, true) : dv.getUint16(2, true);
+  let i = ext ? 6 : 4;
+  const out: string[] = [];
+  for (let k = 0; k < cData && i + 2 <= lcb; k++) {
+    const cch = dv.getUint16(i, true);
+    i += 2;
+    let s = "";
+    for (let j = 0; j < cch && i + 2 <= lcb; j++, i += 2) s += String.fromCharCode(dv.getUint16(i, true));
+    i += cbExtra;
+    out.push(s);
+  }
+  return out;
+}
+
 // Parse GrpXstAtnOwners: back-to-back Xst (cch u16 + UTF-16 chars) of comment author names.
 function parseAtnOwners(table: Uint8Array, fc: number, lcb: number): string[] {
   const names: string[] = [];
@@ -509,8 +555,10 @@ export function docToParts(bytes: Uint8Array): DocParts {
   const { header, footer } = parseHeaderFooter(full, fib, table, cpToFc, charSpans);
   const dataStream = cfb.get("Data");
   const imageAt = (offset: number) => extractImageHtml(dataStream, offset);
+  const rmFc = fib.fc(FC.sttbfRMark);
+  const rmAuthors = parseSttbStrings(table, rmFc.fc, rmFc.lcb);
   return {
-    body: buildHtml(text, cpToFc, charSpans, paraSpans, refMap, cmtRefMap, imageAt),
+    body: buildHtml(text, cpToFc, charSpans, paraSpans, refMap, cmtRefMap, imageAt, rmAuthors),
     page,
     notes: notes.length ? notes : undefined,
     comments: comments.length ? comments : undefined,
@@ -571,6 +619,7 @@ function buildHtml(
   refMap: Map<number, NoteRef> = new Map(),
   cmtRefMap: Map<number, string> = new Map(),
   imageAt: (offset: number) => string | null = () => null,
+  rmAuthors: string[] = [],
 ): string {
   const blocks: { tag: string; attr: string; inner: string }[] = [];
   let runHtml = ""; // accumulated inline HTML of the current paragraph
@@ -581,6 +630,16 @@ function buildHtml(
   let anchorOpen = false; // an <a> from a HYPERLINK field is open
   let fieldClose = ""; // HTML to append at the field end (e.g. "</a>" or "</span>")
   let suppressResult = false; // skip the field result text (a live field span replaces it)
+  let curRev: { tag: "ins" | "del"; key: string } | null = null; // an open tracked-change wrapper
+  const revAt = (cp: number): { tag: "ins" | "del"; key: string; open: string } | null => {
+    const p = lookup(charSpans, cpToFc(cp));
+    if (!p?.rev) return null;
+    const author = rmAuthors[p.rmIbst ?? -1] ?? "";
+    const date = p.rmDate ?? "";
+    const title = author ? `${author}${date ? " – " + date : ""}` : "";
+    return { tag: p.rev, key: `${p.rev}|${author}|${date}`, open: `<${p.rev} class="docx-${p.rev}" data-author="${esc(author)}" data-date="${esc(date)}" title="${esc(title)}">` };
+  };
+  const closeRev = (): void => { if (curRev) { flushRun(); runHtml += `</${curRev.tag}>`; curRev = null; } };
   const headingAt = (cp: number): number => lookup(paraSpans, cpToFc(cp))?.headingLevel ?? 0;
   let curHeading = headingAt(0);
   let tableRows: string[][] = [];
@@ -603,6 +662,7 @@ function buildHtml(
   };
   const flushPara = (cp: number): void => {
     flushRun();
+    closeRev();
     const pp = lookup(paraSpans, cpToFc(cp));
     const styles: string[] = [];
     const al = pp?.align;
@@ -732,6 +792,13 @@ function buildHtml(
     if (c === 0x09) {
       curText += "\t";
       continue;
+    }
+    // Open / close the tracked-change wrapper as the revision under the caret changes.
+    const rev = revAt(cp);
+    if ((rev?.key ?? "") !== (curRev?.key ?? "")) {
+      flushRun();
+      if (curRev) runHtml += `</${curRev.tag}>`;
+      if (rev) { runHtml += rev.open; curRev = { tag: rev.tag, key: rev.key }; } else curRev = null;
     }
     const style = runStyle(lookup(charSpans, cpToFc(cp)), curHeading > 0) || null;
     if (style !== curStyle) {

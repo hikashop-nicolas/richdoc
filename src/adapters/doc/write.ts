@@ -37,6 +37,9 @@ interface Run {
   image?: { bytes: Uint8Array; mime: string; wTwips: number; hTwips: number }; // an inline picture
   picLoc?: number; // sprmCPicLocation: this picture's offset in the Data stream (set during assembly)
   fldFlt?: number; // on a 0x13 field-begin char: the field type (PAGE=33, NUMPAGES=26, EQ=49, HYPERLINK=88)
+  rev?: "ins" | "del"; // a tracked insertion / deletion
+  rmAuthor?: string;
+  rmDate?: string;
 }
 interface Para {
   align: number; // 0 left, 1 center, 2 right, 3 justify
@@ -64,6 +67,9 @@ interface Fmt {
   color?: number;
   font?: string;
   highlight?: number;
+  rev?: "ins" | "del"; // a tracked insertion / deletion
+  rmAuthor?: string;
+  rmDate?: string;
 }
 
 // Word's 16-entry highlight palette (index -> #rrggbb), for nearest-colour matching.
@@ -134,7 +140,7 @@ function applyInlineStyle(f: Fmt, el: Element): Fmt {
 }
 
 function mkRun(text: string, f: Fmt): Run {
-  return { text, b: f.b, i: f.i, u: f.u, strike: f.strike, sizeHalf: f.sizeHalf, color: f.color, font: f.font, highlight: f.highlight };
+  return { text, b: f.b, i: f.i, u: f.u, strike: f.strike, sizeHalf: f.sizeHalf, color: f.color, font: f.font, highlight: f.highlight, rev: f.rev, rmAuthor: f.rmAuthor, rmDate: f.rmDate };
 }
 
 // An <img> becomes a picture placeholder run (0x01, special) carrying the decoded image bytes
@@ -211,6 +217,13 @@ function collectRuns(node: Node, f: Fmt, runs: Run[]): void {
         runs.push({ ...mkRun("\x13", f), special: true, fldFlt: 49 });
         runs.push(mkRun(` EQ \\* jc0 \\* "Font:MS Mincho" \\* hps10 \\o\\al(\\s\\up 9(${reading}),${base}) `, f));
         runs.push({ ...mkRun("\x15", f), special: true });
+        continue;
+      }
+      if (tag === "ins" || tag === "del") {
+        // A tracked change: mark every run inside as an insertion / deletion with its author.
+        const author = el.getAttribute("data-author") || "";
+        const date = (el.getAttribute("data-date") || "").slice(0, 10);
+        collectRuns(el, { ...f, rev: tag, rmAuthor: author, rmDate: date }, runs);
         continue;
       }
       if (tag === "a" && el.getAttribute("href")) {
@@ -304,11 +317,29 @@ class Buf {
 
 // Character sprms (grpprl) for a run's formatting. fontFtc resolves a font name to its
 // index in the font table (or -1 to omit).
-function chpxGrpprl(r: Run, fontFtc: (name: string) => number): Uint8Array {
+// Pack a "YYYY-MM-DD" date into a Word DTTM (0 when absent).
+function encodeDttm(date?: string): number {
+  const m = date?.match(/^(\d{4})-(\d{2})-(\d{2})/);
+  if (!m) return 0;
+  const yr = Math.max(0, Number(m[1]) - 1900) & 0x1ff;
+  const mon = Number(m[2]) & 0xf;
+  const dom = Number(m[3]) & 0x1f;
+  return ((dom << 11) | (mon << 16) | (yr << 20)) >>> 0;
+}
+
+function chpxGrpprl(r: Run, fontFtc: (name: string) => number, rmIbst: (author: string) => number = () => 0): Uint8Array {
   const b = new Buf();
   if (r.special) {
     b.u16(0x0855); // sprmCFSpec
     b.u8(1);
+  }
+  if (r.rev) {
+    b.u16(r.rev === "del" ? 0x0800 : 0x0801); // sprmCFRMarkDel / sprmCFRMark
+    b.u8(1);
+    b.u16(0x4804); // sprmCIbstRMark: author index
+    b.u16(rmIbst(r.rmAuthor ?? ""));
+    b.u16(0x6805); // sprmCDttmRMark: date
+    b.u32(encodeDttm(r.rmDate));
   }
   if (r.picLoc !== undefined) {
     b.u16(0x6a03); // sprmCPicLocation: this picture's byte offset in the Data stream
@@ -802,6 +833,11 @@ export function htmlToDoc(bodyHtml: string, page?: PageGeometry, notes?: Note[],
   }
   const dataStream = dataBuf.length ? dataBuf.done() : null;
 
+  // Revision (tracked-change) authors -> SttbfRMark, with an author->index resolver.
+  const rmAuthorList: string[] = [];
+  for (const p of paras) for (const r of p.runs) if (r.rev && r.rmAuthor && !rmAuthorList.includes(r.rmAuthor)) rmAuthorList.push(r.rmAuthor);
+  const rmIbst = (author: string) => Math.max(0, rmAuthorList.indexOf(author));
+
   // 1. Build the text stream (UTF-16LE) and record run/para fc boundaries.
   const chars: number[] = [];
   const charRuns: CharRun[] = [];
@@ -827,7 +863,7 @@ export function htmlToDoc(bodyHtml: string, page?: PageGeometry, notes?: Note[],
       if (r.text === "\x13" || r.text === "\x14" || r.text === "\x15")
         fieldChars.push({ cp: startCp, ch: r.text.charCodeAt(0), flt: r.text === "\x13" ? (r.fldFlt ?? 0) : r.text === "\x14" ? 0xff : 0x80 });
       for (const ch of r.text) chars.push(ch.codePointAt(0)!);
-      charRuns.push({ fcStart: fcAt(startCp), fcEnd: fcAt(chars.length), grpprl: chpxGrpprl(r, fontTable.ftc) });
+      charRuns.push({ fcStart: fcAt(startCp), fcEnd: fcAt(chars.length), grpprl: chpxGrpprl(r, fontTable.ftc, rmIbst) });
     }
     chars.push(p.endChar ?? 0x0d); // paragraph / cell / row mark
     // The paragraph's CHPX must also cover its mark; extend the last run to include it.
@@ -976,6 +1012,19 @@ export function htmlToDoc(bodyHtml: string, page?: PageGeometry, notes?: Note[],
     for (const f of mainFields) { tbl.u8(f.ch); tbl.u8(f.flt); }
     return { fc, lcb: tbl.length - fc };
   })();
+  // SttbfRMark: revision author names as an extended Sttbf (double-byte, no extra data).
+  const rmSttb = ((): { fc: number; lcb: number } => {
+    if (!rmAuthorList.length) return { fc: 0, lcb: 0 };
+    const fc = tbl.length;
+    tbl.u16(0xffff); // fExtend
+    tbl.u16(rmAuthorList.length); // cData
+    tbl.u16(0); // cbExtra
+    for (const name of rmAuthorList) {
+      tbl.u16(name.length);
+      for (const ch of name) tbl.u16(ch.charCodeAt(0));
+    }
+    return { fc, lcb: tbl.length - fc };
+  })();
   // GrpXstAtnOwners: the author names as back-to-back Xst (cch u16 + UTF-16 chars).
   const grpXst = ((): { fc: number; lcb: number } => {
     const fc = tbl.length;
@@ -1024,6 +1073,7 @@ export function htmlToDoc(bodyHtml: string, page?: PageGeometry, notes?: Note[],
       [FC.plcfandTxt, andTxt.fc, andTxt.lcb],
       [FC.plcfHdd, hddPlc.fc, hddPlc.lcb],
       [FC.plcffldMom, fldPlc.fc, fldPlc.lcb],
+      [FC.sttbfRMark, rmSttb.fc, rmSttb.lcb],
       [FC.plcfSed, fcSed, lcbSed],
       [FC.plcfBteChpx, fcChpxBte, lcbChpxBte],
       [FC.plcfBtePapx, fcPapxBte, lcbPapxBte],

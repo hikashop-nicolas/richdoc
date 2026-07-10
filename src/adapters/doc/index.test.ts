@@ -195,6 +195,13 @@ describe("doc write -> read round trip", () => {
     expect(html).toMatch(/<ruby>漢字<rt>かんじ<\/rt><\/ruby>/);
   });
 
+  it("round-trips tracked insertions and deletions", () => {
+    const body = '<p>a <ins class="docx-ins" data-author="Al" data-date="2026-07-11">new</ins> b <del class="docx-del" data-author="Bo" data-date="2026-06-01">old</del> c</p>';
+    const html = docToHtml(htmlToDoc(body));
+    expect(html).toMatch(/<ins class="docx-ins"[^>]*data-author="Al"[^>]*>new<\/ins>/);
+    expect(html).toMatch(/<del class="docx-del"[^>]*>old<\/del>/);
+  });
+
   it("is idempotent across a second round trip", () => {
     const once = docToHtml(htmlToDoc('<p><b>x</b> y <i>z</i> <a href="http://a.b/c">L</a></p>'));
     const twice = docToHtml(htmlToDoc(once));
