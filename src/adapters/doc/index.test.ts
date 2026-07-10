@@ -218,8 +218,9 @@ describe("doc write -> read round trip", () => {
     const bytes = gunzipSync(Uint8Array.from(atob(TEXTBOX_DOC_GZ_B64), (c) => c.charCodeAt(0)));
     const html = docToParts(bytes).body;
     // Each box renders as a bordered div in document order, right after its anchor paragraph.
-    expect(html).toMatch(/Anchor one\.<\/p><div class="doc-textbox"[^>]*><p>Box ALPHA content\.<\/p><\/div>/);
-    expect(html).toMatch(/Anchor two\.<\/p><div class="doc-textbox"[^>]*><p>Box BETA content\.<\/p><\/div>/);
+    // Styling is via the .docx-textbox class in the stylesheet, not inline.
+    expect(html).toMatch(/Anchor one\.<\/p><div class="docx-textbox"><p>Box ALPHA content\.<\/p><\/div>/);
+    expect(html).toMatch(/Anchor two\.<\/p><div class="docx-textbox"><p>Box BETA content\.<\/p><\/div>/);
     // Body text around the boxes is preserved in order.
     expect(html).toMatch(/First body line\..*Middle body line\..*Last body line\./);
   });

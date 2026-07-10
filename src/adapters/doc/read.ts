@@ -759,7 +759,7 @@ function buildHtml(
     // A text box anchored in this paragraph renders as a bordered block right after it (its
     // float position is not modelled; on save it degrades to a plain paragraph).
     for (const box of pendingTextboxes)
-      blocks.push({ tag: "div", attr: ' class="doc-textbox" style="border:1px solid #888;padding:6px;margin:6px 0;display:inline-block;min-width:120px"', inner: box });
+      blocks.push({ tag: "div", attr: ' class="docx-textbox"', inner: box });
     pendingTextboxes.length = 0;
     runHtml = "";
     curStyle = null;

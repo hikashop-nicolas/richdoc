@@ -99,6 +99,10 @@
 .docxedit-border-opts input[type="color"] { width: 26px; height: 24px; padding: 1px; }
 /* Cells selected together (drag or shift-click): the cell menu acts on all of them. */
 .docx-table td.rdoc-sel { background: rgba(110,123,255,.18); }
+/* A text box read from a .doc: a bordered block placed after its anchor paragraph. The border
+   is a visual affordance only (not document data), so it lives here rather than inline. */
+.docx-textbox { border: 1px solid #888; padding: 6px; margin: 6px 0; display: inline-block; min-width: 120px; }
+.docx-textbox > p:last-child { margin-bottom: 0; }
 
 /* Insert-table grid picker (drag/hover to choose size). */
 .docxedit-table-picker { position: absolute; z-index: 30; background: var(--rdoc-chrome, #2b2f36); border: 1px solid var(--rdoc-btn-border, #4a4f57); border-radius: 8px; padding: 8px; box-shadow: 0 6px 20px rgba(0,0,0,.5); }
