@@ -36,6 +36,7 @@ interface Run {
   fnRef?: { id: string; kind: SubKind }; // an inline reference (note or comment) in the main text
   image?: { bytes: Uint8Array; mime: string; wTwips: number; hTwips: number }; // an inline picture
   picLoc?: number; // sprmCPicLocation: this picture's offset in the Data stream (set during assembly)
+  fldFlt?: number; // on a 0x13 field-begin char: the field type (PAGE=33, NUMPAGES=26, EQ=49, HYPERLINK=88)
 }
 interface Para {
   align: number; // 0 left, 1 center, 2 right, 3 justify
@@ -189,13 +190,36 @@ function collectRuns(node: Node, f: Fmt, runs: Run[]): void {
         if (img) runs.push(img);
         continue;
       }
+      if (tag === "span" && el.classList.contains("docx-field")) {
+        // A live field (PAGE / NUMPAGES): 0x13 <instr> 0x14 <result> 0x15, field chars special.
+        const field = (el.getAttribute("data-field") || "").toUpperCase();
+        if (field === "PAGE" || field === "NUMPAGES") {
+          runs.push({ ...mkRun("\x13", f), special: true, fldFlt: field === "PAGE" ? 33 : 26 });
+          runs.push(mkRun(` ${field} `, f));
+          runs.push({ ...mkRun("\x14", f), special: true });
+          runs.push(mkRun(el.textContent || "1", f));
+          runs.push({ ...mkRun("\x15", f), special: true });
+          continue;
+        }
+      }
+      if (tag === "ruby") {
+        // Furigana: <ruby>base<rt>reading</rt></ruby> -> an EQ ruby field (no separator).
+        const clone = el.cloneNode(true) as HTMLElement;
+        const reading = clone.querySelector("rt")?.textContent ?? "";
+        for (const x of Array.from(clone.querySelectorAll("rt, rp"))) x.remove();
+        const base = clone.textContent ?? "";
+        runs.push({ ...mkRun("\x13", f), special: true, fldFlt: 49 });
+        runs.push(mkRun(` EQ \\* jc0 \\* "Font:MS Mincho" \\* hps10 \\o\\al(\\s\\up 9(${reading}),${base}) `, f));
+        runs.push({ ...mkRun("\x15", f), special: true });
+        continue;
+      }
       if (tag === "a" && el.getAttribute("href")) {
         const href = el.getAttribute("href") || "";
-        runs.push(mkRun("\x13", f));
+        runs.push({ ...mkRun("\x13", f), special: true, fldFlt: 88 });
         runs.push(mkRun(`HYPERLINK "${href.replace(/"/g, "%22")}" `, f));
-        runs.push(mkRun("\x14", f));
+        runs.push({ ...mkRun("\x14", f), special: true });
         collectRuns(el, { ...f, u: true, color: 0xee0000 }, runs);
-        runs.push(mkRun("\x15", f));
+        runs.push({ ...mkRun("\x15", f), special: true });
         continue;
       }
       collectRuns(el, applyInlineStyle(f, el), runs);
@@ -786,6 +810,7 @@ export function htmlToDoc(bodyHtml: string, page?: PageGeometry, notes?: Note[],
   const refCps: Record<SubKind, number[]> = { footnote: [], comment: [], endnote: [] }; // ref char CPs in the main doc
   const txtCps: Record<SubKind, number[]> = { footnote: [], comment: [], endnote: [] }; // text-span starts within each subdoc
   const regionBaseCp = new Map<SubKind, number>(); // CP where each subdocument starts
+  const fieldChars: { cp: number; ch: number; flt: number }[] = []; // every field char (0x13/0x14/0x15)
   let hddBaseCp = -1; // CP where the header/footer subdocument starts
   let footerStoryCp = -1; // CP where the footer story starts inside the header/footer subdoc
   for (let pi = 0; pi < paras.length; pi++) {
@@ -799,6 +824,8 @@ export function htmlToDoc(bodyHtml: string, page?: PageGeometry, notes?: Note[],
     for (const r of runList) {
       const startCp = chars.length;
       if (r.fnRef) refCps[r.fnRef.kind].push(startCp);
+      if (r.text === "\x13" || r.text === "\x14" || r.text === "\x15")
+        fieldChars.push({ cp: startCp, ch: r.text.charCodeAt(0), flt: r.text === "\x13" ? (r.fldFlt ?? 0) : r.text === "\x14" ? 0xff : 0x80 });
       for (const ch of r.text) chars.push(ch.codePointAt(0)!);
       charRuns.push({ fcStart: fcAt(startCp), fcEnd: fcAt(chars.length), grpprl: chpxGrpprl(r, fontTable.ftc) });
     }
@@ -829,6 +856,9 @@ export function htmlToDoc(bodyHtml: string, page?: PageGeometry, notes?: Note[],
   // PlcfHdd: 6 footnote/endnote separator stories (empty) + section 0's six stories; the primary
   // header is the odd-header (index 7), the primary footer the odd-footer (index 9).
   const plcfHdd = ccpHdd ? [0, 0, 0, 0, 0, 0, 0, 0, headerLen, headerLen, headerLen + footerLen, headerLen + footerLen, headerLen + footerLen, headerLen + footerLen] : [];
+  // Field boundaries in the main document, so Word recognises PAGE/NUMPAGES/HYPERLINK/EQ fields
+  // (the inline 0x13/0x14/0x15 chars alone are not enough).
+  const mainFields = fieldChars.filter((fc) => fc.cp < ccpText);
   const relTo = (base: number, cps: number[]) => cps.map((c) => c - base);
   const ftnRefCps = refCps.footnote, ednRefCps = refCps.endnote, atnRefCps = refCps.comment;
   const ftnTxtCps = relTo(ftnBase, txtCps.footnote), ednTxtCps = relTo(ednBase, txtCps.endnote), atnTxtCps = relTo(cmtBase, txtCps.comment);
@@ -937,6 +967,15 @@ export function htmlToDoc(bodyHtml: string, page?: PageGeometry, notes?: Note[],
   })();
   const andTxt = writeTxtPlc(plcfandTxt);
   const hddPlc = writeTxtPlc(plcfHdd); // PlcfHdd is just a CP array (story boundaries)
+  // Plcffld: (n+1) CPs of the field chars (terminated at ccpText) + an FLD(ch, flt) per char.
+  const fldPlc = ((): { fc: number; lcb: number } => {
+    if (!mainFields.length) return { fc: 0, lcb: 0 };
+    const fc = tbl.length;
+    for (const f of mainFields) tbl.u32(f.cp);
+    tbl.u32(ccpText); // terminating CP
+    for (const f of mainFields) { tbl.u8(f.ch); tbl.u8(f.flt); }
+    return { fc, lcb: tbl.length - fc };
+  })();
   // GrpXstAtnOwners: the author names as back-to-back Xst (cch u16 + UTF-16 chars).
   const grpXst = ((): { fc: number; lcb: number } => {
     const fc = tbl.length;
@@ -984,6 +1023,7 @@ export function htmlToDoc(bodyHtml: string, page?: PageGeometry, notes?: Note[],
       [FC.plcfandRef, andRef.fc, andRef.lcb],
       [FC.plcfandTxt, andTxt.fc, andTxt.lcb],
       [FC.plcfHdd, hddPlc.fc, hddPlc.lcb],
+      [FC.plcffldMom, fldPlc.fc, fldPlc.lcb],
       [FC.plcfSed, fcSed, lcbSed],
       [FC.plcfBteChpx, fcChpxBte, lcbChpxBte],
       [FC.plcfBtePapx, fcPapxBte, lcbPapxBte],

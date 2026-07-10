@@ -97,7 +97,7 @@ export function createDocAdapter(bytes: Uint8Array): Adapter {
       fontControls: true,
       alignment: true,
       verticalText: true,
-      fields: false,
+      fields: true,
       equations: false,
       sections: "trailing",
       pageNumbering: false,

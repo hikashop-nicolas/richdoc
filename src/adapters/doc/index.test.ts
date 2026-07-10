@@ -183,6 +183,18 @@ describe("doc write -> read round trip", () => {
     expect(html).toMatch(/<img src="data:image\/png;base64,iVBORw0KGgo/);
   });
 
+  it("round-trips PAGE / NUMPAGES fields", () => {
+    const body = '<p>Page <span class="docx-field" data-field="PAGE">1</span> of <span class="docx-field" data-field="NUMPAGES">1</span></p>';
+    const html = docToHtml(htmlToDoc(body));
+    expect(html).toMatch(/data-field="PAGE"/);
+    expect(html).toMatch(/data-field="NUMPAGES"/);
+  });
+
+  it("round-trips ruby (furigana) as an EQ field", () => {
+    const html = docToHtml(htmlToDoc("<p>x<ruby>漢字<rt>かんじ</rt></ruby>y</p>"));
+    expect(html).toMatch(/<ruby>漢字<rt>かんじ<\/rt><\/ruby>/);
+  });
+
   it("is idempotent across a second round trip", () => {
     const once = docToHtml(htmlToDoc('<p><b>x</b> y <i>z</i> <a href="http://a.b/c">L</a></p>'));
     const twice = docToHtml(htmlToDoc(once));

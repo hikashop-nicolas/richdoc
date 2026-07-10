@@ -531,6 +531,24 @@ const FIELD_BEGIN = 0x13;
 const FIELD_SEP = 0x14;
 const FIELD_END = 0x15;
 
+// Word ruby (phonetic guide) is an EQ field: EQ \* ... \o\a?(\s\up N(reading),base). Pull the
+// reading and base back out into an HTML <ruby>.
+function rubyFromEq(instr: string): { base: string; reading: string } | null {
+  if (!/\bEQ\b/.test(instr)) return null;
+  const m = instr.match(/\\up\s*\d+\s*\(([^)]*)\)\s*,\s*([^)]*)\)/);
+  return m ? { reading: m[1]!, base: m[2]! } : null;
+}
+
+// The kind of a field from its instruction: a live field the engine fills (PAGE / NUMPAGES),
+// a table of contents, or null (its result text is shown as-is).
+function fieldKind(instr: string): "PAGE" | "NUMPAGES" | "TOC" | null {
+  const t = instr.trim().toUpperCase();
+  if (/^PAGE(\s|$|\\)/.test(t)) return "PAGE";
+  if (/^NUMPAGES(\s|$|\\)/.test(t)) return "NUMPAGES";
+  if (/^TOC(\s|$|\\)/.test(t)) return "TOC";
+  return null;
+}
+
 function runStyle(p: CharProps | undefined, isHeading = false): string {
   if (!p) return "";
   const s: string[] = [];
@@ -561,6 +579,8 @@ function buildHtml(
   let inInstr = false; // between a field's begin (0x13) and separator (0x14)
   let instr = "";
   let anchorOpen = false; // an <a> from a HYPERLINK field is open
+  let fieldClose = ""; // HTML to append at the field end (e.g. "</a>" or "</span>")
+  let suppressResult = false; // skip the field result text (a live field span replaces it)
   const headingAt = (cp: number): number => lookup(paraSpans, cpToFc(cp))?.headingLevel ?? 0;
   let curHeading = headingAt(0);
   let tableRows: string[][] = [];
@@ -621,31 +641,46 @@ function buildHtml(
       flushRun();
       inInstr = true;
       instr = "";
+      fieldClose = "";
+      suppressResult = false;
       continue;
     }
     if (c === FIELD_SEP) {
       inInstr = false;
       const m = instr.match(/HYPERLINK\s+"([^"]+)"|HYPERLINK\s+(\S+)/i);
       const url = m && (m[1] || m[2]);
+      const kind = fieldKind(instr);
+      flushRun();
       if (url) {
-        flushRun();
         runHtml += `<a href="${esc(url).replace(/"/g, "&quot;")}">`;
         anchorOpen = true;
+      } else if (kind === "PAGE" || kind === "NUMPAGES") {
+        // A live field the engine recomputes; drop the stale cached result.
+        runHtml += `<span class="docx-field" data-field="${kind}" contenteditable="false">`;
+        fieldClose = "</span>";
+        suppressResult = true;
       }
       continue;
     }
     if (c === FIELD_END) {
-      if (anchorOpen) {
-        flushRun();
-        runHtml += "</a>";
-        anchorOpen = false;
+      flushRun();
+      if (anchorOpen) { runHtml += "</a>"; anchorOpen = false; }
+      else if (inInstr) {
+        // A field with no separator (e.g. ruby, stored as an EQ field with no result).
+        const ruby = rubyFromEq(instr);
+        if (ruby) runHtml += `<ruby>${esc(ruby.base)}<rt>${esc(ruby.reading)}</rt></ruby>`;
       }
+      runHtml += fieldClose;
+      fieldClose = "";
+      suppressResult = false;
+      inInstr = false;
       continue;
     }
     if (inInstr) {
       instr += text[cp];
       continue;
     }
+    if (suppressResult) continue;
     if (c === PARA || c === CELL) {
       flushPara(cp);
       continue;
