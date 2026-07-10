@@ -25,7 +25,11 @@ interface Run {
 interface Para {
   align: number; // 0 left, 1 center, 2 right, 3 justify
   runs: Run[];
+  istd: number; // paragraph style index (0 = Normal, 1..6 = Heading 1..6)
+  indentTwips?: number; // left indent in twips
 }
+
+const HEADING_SIZE = [48, 36, 28, 24, 22, 20]; // h1..h6 in half-points
 
 // ---------------------------------------------------------------------------
 // HTML -> paragraph/run model
@@ -150,23 +154,32 @@ function parseHtml(bodyHtml: string): Para[] {
   const doc = new DOMParser().parseFromString(`<body>${bodyHtml}</body>`, "text/html");
   const paras: Para[] = [];
   const blockTags = new Set(["p", "h1", "h2", "h3", "h4", "h5", "h6", "li", "div", "blockquote", "pre"]);
-  const walk = (el: Element): void => {
+  const walk = (el: Element, list: { ordered: boolean; n: number } | null): void => {
     for (const child of Array.from(el.children)) {
       const tag = child.tagName.toLowerCase();
-      if (tag === "ul" || tag === "ol" || tag === "table" || tag === "tbody" || tag === "tr") {
-        walk(child);
-      } else if (blockTags.has(tag)) {
-        const base: Fmt = { b: /^h[1-6]$/.test(tag), i: false, u: false, strike: false };
-        if (/^h[1-6]$/.test(tag)) base.sizeHalf = { h1: 48, h2: 36, h3: 28, h4: 24, h5: 22, h6: 20 }[tag] ?? 24;
+      if (tag === "ul") walk(child, { ordered: false, n: 0 });
+      else if (tag === "ol") walk(child, { ordered: true, n: 0 });
+      else if (tag === "table" || tag === "tbody" || tag === "tr") walk(child, list);
+      else if (blockTags.has(tag)) {
+        const hMatch = /^h([1-6])$/.exec(tag);
+        const level = hMatch ? Number(hMatch[1]) : 0;
+        const base: Fmt = { b: level > 0, i: false, u: false, strike: false };
+        if (level > 0) base.sizeHalf = HEADING_SIZE[level - 1];
         const runs: Run[] = [];
         collectRuns(child, base, runs);
-        const prefix = tag === "li" ? [{ text: "\t•\t", b: false, i: false, u: false, strike: false } as Run] : [];
-        paras.push({ align: blockAlign(child), runs: [...prefix, ...runs] });
+        let prefix: Run[] = [];
+        let indent = 0;
+        if (tag === "li") {
+          const marker = list?.ordered ? `\t${++list.n}.\t` : "\t•\t";
+          prefix = [{ text: marker, b: false, i: false, u: false, strike: false }];
+          indent = 360; // 0.25" hanging indent, like textutil
+        }
+        paras.push({ align: blockAlign(child), runs: [...prefix, ...runs], istd: level, indentTwips: indent });
       }
     }
   };
-  walk(doc.body);
-  if (paras.length === 0) paras.push({ align: 0, runs: [] });
+  walk(doc.body, null);
+  if (paras.length === 0) paras.push({ align: 0, runs: [], istd: 0 });
   return paras;
 }
 
@@ -250,6 +263,10 @@ function papxGrpprl(p: Para): Uint8Array {
     b.u16(0x2403);
     b.u8(p.align);
   }
+  if (p.indentTwips) {
+    b.u16(0x840f); // sprmPDxaLeft
+    b.u16(p.indentTwips);
+  }
   return b.done();
 }
 
@@ -285,6 +302,7 @@ interface ParaRun {
   fcStart: number;
   fcEnd: number;
   grpprl: Uint8Array;
+  istd: number;
 }
 
 function buildChpxFkp(runs: CharRun[]): Uint8Array {
@@ -315,10 +333,12 @@ function buildPapxFkp(paras: ParaRun[]): Uint8Array {
   const bxArr = 4 * (cpara + 1); // aBxPap: 13 bytes each
   let pos = 511;
   for (let i = cpara - 1; i >= 0; i--) {
-    // grpprl = istd (2 bytes, 0 = Normal) + sprms
+    // grpprl = istd (2 bytes) + sprms
     const g = paras[i].grpprl;
     const grpprl = new Uint8Array(2 + g.length);
-    grpprl.set(g, 2); // istd stays 0
+    grpprl[0] = paras[i].istd & 0xff;
+    grpprl[1] = (paras[i].istd >> 8) & 0xff;
+    grpprl.set(g, 2);
     // PapxInFkp: 1-byte cb where the stored grpprl length is 2*cb-1 (pad if even).
     const stored = grpprl.length % 2 === 0 ? new Uint8Array([...grpprl, 0]) : grpprl;
     const cb = (stored.length + 1) / 2;
@@ -330,6 +350,67 @@ function buildPapxFkp(paras: ParaRun[]): Uint8Array {
   }
   page[511] = cpara;
   return page;
+}
+
+// Build a paragraph "Heading N" STD (sti=N, based on Normal), carrying bold + the heading
+// font size so it renders in Word even without direct formatting.
+function buildHeadingStd(n: number): Uint8Array {
+  const name = `heading ${n}`;
+  const b = new Buf();
+  b.u16(n); // sti = n, flags 0
+  b.u16(0x0001); // stk = 1 (paragraph), istdBase = 0 (Normal)
+  b.u16(0x0002); // cupx = 2, istdNext = 0
+  b.u16(0); // bchUpe (patched below)
+  b.u16(0); // grfstd
+  b.u16(name.length);
+  for (const ch of name) b.u16(ch.charCodeAt(0));
+  b.u16(0); // null terminator
+  // LPUpxPapx: cbUPX = 2, UpxPapx = istd(2) = n
+  b.u16(2);
+  b.u16(n);
+  // LPUpxChpx: grpprl = bold + heading size
+  const chpx = new Buf();
+  chpx.u16(0x0835);
+  chpx.u8(1);
+  chpx.u16(0x4a43);
+  chpx.u16(HEADING_SIZE[n - 1]);
+  const cg = chpx.done();
+  b.u16(cg.length);
+  b.bytes(cg);
+  if (cg.length % 2 !== 0) b.u8(0); // pad UPX to even
+  const std = b.done();
+  new DataView(std.buffer).setUint16(6, std.length, true); // bchUpe = cbStd (like Normal)
+  return std;
+}
+
+// Rebuild the stylesheet, filling the template's empty istd 1..6 slots with Heading 1..6.
+function buildStshWithHeadings(): Uint8Array {
+  const tpl = b64(B64.STSH);
+  const dv = new DataView(tpl.buffer, tpl.byteOffset, tpl.byteLength);
+  const cbStshi = dv.getUint16(0, true);
+  const cstd = dv.getUint16(2, true); // STSHI.cstd
+  const stds: (Uint8Array | null)[] = [];
+  let i = 2 + cbStshi;
+  for (let istd = 0; istd < cstd; istd++) {
+    const cbStd = dv.getUint16(i, true);
+    i += 2;
+    if (cbStd === 0) stds.push(null);
+    else {
+      stds.push(tpl.subarray(i, i + cbStd));
+      i += cbStd;
+    }
+  }
+  for (let n = 1; n <= 6; n++) stds[n] = buildHeadingStd(n);
+  const out = new Buf();
+  out.bytes(tpl.subarray(0, 2 + cbStshi));
+  for (const std of stds) {
+    if (!std) out.u16(0);
+    else {
+      out.u16(std.length);
+      out.bytes(std);
+    }
+  }
+  return out.done();
 }
 
 // ---------------------------------------------------------------------------
@@ -362,7 +443,7 @@ export function htmlToDoc(bodyHtml: string): Uint8Array {
     chars.push(0x0d); // paragraph mark
     // The paragraph's CHPX must also cover its mark; extend the last run to include it.
     charRuns[charRuns.length - 1].fcEnd = fcAt(chars.length);
-    paraRuns.push({ fcStart: fcAt(paraStartCp), fcEnd: fcAt(chars.length), grpprl: papxGrpprl(p) });
+    paraRuns.push({ fcStart: fcAt(paraStartCp), fcEnd: fcAt(chars.length), grpprl: papxGrpprl(p), istd: p.istd });
   }
   const ccpText = chars.length;
   const textBytes = new Uint8Array(ccpText * 2);
@@ -387,7 +468,7 @@ export function htmlToDoc(bodyHtml: string): Uint8Array {
   wd.set(papxFkp, papxPage * 512);
 
   // 3. 1Table = STSH + PlcfSed + PlcfBteChpx + PlcfBtePapx + Clx + Sttbfffn.
-  const stsh = b64(B64.STSH);
+  const stsh = buildStshWithHeadings();
   const sttb = fontTable.bytes;
   const tbl = new Buf();
   const fcStshf = 0;

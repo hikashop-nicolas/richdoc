@@ -60,6 +60,19 @@ describe("doc write -> read round trip", () => {
     expect(html).toContain("ok");
   });
 
+  it("preserves headings as h1-h6", () => {
+    const html = docToHtml(htmlToDoc("<h1>Title</h1><h2>Sub</h2><p>Body.</p>"));
+    expect(html).toMatch(/<h1>Title<\/h1>/);
+    expect(html).toMatch(/<h2>Sub<\/h2>/);
+    expect(html).toContain("<p>Body.</p>");
+  });
+
+  it("preserves bullet and numbered lists", () => {
+    const html = docToHtml(htmlToDoc("<ul><li>a</li><li>b</li></ul><ol><li>x</li><li>y</li></ol>"));
+    expect(html).toMatch(/<ul><li>a<\/li><li>b<\/li><\/ul>/);
+    expect(html).toMatch(/<ol><li>x<\/li><li>y<\/li><\/ol>/);
+  });
+
   it("is idempotent across a second round trip", () => {
     const once = docToHtml(htmlToDoc('<p><b>x</b> y <i>z</i> <a href="http://a.b/c">L</a></p>'));
     const twice = docToHtml(htmlToDoc(once));

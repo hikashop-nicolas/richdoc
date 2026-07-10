@@ -52,6 +52,8 @@ function parseFontTable(table: Uint8Array, fc: number, lcb: number): string[] {
 interface ParaProps {
   align?: number; // 0..3
   indentTwips?: number;
+  istd?: number;
+  headingLevel?: number; // 1..6 when the paragraph's style is a heading
 }
 
 function esc(s: string): string {
@@ -103,7 +105,8 @@ function decodeCharSprms(g: Uint8Array, fonts: string[] = []): CharProps {
 function decodeParaSprms(g: Uint8Array): ParaProps {
   const dv = new DataView(g.buffer, g.byteOffset, g.byteLength);
   const p: ParaProps = {};
-  let i = 0;
+  if (g.length >= 2) p.istd = dv.getUint16(0, true);
+  let i = 2;
   while (i + 2 <= g.length) {
     const op = dv.getUint16(i, true);
     i += 2;
@@ -157,7 +160,7 @@ function readFkpSpans<T>(
           const cb = fkp[bOff * 2];
           const grpprlLen = cb === 0 ? fkp[bOff * 2 + 1] * 2 : cb * 2 - 1;
           const start = bOff * 2 + (cb === 0 ? 2 : 1);
-          props = decode(fkp.subarray(start + 2, start + grpprlLen)); // skip istd
+          props = decode(fkp.subarray(start, start + grpprlLen)); // includes istd
         }
       } else {
         const off = fkp[wordOffBase + r];
@@ -189,6 +192,26 @@ function lookup<T>(spans: Span<T>[], fc: number): T | undefined {
   return undefined;
 }
 
+// Map each style index (istd) to a heading level 1..6, by reading each STD's sti (the
+// low 12 bits of its first u16; sti 1..9 = Heading 1..9).
+function parseStyleHeadings(table: Uint8Array, fc: number, lcb: number): Map<number, number> {
+  const map = new Map<number, number>();
+  if (lcb < 4) return map;
+  const dv = new DataView(table.buffer, table.byteOffset + fc, lcb);
+  const cbStshi = dv.getUint16(0, true);
+  const cstd = dv.getUint16(2, true);
+  let i = 2 + cbStshi;
+  for (let istd = 0; istd < cstd && i + 2 <= lcb; istd++) {
+    const cbStd = dv.getUint16(i, true);
+    i += 2;
+    if (cbStd === 0) continue;
+    const sti = dv.getUint16(i, true) & 0xfff;
+    if (sti >= 1 && sti <= 9) map.set(istd, Math.min(sti, 6));
+    i += cbStd;
+  }
+  return map;
+}
+
 export function docToParts(bytes: Uint8Array): DocParts {
   const cfb = readCfb(bytes);
   const wd = cfb.get("WordDocument");
@@ -209,6 +232,9 @@ export function docToParts(bytes: Uint8Array): DocParts {
   const papxPlc = fib.fc(FC.plcfBtePapx);
   const charSpans = readFkpSpans(wd, table, chpxPlc.fc, chpxPlc.lcb, false, (g) => decodeCharSprms(g, fonts));
   const paraSpans = readFkpSpans(wd, table, papxPlc.fc, papxPlc.lcb, true, decodeParaSprms);
+  const stshFc = fib.fc(FC.stshf);
+  const headings = parseStyleHeadings(table, stshFc.fc, stshFc.lcb);
+  for (const sp of paraSpans) if (sp.props.istd != null) sp.props.headingLevel = headings.get(sp.props.istd);
   const cpToFc = makeCpToFc(pieces);
 
   return { body: buildHtml(text, cpToFc, charSpans, paraSpans) };
@@ -226,14 +252,14 @@ const FIELD_BEGIN = 0x13;
 const FIELD_SEP = 0x14;
 const FIELD_END = 0x15;
 
-function runStyle(p: CharProps | undefined): string {
+function runStyle(p: CharProps | undefined, isHeading = false): string {
   if (!p) return "";
   const s: string[] = [];
-  if (p.b) s.push("font-weight:bold");
+  if (p.b && !isHeading) s.push("font-weight:bold");
   if (p.i) s.push("font-style:italic");
   const deco = [p.u ? "underline" : "", p.strike ? "line-through" : ""].filter(Boolean).join(" ");
   if (deco) s.push(`text-decoration:${deco}`);
-  if (p.sizeHalf) s.push(`font-size:${p.sizeHalf / 2}pt`);
+  if (p.sizeHalf && !isHeading) s.push(`font-size:${p.sizeHalf / 2}pt`);
   if (p.color && p.color !== "#000000") s.push(`color:${p.color}`);
   if (p.font) s.push(`font-family:${/\s/.test(p.font) ? `'${p.font}'` : p.font}`);
   if (p.highlight) s.push(`background-color:${p.highlight}`);
@@ -246,13 +272,15 @@ function buildHtml(
   charSpans: Span<CharProps>[],
   paraSpans: Span<ParaProps>[],
 ): string {
-  const out: string[] = [];
+  const blocks: { tag: string; attr: string; inner: string }[] = [];
   let runHtml = ""; // accumulated inline HTML of the current paragraph
   let curStyle: string | null = null;
   let curText = "";
   let inInstr = false; // between a field's begin (0x13) and separator (0x14)
   let instr = "";
   let anchorOpen = false; // an <a> from a HYPERLINK field is open
+  const headingAt = (cp: number): number => lookup(paraSpans, cpToFc(cp))?.headingLevel ?? 0;
+  let curHeading = headingAt(0);
 
   const flushRun = (): void => {
     if (!curText) return;
@@ -270,9 +298,11 @@ function buildHtml(
     else if (al === 3) styles.push("text-align:justify");
     if (pp?.indentTwips && pp.indentTwips > 0) styles.push(`margin-left:${Math.round(pp.indentTwips / 15)}px`);
     const attr = styles.length ? ` style="${styles.join(";")}"` : "";
-    out.push(runHtml ? `<p${attr}>${runHtml}</p>` : "<p><br></p>");
+    const tag = curHeading >= 1 && curHeading <= 6 ? `h${curHeading}` : "p";
+    blocks.push({ tag, attr, inner: runHtml || "<br>" });
     runHtml = "";
     curStyle = null;
+    curHeading = headingAt(cp + 1);
   };
 
   for (let cp = 0; cp < text.length; cp++) {
@@ -323,7 +353,7 @@ function buildHtml(
       curText += "\t";
       continue;
     }
-    const style = runStyle(lookup(charSpans, cpToFc(cp))) || null;
+    const style = runStyle(lookup(charSpans, cpToFc(cp)), curHeading > 0) || null;
     if (style !== curStyle) {
       flushRun();
       curStyle = style;
@@ -331,6 +361,43 @@ function buildHtml(
     curText += text[cp];
   }
   if (curText || runHtml) flushPara(text.length);
-  while (out.length > 1 && out[out.length - 1] === "<p><br></p>") out.pop();
-  return out.join("") || "<p><br></p>";
+  while (blocks.length > 1 && blocks[blocks.length - 1].inner === "<br>" && blocks[blocks.length - 1].tag === "p")
+    blocks.pop();
+  return blocksToHtml(blocks) || "<p><br></p>";
+}
+
+// Detect the leading list marker textutil/our writer emits ("\t•\t" or "\tN.\t"),
+// returning the list kind and the content with the marker stripped.
+const BULLET_RE = /^\t?[•▪◦‣·]\t/;
+const NUMBER_RE = /^\t?\d+[.)]\t/;
+function listMarker(inner: string): { kind: "ul" | "ol"; rest: string } | null {
+  // The marker is plain text at the very start (an unstyled run), so it precedes any span.
+  const plain = inner.replace(/^(\t?)([•▪◦‣·]|\d+[.)])(\t)/, "");
+  if (BULLET_RE.test(inner)) return { kind: "ul", rest: plain };
+  if (NUMBER_RE.test(inner)) return { kind: "ol", rest: plain };
+  return null;
+}
+
+function blocksToHtml(blocks: { tag: string; attr: string; inner: string }[]): string {
+  const out: string[] = [];
+  let i = 0;
+  while (i < blocks.length) {
+    const m = blocks[i].tag === "p" ? listMarker(blocks[i].inner) : null;
+    if (m) {
+      const kind = m.kind;
+      const items: string[] = [];
+      while (i < blocks.length && blocks[i].tag === "p") {
+        const mm = listMarker(blocks[i].inner);
+        if (!mm || mm.kind !== kind) break;
+        items.push(`<li>${mm.rest}</li>`);
+        i++;
+      }
+      out.push(`<${kind}>${items.join("")}</${kind}>`);
+    } else {
+      const b = blocks[i];
+      out.push(`<${b.tag}${b.attr}>${b.inner}</${b.tag}>`);
+      i++;
+    }
+  }
+  return out.join("");
 }
