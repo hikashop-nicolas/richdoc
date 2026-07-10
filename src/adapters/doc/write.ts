@@ -36,7 +36,7 @@ interface Run {
   fnRef?: { id: string; kind: SubKind }; // an inline reference (note or comment) in the main text
   image?: { bytes: Uint8Array; mime: string; wTwips: number; hTwips: number }; // an inline picture
   picLoc?: number; // sprmCPicLocation: this picture's offset in the Data stream (set during assembly)
-  fldFlt?: number; // on a 0x13 field-begin char: the field type (PAGE=33, NUMPAGES=26, EQ=49, HYPERLINK=88)
+  fldFlt?: number; // on a 0x13 field-begin char: the field type (PAGE=33, NUMPAGES=26, TOC=13, EQ=49, HYPERLINK=88)
   rev?: "ins" | "del"; // a tracked insertion / deletion
   rmAuthor?: string;
   rmDate?: string;
@@ -263,6 +263,33 @@ function blockAlign(el: Element): number {
   return a === "center" ? 1 : a === "right" ? 2 : a === "justify" ? 3 : 0;
 }
 
+// A table of contents: the engine's <div class="docx-field-toc"> with cached entry rows becomes
+// a real multi-paragraph TOC field. The begin/instruction/separator lead the first entry, the
+// end closes the last, so Word treats it as an updatable field (flt 37); the cached text keeps
+// it readable until updated. The row text/page are plain runs with a tab between them.
+function emitToc(el: HTMLElement, paras: Para[]): void {
+  const F: Fmt = { b: false, i: false, u: false, strike: false };
+  const rows = Array.from(el.querySelectorAll<HTMLElement>(".docx-field-toc-row"));
+  const begin: Run[] = [
+    { ...mkRun("\x13", F), special: true, fldFlt: 13 }, // sprmCFSpec field-begin, flt = TOC (0x0D)
+    mkRun(' TOC \\o "1-3" \\h \\z \\u ', F),
+    { ...mkRun("\x14", F), special: true },
+  ];
+  if (!rows.length) {
+    paras.push({ align: 0, runs: [...begin, { ...mkRun("\x15", F), special: true }], istd: 0 });
+    return;
+  }
+  rows.forEach((row, i) => {
+    const level = Number(/toc-h([1-6])/.exec(row.className)?.[1] ?? "1");
+    const runs: Run[] = i === 0 ? [...begin] : [];
+    runs.push(mkRun(row.querySelector(".docx-field-toc-text")?.textContent ?? "", F));
+    const page = row.querySelector(".docx-field-toc-page")?.textContent ?? "";
+    if (page) runs.push(mkRun("\t", F), mkRun(page, F));
+    if (i === rows.length - 1) runs.push({ ...mkRun("\x15", F), special: true });
+    paras.push({ align: 0, runs, istd: 0, indentTwips: (level - 1) * 360 });
+  });
+}
+
 function parseHtml(bodyHtml: string): Para[] {
   const doc = new DOMParser().parseFromString(`<body>${bodyHtml}</body>`, "text/html");
   const paras: Para[] = [];
@@ -270,7 +297,8 @@ function parseHtml(bodyHtml: string): Para[] {
   const walk = (el: Element, list: { ordered: boolean; n: number } | null): void => {
     for (const child of Array.from(el.children)) {
       const tag = child.tagName.toLowerCase();
-      if (tag === "ul") walk(child, { ordered: false, n: 0 });
+      if (child.classList.contains("docx-field-toc")) emitToc(child as HTMLElement, paras);
+      else if (tag === "ul") walk(child, { ordered: false, n: 0 });
       else if (tag === "ol") walk(child, { ordered: true, n: 0 });
       else if (tag === "table" || tag === "tbody" || tag === "thead") walk(child, list);
       else if (tag === "tr") {

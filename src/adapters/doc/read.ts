@@ -693,6 +693,8 @@ function buildHtml(
   let anchorOpen = false; // an <a> from a HYPERLINK field is open
   let fieldClose = ""; // HTML to append at the field end (e.g. "</a>" or "</span>")
   let suppressResult = false; // skip the field result text (a live field span replaces it)
+  let pendingToc = false; // inside a TOC field's result (emit an empty toc div; engine rebuilds it)
+  let swallowNextPara = false; // drop the para mark that terminates the last TOC entry
   let pendingSecBreak = ""; // SecGeom JSON to attach to the next paragraph (a section boundary)
   let curRev: { tag: "ins" | "del"; key: string } | null = null; // an open tracked-change wrapper
   const revAt = (cp: number): { tag: "ins" | "del"; key: string; open: string } | null => {
@@ -790,10 +792,26 @@ function buildHtml(
         runHtml += `<span class="docx-field" data-field="${kind}" contenteditable="false">`;
         fieldClose = "</span>";
         suppressResult = true;
+      } else if (kind === "TOC") {
+        // The engine's decorateFields rebuilds a TOC's rows live from the document's headings,
+        // so we emit an empty toc div and drop the cached entries (and their para marks).
+        suppressResult = true;
+        pendingToc = true;
       }
       continue;
     }
     if (c === FIELD_END) {
+      if (pendingToc) {
+        // Discard the (empty) first-TOC-paragraph accumulation and emit the toc div as its own
+        // block; the last entry's own paragraph mark is swallowed so it adds no empty <p>.
+        curText = ""; runHtml = ""; curStyle = null;
+        blocks.push({ tag: "div", attr: ' class="docx-field-toc"', inner: "" });
+        pendingToc = false;
+        suppressResult = false;
+        inInstr = false;
+        swallowNextPara = true;
+        continue;
+      }
       flushRun();
       if (anchorOpen) { runHtml += "</a>"; anchorOpen = false; }
       else if (inInstr) {
@@ -813,6 +831,7 @@ function buildHtml(
     }
     if (suppressResult) continue;
     if (c === PARA || c === CELL) {
+      if (swallowNextPara) { swallowNextPara = false; curHeading = headingAt(cp + 1); continue; }
       flushPara(cp);
       continue;
     }

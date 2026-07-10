@@ -225,6 +225,21 @@ describe("doc write -> read round trip", () => {
     expect(html).toMatch(/First body line\..*Middle body line\..*Last body line\./);
   });
 
+  it("round-trips a table of contents as a TOC field", () => {
+    const body =
+      '<h1>Alpha</h1><p>a</p><h2>Beta</h2><p>b</p>' +
+      '<div class="docx-field-toc"><div class="docx-field-toc-title">Contents</div>' +
+      '<div class="docx-field-toc-row toc-h1"><span class="docx-field-toc-text">Alpha</span><span class="docx-field-toc-page">1</span></div>' +
+      '<div class="docx-field-toc-row toc-h2"><span class="docx-field-toc-text">Beta</span><span class="docx-field-toc-page">1</span></div></div>' +
+      '<p>After.</p>';
+    const html = docToParts(htmlToDoc(body)).body;
+    // The TOC becomes an empty div the engine repopulates from the headings; entries/para marks
+    // of the cached field result are dropped, and the surrounding content is preserved in order.
+    expect(html).toContain('<div class="docx-field-toc"></div>');
+    expect(html).not.toContain("docx-field-toc-row");
+    expect(html).toMatch(/<h1>Alpha<\/h1>.*<h2>Beta<\/h2>.*<div class="docx-field-toc"><\/div><p>After\.<\/p>/);
+  });
+
   it("is idempotent across a second round trip", () => {
     const once = docToHtml(htmlToDoc('<p><b>x</b> y <i>z</i> <a href="http://a.b/c">L</a></p>'));
     const twice = docToHtml(htmlToDoc(once));
