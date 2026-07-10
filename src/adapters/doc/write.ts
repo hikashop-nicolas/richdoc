@@ -203,6 +203,14 @@ function collectRuns(node: Node, f: Fmt, runs: Run[]): void {
         continue; // the emoji glyph inside the ref is not part of the text
       }
       if (el.classList.contains("docx-cmark")) continue; // bookmark markers carry no text
+      if (el.classList.contains("docx-eq-raw")) continue; // an unrecoverable imported equation: drop the marker
+      if (el.classList.contains("docx-eq")) {
+        // We can't synthesise an equation OLE object; degrade to the math's text content.
+        const math = el.querySelector("math");
+        const t = (math ?? el).textContent ?? "";
+        if (t) runs.push(mkRun(t, f));
+        continue;
+      }
       if (el.classList.contains("docx-comment")) {
         collectRuns(el, f, runs); // a comment range wrapper: keep the text it spans
         continue;

@@ -3,7 +3,7 @@ import { describe, expect, it } from "vitest";
 import type { Note } from "../../core/types";
 import { isCfb, readCfb, writeCfb } from "./cfb";
 import { docToHtml, docToParts } from "./read";
-import { TEXTBOX_DOC_GZ_B64 } from "./textbox.fixture";
+import { EQUATION_DOC_GZ_B64, TEXTBOX_DOC_GZ_B64 } from "./textbox.fixture";
 import { htmlToDoc } from "./write";
 
 describe("cfb", () => {
@@ -238,6 +238,16 @@ describe("doc write -> read round trip", () => {
     expect(html).toContain('<div class="docx-field-toc"></div>');
     expect(html).not.toContain("docx-field-toc-row");
     expect(html).toMatch(/<h1>Alpha<\/h1>.*<h2>Beta<\/h2>.*<div class="docx-field-toc"><\/div><p>After\.<\/p>/);
+  });
+
+  it("reads an MS Equation object as a MathML equation span", () => {
+    const bytes = gunzipSync(Uint8Array.from(atob(EQUATION_DOC_GZ_B64), (c) => c.charCodeAt(0)));
+    const html = docToParts(bytes).body;
+    expect(html).toContain('<span class="docx-eq" data-rdoc-eq');
+    expect(html).toContain("<msup><mi>x</mi><mn>2</mn></msup>"); // x squared
+    expect(html).toMatch(/The formula is .*<\/span> here\./); // placed inline at its field
+    // On save the equation degrades to the math's text content (no OLE synthesis).
+    expect(docToHtml(htmlToDoc(html))).toContain("x2+1");
   });
 
   it("is idempotent across a second round trip", () => {

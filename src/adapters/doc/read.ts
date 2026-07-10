@@ -1,5 +1,6 @@
 import { readCfb } from "./cfb";
 import { parseFib, parsePieceTable, readPieceText, FC, type Piece } from "./fib";
+import { mtefToMathml } from "./mtef";
 import { bytesToBase64 } from "../../core/util";
 import type { CommentThread, Note, PageGeometry } from "../../core/types";
 
@@ -612,12 +613,17 @@ export function docToParts(bytes: Uint8Array): DocParts {
   const comments = parseComments(full, fib, table, atnStart, cpToFc, charSpans, cmtRefMap);
   const { header, footer } = parseHeaderFooter(full, fib, table, cpToFc, charSpans);
   const textboxes = parseTextboxes(full, fib, table, cpToFc, charSpans);
+  // An MS Equation 3.0 object stores its formula as MTEF in the "Equation Native" stream. We
+  // can recover MathML for the common constructs; multiple equations can't be told apart from
+  // the flat stream map, so only the first renders as math and the rest as a placeholder.
+  const eqNative = cfb.get("Equation Native");
+  const equationMathml = eqNative ? mtefToMathml(eqNative) : null;
   const dataStream = cfb.get("Data");
   const imageAt = (offset: number) => extractImageHtml(dataStream, offset);
   const rmFc = fib.fc(FC.sttbfRMark);
   const rmAuthors = parseSttbStrings(table, rmFc.fc, rmFc.lcb);
   return {
-    body: buildHtml(text, cpToFc, charSpans, paraSpans, refMap, cmtRefMap, imageAt, rmAuthors, sectionBreaks, textboxes),
+    body: buildHtml(text, cpToFc, charSpans, paraSpans, refMap, cmtRefMap, imageAt, rmAuthors, sectionBreaks, textboxes, { mathml: equationMathml, present: !!eqNative }),
     page,
     notes: notes.length ? notes : undefined,
     comments: comments.length ? comments : undefined,
@@ -681,9 +687,15 @@ function buildHtml(
   rmAuthors: string[] = [],
   sectionBreaks: Map<number, string> = new Map(),
   textboxes: string[] = [],
+  equation: { mathml: string | null; present: boolean } = { mathml: null, present: false },
 ): string {
   const blocks: { tag: string; attr: string; inner: string }[] = [];
   let textboxIdx = 0; // next textbox story to place (they follow the order of 0x08 anchors)
+  let eqUsed = false; // the parsed equation has been placed (only one is recoverable)
+  const emitEquation = (): string => {
+    if (equation.mathml && !eqUsed) { eqUsed = true; return `<span class="docx-eq" data-rdoc-eq contenteditable="false">${equation.mathml}</span>`; }
+    return `<span class="docx-eq-raw" contenteditable="false" title="Imported equation (not editable)">⟨equation⟩</span>`;
+  };
   const pendingTextboxes: string[] = []; // boxes anchored in the current paragraph, emitted after it
   let runHtml = ""; // accumulated inline HTML of the current paragraph
   let curStyle: string | null = null;
@@ -694,6 +706,7 @@ function buildHtml(
   let fieldClose = ""; // HTML to append at the field end (e.g. "</a>" or "</span>")
   let suppressResult = false; // skip the field result text (a live field span replaces it)
   let pendingToc = false; // inside a TOC field's result (emit an empty toc div; engine rebuilds it)
+  let pendingEmbed = false; // inside an EMBED field wrapping an equation OLE object
   let swallowNextPara = false; // drop the para mark that terminates the last TOC entry
   let pendingSecBreak = ""; // SecGeom JSON to attach to the next paragraph (a section boundary)
   let curRev: { tag: "ins" | "del"; key: string } | null = null; // an open tracked-change wrapper
@@ -797,10 +810,23 @@ function buildHtml(
         // so we emit an empty toc div and drop the cached entries (and their para marks).
         suppressResult = true;
         pendingToc = true;
+      } else if (equation.present && /^\s*EMBED\b/i.test(instr)) {
+        // An embedded OLE object; when the file carries an Equation Native stream we treat it as
+        // the equation and replace the 0x01 placeholder char (suppressed) with recovered MathML.
+        suppressResult = true;
+        pendingEmbed = true;
       }
       continue;
     }
     if (c === FIELD_END) {
+      if (pendingEmbed) {
+        flushRun();
+        runHtml += emitEquation();
+        pendingEmbed = false;
+        suppressResult = false;
+        inInstr = false;
+        continue;
+      }
       if (pendingToc) {
         // Discard the (empty) first-TOC-paragraph accumulation and emit the toc div as its own
         // block; the last entry's own paragraph mark is swallowed so it adds no empty <p>.
