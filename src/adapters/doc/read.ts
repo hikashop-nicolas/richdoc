@@ -54,6 +54,8 @@ interface ParaProps {
   indentTwips?: number;
   istd?: number;
   headingLevel?: number; // 1..6 when the paragraph's style is a heading
+  inTable?: boolean; // sprmPFInTable
+  ttp?: boolean; // sprmPFTtp (table-terminating / row-end paragraph)
 }
 
 function esc(s: string): string {
@@ -116,6 +118,8 @@ function decodeParaSprms(g: Uint8Array): ParaProps {
     i += len;
     if (op === 0x2403 || op === 0x2461) p.align = v[0];
     else if (op === 0x840f) p.indentTwips = dv.getInt16(i - len, true);
+    else if (op === 0x2416) p.inTable = v[0] !== 0;
+    else if (op === 0x2417) p.ttp = v[0] !== 0;
   }
   return p;
 }
@@ -281,6 +285,17 @@ function buildHtml(
   let anchorOpen = false; // an <a> from a HYPERLINK field is open
   const headingAt = (cp: number): number => lookup(paraSpans, cpToFc(cp))?.headingLevel ?? 0;
   let curHeading = headingAt(0);
+  let tableRows: string[][] = [];
+  let rowCells: string[] = [];
+  const flushTable = (): void => {
+    if (!tableRows.length) return;
+    const td = 'style="border:1px solid #999;padding:2px 6px"';
+    const rows = tableRows
+      .map((cells) => `<tr>${cells.map((c) => `<td ${td}>${c || "<br>"}</td>`).join("")}</tr>`)
+      .join("");
+    blocks.push({ tag: "table", attr: ' style="border-collapse:collapse"', inner: rows });
+    tableRows = [];
+  };
 
   const flushRun = (): void => {
     if (!curText) return;
@@ -297,6 +312,19 @@ function buildHtml(
     else if (al === 2) styles.push("text-align:right");
     else if (al === 3) styles.push("text-align:justify");
     if (pp?.indentTwips && pp.indentTwips > 0) styles.push(`margin-left:${Math.round(pp.indentTwips / 15)}px`);
+    if (pp?.inTable) {
+      if (pp.ttp) {
+        tableRows.push(rowCells);
+        rowCells = [];
+      } else {
+        rowCells.push(runHtml);
+      }
+      runHtml = "";
+      curStyle = null;
+      curHeading = headingAt(cp + 1);
+      return;
+    }
+    flushTable();
     const attr = styles.length ? ` style="${styles.join(";")}"` : "";
     const tag = curHeading >= 1 && curHeading <= 6 ? `h${curHeading}` : "p";
     blocks.push({ tag, attr, inner: runHtml || "<br>" });
@@ -336,8 +364,15 @@ function buildHtml(
       instr += text[cp];
       continue;
     }
-    if (c === PARA || c === CELL || c === SECTION) {
+    if (c === PARA || c === CELL) {
       flushPara(cp);
+      continue;
+    }
+    if (c === SECTION) {
+      // manual page break: an inline marker richdoc renders in the pageless view
+      flushRun();
+      runHtml +=
+        '<span class="docx-pagebreak" contenteditable="false" data-docx-pagebreak="manual"></span>';
       continue;
     }
     if (c === LINEBREAK) {
@@ -361,6 +396,7 @@ function buildHtml(
     curText += text[cp];
   }
   if (curText || runHtml) flushPara(text.length);
+  flushTable();
   while (blocks.length > 1 && blocks[blocks.length - 1].inner === "<br>" && blocks[blocks.length - 1].tag === "p")
     blocks.pop();
   return blocksToHtml(blocks) || "<p><br></p>";
@@ -395,7 +431,8 @@ function blocksToHtml(blocks: { tag: string; attr: string; inner: string }[]): s
       out.push(`<${kind}>${items.join("")}</${kind}>`);
     } else {
       const b = blocks[i];
-      out.push(`<${b.tag}${b.attr}>${b.inner}</${b.tag}>`);
+      if (b.tag === "table") out.push(`<table${b.attr}>${b.inner}</table>`);
+      else out.push(`<${b.tag}${b.attr}>${b.inner}</${b.tag}>`);
       i++;
     }
   }

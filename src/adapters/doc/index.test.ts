@@ -73,6 +73,18 @@ describe("doc write -> read round trip", () => {
     expect(html).toMatch(/<ol><li>x<\/li><li>y<\/li><\/ol>/);
   });
 
+  it("preserves tables", () => {
+    const html = docToHtml(htmlToDoc("<p>x</p><table><tr><td>A1</td><td>B1</td></tr><tr><td>A2</td><td>B2</td></tr></table><p>y</p>"));
+    expect(html).toMatch(/<table[^>]*><tr><td[^>]*>A1<\/td><td[^>]*>B1<\/td><\/tr>/);
+    expect(html).toContain("A2");
+    expect(html).toContain("B2");
+  });
+
+  it("preserves manual page breaks", () => {
+    const html = docToHtml(htmlToDoc('<p>a<span data-docx-pagebreak="manual"></span>b</p>'));
+    expect(html).toContain('data-docx-pagebreak="manual"');
+  });
+
   it("is idempotent across a second round trip", () => {
     const once = docToHtml(htmlToDoc('<p><b>x</b> y <i>z</i> <a href="http://a.b/c">L</a></p>'));
     const twice = docToHtml(htmlToDoc(once));

@@ -27,6 +27,8 @@ interface Para {
   runs: Run[];
   istd: number; // paragraph style index (0 = Normal, 1..6 = Heading 1..6)
   indentTwips?: number; // left indent in twips
+  endChar?: number; // paragraph terminator (0x0D normally, 0x07 for table cells/rows)
+  table?: { cell?: boolean; ttp?: boolean; cols?: number };
 }
 
 const HEADING_SIZE = [48, 36, 28, 24, 22, 20]; // h1..h6 in half-points
@@ -129,6 +131,10 @@ function collectRuns(node: Node, f: Fmt, runs: Run[]): void {
         runs.push({ text: "", b: f.b, i: f.i, u: f.u, strike: f.strike, sizeHalf: f.sizeHalf, color: f.color });
         continue;
       }
+      if (el.getAttribute("data-docx-pagebreak") || el.classList.contains("docx-pagebreak")) {
+        runs.push(mkRun("\f", f)); // 0x0C page break
+        continue;
+      }
       if (tag === "a" && el.getAttribute("href")) {
         const href = el.getAttribute("href") || "";
         runs.push(mkRun("\x13", f));
@@ -159,7 +165,16 @@ function parseHtml(bodyHtml: string): Para[] {
       const tag = child.tagName.toLowerCase();
       if (tag === "ul") walk(child, { ordered: false, n: 0 });
       else if (tag === "ol") walk(child, { ordered: true, n: 0 });
-      else if (tag === "table" || tag === "tbody" || tag === "tr") walk(child, list);
+      else if (tag === "table" || tag === "tbody" || tag === "thead") walk(child, list);
+      else if (tag === "tr") {
+        const cells = Array.from(child.children).filter((c) => /^t[dh]$/.test(c.tagName.toLowerCase()));
+        for (const td of cells) {
+          const cr: Run[] = [];
+          collectRuns(td, { b: false, i: false, u: false, strike: false }, cr);
+          paras.push({ align: 0, runs: cr, istd: 0, endChar: 0x07, table: { cell: true } });
+        }
+        paras.push({ align: 0, runs: [], istd: 0, endChar: 0x07, table: { ttp: true, cols: cells.length } });
+      }
       else if (blockTags.has(tag)) {
         const hMatch = /^h([1-6])$/.exec(tag);
         const level = hMatch ? Number(hMatch[1]) : 0;
@@ -266,6 +281,38 @@ function papxGrpprl(p: Para): Uint8Array {
   if (p.indentTwips) {
     b.u16(0x840f); // sprmPDxaLeft
     b.u16(p.indentTwips);
+  }
+  if (p.table?.cell || p.table?.ttp) {
+    b.u16(0x2416); // sprmPFInTable
+    b.u8(1);
+  }
+  if (p.table?.ttp) {
+    b.u16(0x2417); // sprmPFTtp
+    b.u8(1);
+    const operand = buildTDef(p.table.cols || 1);
+    b.u16(0xd608); // sprmTDefTable (2-byte length prefix)
+    b.u16(operand.length);
+    b.bytes(operand);
+  }
+  return b.done();
+}
+
+// sprmTDefTable operand: itcMac + rgdxaCenter (column boundaries, twips) + a TC80 per
+// column (single-line borders), spanning a 6" (8640-twip) table width.
+function buildTDef(cols: number): Uint8Array {
+  const b = new Buf();
+  b.u8(cols); // itcMac
+  const total = 8640;
+  for (let i = 0; i <= cols; i++) b.u16(Math.round((i * total) / cols)); // rgdxaCenter
+  for (let i = 0; i < cols; i++) {
+    b.u16(0x0680); // TC80 grfcotc
+    b.u16(0); // wWidth
+    for (let brc = 0; brc < 4; brc++) {
+      b.u8(0x08); // dptLineWidth
+      b.u8(0x01); // brcType single
+      b.u8(0x01);
+      b.u8(0x00);
+    }
   }
   return b.done();
 }
@@ -440,7 +487,7 @@ export function htmlToDoc(bodyHtml: string): Uint8Array {
       for (const ch of r.text) chars.push(ch.codePointAt(0)!);
       charRuns.push({ fcStart: fcAt(startCp), fcEnd: fcAt(chars.length), grpprl: chpxGrpprl(r, fontTable.ftc) });
     }
-    chars.push(0x0d); // paragraph mark
+    chars.push(p.endChar ?? 0x0d); // paragraph / cell / row mark
     // The paragraph's CHPX must also cover its mark; extend the last run to include it.
     charRuns[charRuns.length - 1].fcEnd = fcAt(chars.length);
     paraRuns.push({ fcStart: fcAt(paraStartCp), fcEnd: fcAt(chars.length), grpprl: papxGrpprl(p), istd: p.istd });
