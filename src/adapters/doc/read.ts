@@ -1,5 +1,6 @@
 import { readCfb } from "./cfb";
 import { parseFib, parsePieceTable, readPieceText, FC, type Piece } from "./fib";
+import { bytesToBase64 } from "../../core/util";
 import type { CommentThread, Note, PageGeometry } from "../../core/types";
 
 // Read half of the .doc adapter: bytes -> HTML in richdoc's vocabulary. It extracts the
@@ -30,6 +31,7 @@ interface CharProps {
   color?: string; // #rrggbb
   font?: string; // font family name
   highlight?: string; // background colour #rrggbb
+  picOffset?: number; // sprmCPicLocation: byte offset of this run's picture in the Data stream
 }
 
 // Word's 16-entry text-highlight palette (sprmCHighlight ico).
@@ -110,6 +112,9 @@ function decodeCharSprms(g: Uint8Array, fonts: string[] = []): CharProps {
         break;
       case 0x6870: // sprmCCv: RR GG BB shade
         p.color = "#" + [v[0], v[1], v[2]].map((x) => x.toString(16).padStart(2, "0")).join("");
+        break;
+      case 0x6a03: // sprmCPicLocation: offset into the Data stream of this picture char's PICF
+        p.picOffset = v[0] | (v[1] << 8) | (v[2] << 16) | (v[3] << 24);
         break;
     }
   }
@@ -428,6 +433,39 @@ function parseHeaderFooter(
   return { header: clean(story(7)), footer: clean(story(9)) };
 }
 
+// Raster image magic numbers we can surface as a browser <img> (Word metafiles, WMF/EMF, are
+// not browser-renderable and are skipped).
+const IMAGE_SIGS: { mime: string; sig: number[] }[] = [
+  { mime: "image/png", sig: [0x89, 0x50, 0x4e, 0x47] },
+  { mime: "image/jpeg", sig: [0xff, 0xd8, 0xff] },
+  { mime: "image/gif", sig: [0x47, 0x49, 0x46, 0x38] },
+  { mime: "image/bmp", sig: [0x42, 0x4d] },
+];
+function indexOfSig(buf: Uint8Array, sig: number[]): number {
+  for (let i = 0; i + sig.length <= buf.length; i++) {
+    let ok = true;
+    for (let j = 0; j < sig.length; j++) if (buf[i + j] !== sig[j]) { ok = false; break; }
+    if (ok) return i;
+  }
+  return -1;
+}
+// Extract the raster blip a picture char points at: at `offset` in the Data stream sits a PICF
+// (its first uint32 is the total byte length), and the embedded image bytes follow the header,
+// wrapped in OfficeArt records. We locate the raster magic within the PICF and take it to the
+// PICF's end. Returns an <img> data-URL, or null for a metafile / unrecognised blip.
+function extractImageHtml(data: Uint8Array | undefined, offset: number): string | null {
+  if (!data || offset < 0 || offset + 4 > data.length) return null;
+  const dv = new DataView(data.buffer, data.byteOffset, data.byteLength);
+  const lcb = dv.getUint32(offset, true);
+  const end = lcb >= 8 && offset + lcb <= data.length ? offset + lcb : data.length;
+  const region = data.subarray(offset, end);
+  for (const { mime, sig } of IMAGE_SIGS) {
+    const at = indexOfSig(region, sig);
+    if (at >= 0) return `<img src="data:${mime};base64,${bytesToBase64(region.subarray(at))}">`;
+  }
+  return null;
+}
+
 export function docToParts(bytes: Uint8Array): DocParts {
   const cfb = readCfb(bytes);
   const wd = cfb.get("WordDocument");
@@ -469,8 +507,10 @@ export function docToParts(bytes: Uint8Array): DocParts {
   ];
   const comments = parseComments(full, fib, table, atnStart, cpToFc, charSpans, cmtRefMap);
   const { header, footer } = parseHeaderFooter(full, fib, table, cpToFc, charSpans);
+  const dataStream = cfb.get("Data");
+  const imageAt = (offset: number) => extractImageHtml(dataStream, offset);
   return {
-    body: buildHtml(text, cpToFc, charSpans, paraSpans, refMap, cmtRefMap),
+    body: buildHtml(text, cpToFc, charSpans, paraSpans, refMap, cmtRefMap, imageAt),
     page,
     notes: notes.length ? notes : undefined,
     comments: comments.length ? comments : undefined,
@@ -512,6 +552,7 @@ function buildHtml(
   paraSpans: Span<ParaProps>[],
   refMap: Map<number, NoteRef> = new Map(),
   cmtRefMap: Map<number, string> = new Map(),
+  imageAt: (offset: number) => string | null = () => null,
 ): string {
   const blocks: { tag: string; attr: string; inner: string }[] = [];
   let runHtml = ""; // accumulated inline HTML of the current paragraph
@@ -643,7 +684,16 @@ function buildHtml(
       }
       continue;
     }
-    if (c === 0x1f || c === 0x00 || c === 0x01 || c === 0x03 || c === 0x08) continue;
+    if (c === 0x01) {
+      // A picture placeholder: its CHPX carries the Data-stream offset of the image.
+      const off = lookup(charSpans, cpToFc(cp))?.picOffset;
+      if (off !== undefined) {
+        const img = imageAt(off);
+        if (img) { flushRun(); runHtml += img; }
+      }
+      continue;
+    }
+    if (c === 0x1f || c === 0x00 || c === 0x03 || c === 0x08) continue;
     if (c === 0x09) {
       curText += "\t";
       continue;

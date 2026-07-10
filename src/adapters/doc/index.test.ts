@@ -168,6 +168,12 @@ describe("doc write -> read round trip", () => {
     expect(parts.footer).toBe("<p>just a footer</p>");
   });
 
+  it("does not emit spurious images for a doc without pictures", () => {
+    // Picture chars (0x01) only become <img> when a CHPX points at a Data-stream blip; a plain
+    // doc has neither, so no image should ever appear.
+    expect(docToHtml(htmlToDoc("<p>no image here</p>"))).not.toContain("<img");
+  });
+
   it("is idempotent across a second round trip", () => {
     const once = docToHtml(htmlToDoc('<p><b>x</b> y <i>z</i> <a href="http://a.b/c">L</a></p>'));
     const twice = docToHtml(htmlToDoc(once));
