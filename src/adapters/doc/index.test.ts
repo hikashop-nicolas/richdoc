@@ -199,7 +199,8 @@ describe("doc write -> read round trip", () => {
     const body = '<p>a <ins class="docx-ins" data-author="Al" data-date="2026-07-11">new</ins> b <del class="docx-del" data-author="Bo" data-date="2026-06-01">old</del> c</p>';
     const html = docToHtml(htmlToDoc(body));
     expect(html).toMatch(/<ins class="docx-ins"[^>]*data-author="Al"[^>]*>new<\/ins>/);
-    expect(html).toMatch(/<del class="docx-del"[^>]*>old<\/del>/);
+    // Deletion author must survive independently of the insertion (distinct rmark sprms).
+    expect(html).toMatch(/<del class="docx-del"[^>]*data-author="Bo"[^>]*>old<\/del>/);
   });
 
   it("round-trips a multi-section document (per-section geometry)", () => {

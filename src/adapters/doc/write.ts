@@ -354,11 +354,14 @@ function chpxGrpprl(r: Run, fontFtc: (name: string) => number, rmIbst: (author: 
     b.u8(1);
   }
   if (r.rev) {
-    b.u16(r.rev === "del" ? 0x0800 : 0x0801); // sprmCFRMarkDel / sprmCFRMark
+    // Insertions and deletions carry DISTINCT author/date sprms; reusing the insertion
+    // pair for a deletion makes Word read the del back with the wrong (ins) author.
+    const del = r.rev === "del";
+    b.u16(del ? 0x0800 : 0x0801); // sprmCFRMarkDel / sprmCFRMark
     b.u8(1);
-    b.u16(0x4804); // sprmCIbstRMark: author index
+    b.u16(del ? 0x4863 : 0x4804); // sprmCIbstRMarkDel / sprmCIbstRMark: author index
     b.u16(rmIbst(r.rmAuthor ?? ""));
-    b.u16(0x6805); // sprmCDttmRMark: date
+    b.u16(del ? 0x6864 : 0x6805); // sprmCDttmRMarkDel / sprmCDttmRMark: date
     b.u32(encodeDttm(r.rmDate));
   }
   if (r.picLoc !== undefined) {

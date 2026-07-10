@@ -136,10 +136,12 @@ function decodeCharSprms(g: Uint8Array, fonts: string[] = []): CharProps {
       case 0x0800: // sprmCFRMarkDel: a tracked deletion
         if (v[0]) p.rev = "del";
         break;
-      case 0x4804: // sprmCIbstRMark: revision author index into SttbfRMark
+      case 0x4804: // sprmCIbstRMark: insertion author index into SttbfRMark
+      case 0x4863: // sprmCIbstRMarkDel: deletion author index into SttbfRMark
         p.rmIbst = v[0] | (v[1] << 8);
         break;
-      case 0x6805: // sprmCDttmRMark: revision date
+      case 0x6805: // sprmCDttmRMark: insertion date
+      case 0x6864: // sprmCDttmRMarkDel: deletion date
         p.rmDate = decodeDttm(v);
         break;
     }
