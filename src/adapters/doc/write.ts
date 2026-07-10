@@ -1,6 +1,7 @@
 import { writeCfb } from "./cfb";
 import { FC } from "./fib";
 import { B64, b64 } from "./templates";
+import type { PageGeometry } from "../../core/types";
 
 // Write half of the .doc adapter: richdoc's edited HTML -> a from-scratch Word 97-2003
 // binary. We reuse a known-good FIB and the content-independent stylesheet / font table /
@@ -460,11 +461,52 @@ function buildStshWithHeadings(): Uint8Array {
   return out.done();
 }
 
+// Build a section-properties exception (SEPX): cb + grpprl of section sprms, from
+// richdoc's page geometry (px). Covers page size/margins, multi-column, vertical
+// (tategaki) and right-to-left flow.
+function buildSepx(page: PageGeometry): Uint8Array {
+  const g = new Buf();
+  const tw = (px: number) => Math.round(px * 15); // px @96dpi -> twips
+  g.u16(0xb01f); // sprmSXaPage
+  g.u16(tw(page.widthPx));
+  g.u16(0xb020); // sprmSYaPage
+  g.u16(tw(page.heightPx));
+  g.u16(0xb021); // sprmSDxaLeft
+  g.u16(tw(page.margin.left));
+  g.u16(0xb022); // sprmSDxaRight
+  g.u16(tw(page.margin.right));
+  g.u16(0x9023); // sprmSDyaTop
+  g.u16(tw(page.margin.top));
+  g.u16(0x9024); // sprmSDyaBottom
+  g.u16(tw(page.margin.bottom));
+  if (page.columns && page.columns > 1) {
+    g.u16(0x500b); // sprmSCcolumns (cCols - 1)
+    g.u16(page.columns - 1);
+    g.u16(0x900c); // sprmSDxaColumns (spacing)
+    g.u16(tw(page.columnGapPx ?? 36));
+    g.u16(0x3005); // sprmSFEvenlySpaced
+    g.u8(1);
+  }
+  if (page.vertical) {
+    g.u16(0x5453); // sprmSTextFlow = 1 (top-to-bottom, right-to-left: tategaki)
+    g.u16(1);
+  }
+  if (page.rtl) {
+    g.u16(0x5228); // sprmSFBiDi
+    g.u16(1);
+  }
+  const grpprl = g.done();
+  const b = new Buf();
+  b.u16(grpprl.length); // cb
+  b.bytes(grpprl);
+  return b.done();
+}
+
 // ---------------------------------------------------------------------------
 // Assemble
 // ---------------------------------------------------------------------------
 
-export function htmlToDoc(bodyHtml: string): Uint8Array {
+export function htmlToDoc(bodyHtml: string, page?: PageGeometry): Uint8Array {
   const paras = parseHtml(bodyHtml);
 
   // Collect fonts (base four match the template order) + any run fonts, build the table.
@@ -507,12 +549,16 @@ export function htmlToDoc(bodyHtml: string): Uint8Array {
   const fkpBase = Math.ceil(textEnd / 512) * 512;
   const chpxPage = fkpBase / 512;
   const papxPage = chpxPage + 1;
-  const wdLen = Math.max(4096, (papxPage + 1) * 512);
+  const sepx = page ? buildSepx(page) : null;
+  const sepxOffset = (papxPage + 1) * 512;
+  const wdEnd = sepx ? sepxOffset + sepx.length : (papxPage + 1) * 512;
+  const wdLen = Math.max(4096, Math.ceil(wdEnd / 512) * 512);
   const wd = new Uint8Array(wdLen);
   wd.set(fib, 0);
   wd.set(textBytes, TEXT_START);
   wd.set(chpxFkp, chpxPage * 512);
   wd.set(papxFkp, papxPage * 512);
+  if (sepx) wd.set(sepx, sepxOffset);
 
   // 3. 1Table = STSH + PlcfSed + PlcfBteChpx + PlcfBtePapx + Clx + Sttbfffn.
   const stsh = buildStshWithHeadings();
@@ -526,7 +572,7 @@ export function htmlToDoc(bodyHtml: string): Uint8Array {
   tbl.u32(0);
   tbl.u32(ccpText);
   tbl.u16(0);
-  tbl.u32(0xffffffff);
+  tbl.u32(sepx ? sepxOffset : 0xffffffff);
   tbl.u16(0);
   tbl.u32(0xffffffff);
   const lcbSed = tbl.length - fcSed;

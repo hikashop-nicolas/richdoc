@@ -1,5 +1,6 @@
 import { readCfb } from "./cfb";
 import { parseFib, parsePieceTable, readPieceText, FC, type Piece } from "./fib";
+import type { PageGeometry } from "../../core/types";
 
 // Read half of the .doc adapter: bytes -> HTML in richdoc's vocabulary. It extracts the
 // text (piece table) and the character/paragraph formatting (CHPX/PAPX formatted-disk
@@ -7,6 +8,7 @@ import { parseFib, parsePieceTable, readPieceText, FC, type Piece } from "./fib"
 
 export interface DocParts {
   body: string;
+  page?: PageGeometry;
 }
 
 interface CharProps {
@@ -216,6 +218,43 @@ function parseStyleHeadings(table: Uint8Array, fc: number, lcb: number): Map<num
   return map;
 }
 
+// Parse the first section's properties (SEPX) into richdoc page geometry.
+function parseSection(wd: Uint8Array, table: Uint8Array, fcSed: number, lcbSed: number): PageGeometry | undefined {
+  if (lcbSed < 16) return undefined;
+  const nSed = (lcbSed - 4) / 16; // PLCF: 4*(n+1) CPs + 12*n Sed = 16n+4
+  const sedBase = 4 * (nSed + 1);
+  const sdv = new DataView(table.buffer, table.byteOffset + fcSed, lcbSed);
+  const fcSepx = sdv.getUint32(sedBase + 2, true); // Sed: fn(2) then fcSepx(4)
+  if (fcSepx === 0xffffffff || fcSepx + 2 > wd.length) return undefined;
+  const cb = wd[fcSepx] | (wd[fcSepx + 1] << 8);
+  const g = wd.subarray(fcSepx + 2, fcSepx + 2 + cb);
+  const gdv = new DataView(g.buffer, g.byteOffset, g.byteLength);
+  const px = (tw: number) => Math.round(tw / 15);
+  const page: PageGeometry = { widthPx: 816, heightPx: 1056, margin: { top: 96, right: 96, bottom: 96, left: 96 } };
+  let any = false;
+  let i = 0;
+  while (i + 2 <= g.length) {
+    const op = gdv.getUint16(i, true);
+    i += 2;
+    const spra = (op >> 13) & 7;
+    const len = spra === 6 ? g[i++] : [1, 1, 2, 4, 2, 2, 0, 3][spra];
+    const start = i;
+    i += len;
+    const u16 = () => g[start] | (g[start + 1] << 8);
+    if (op === 0xb01f) { page.widthPx = px(u16()); any = true; }
+    else if (op === 0xb020) { page.heightPx = px(u16()); any = true; }
+    else if (op === 0xb021) { page.margin.left = px(u16()); any = true; }
+    else if (op === 0xb022) page.margin.right = px(u16());
+    else if (op === 0x9023) page.margin.top = px(gdv.getInt16(start, true));
+    else if (op === 0x9024) page.margin.bottom = px(gdv.getInt16(start, true));
+    else if (op === 0x500b) { page.columns = u16() + 1; any = true; }
+    else if (op === 0x900c) page.columnGapPx = px(u16());
+    else if (op === 0x5453) { if (u16() !== 0) { page.vertical = true; any = true; } }
+    else if (op === 0x5228) { if (u16() !== 0) { page.rtl = true; any = true; } }
+  }
+  return any ? page : undefined;
+}
+
 export function docToParts(bytes: Uint8Array): DocParts {
   const cfb = readCfb(bytes);
   const wd = cfb.get("WordDocument");
@@ -241,7 +280,9 @@ export function docToParts(bytes: Uint8Array): DocParts {
   for (const sp of paraSpans) if (sp.props.istd != null) sp.props.headingLevel = headings.get(sp.props.istd);
   const cpToFc = makeCpToFc(pieces);
 
-  return { body: buildHtml(text, cpToFc, charSpans, paraSpans) };
+  const sedFc = fib.fc(FC.plcfSed);
+  const page = parseSection(wd, table, sedFc.fc, sedFc.lcb);
+  return { body: buildHtml(text, cpToFc, charSpans, paraSpans), page };
 }
 
 export function docToHtml(bytes: Uint8Array): string {

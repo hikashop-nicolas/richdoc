@@ -38,12 +38,13 @@ export function createDocAdapter(bytes: Uint8Array): Adapter {
         header: "",
         footer: "",
         comments: [],
+        page: parts.page,
       };
     },
     // The .doc writer regenerates the whole file from the edited body HTML; parts, comment
     // edits, page geometry and styles are not part of the binary subset we round-trip yet.
-    write(bodyHtml: string, _parts, _edits: CommentEdits): Uint8Array {
-      return htmlToDoc(bodyHtml);
+    write(bodyHtml: string, _parts, _edits: CommentEdits, page): Uint8Array {
+      return htmlToDoc(bodyHtml, page);
     },
     newCommentMarkers(meta: NewCommentMeta): CommentMarkers {
       const cmark = (): HTMLElement => {
@@ -71,10 +72,10 @@ export function createDocAdapter(bytes: Uint8Array): Adapter {
       textColor: true,
       fontControls: true,
       alignment: true,
-      verticalText: false,
+      verticalText: true,
       fields: false,
       equations: false,
-      sections: false,
+      sections: "trailing",
       pageNumbering: false,
       lineNumbering: false,
       pageVAlign: false,

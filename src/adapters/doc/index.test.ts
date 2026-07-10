@@ -1,6 +1,6 @@
 import { describe, expect, it } from "vitest";
 import { isCfb, readCfb, writeCfb } from "./cfb";
-import { docToHtml } from "./read";
+import { docToHtml, docToParts } from "./read";
 import { htmlToDoc } from "./write";
 
 describe("cfb", () => {
@@ -83,6 +83,17 @@ describe("doc write -> read round trip", () => {
   it("preserves manual page breaks", () => {
     const html = docToHtml(htmlToDoc('<p>a<span data-docx-pagebreak="manual"></span>b</p>'));
     expect(html).toContain('data-docx-pagebreak="manual"');
+  });
+
+  it("preserves page geometry, columns and vertical (tategaki)", () => {
+    const page = { widthPx: 900, heightPx: 1200, margin: { top: 80, right: 70, bottom: 80, left: 70 }, vertical: true, columns: 2, columnGapPx: 40 };
+    const bytes = htmlToDoc("<p>x</p>", page as unknown as Parameters<typeof htmlToDoc>[1]);
+    const pg = docToParts(bytes).page!;
+    expect(pg.widthPx).toBe(900);
+    expect(pg.heightPx).toBe(1200);
+    expect(pg.margin.left).toBe(70);
+    expect(pg.columns).toBe(2);
+    expect(pg.vertical).toBe(true);
   });
 
   it("is idempotent across a second round trip", () => {
