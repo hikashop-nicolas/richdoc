@@ -55,6 +55,13 @@ describe("docx <-> html", () => {
     expect(html2).not.toContain("monde");
   });
 
+  it("docxToParts from a pre-inflated map matches parsing from raw bytes", () => {
+    const docx = makeDocx();
+    const fromBytes = docxToParts(docx);
+    const fromMap = docxToParts(docx, unzipSync(docx));
+    expect(fromMap).toEqual(fromBytes);
+  });
+
   it("htmlToDocxAsync (off-thread zip) matches the synchronous writer", async () => {
     const docx = makeDocx();
     const html = "<h1>Titre</h1><p>Bonjour <strong>planete</strong> la.</p>";

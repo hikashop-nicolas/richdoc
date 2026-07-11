@@ -4,6 +4,7 @@
 // (./read) converts it to HTML, the shared engine edits it, and the write half (./write)
 // rebuilds the archive on save, preserving every other part byte-for-byte.
 import { createRichEditor } from "../../core/editor";
+import { unzipAsync } from "../../core/zip";
 import type { Adapter, CommentEdits, CommentMarkers, EditorOptions, NewCommentMeta, NewStyle, Note, PageGeometry, RichDoc, RichEditor } from "../../core/types";
 import { odtToParts } from "./read";
 import { htmlToOdtAsync } from "./write";
@@ -17,14 +18,14 @@ export type OdtEditorOptions = EditorOptions;
 export type OdtEditor = RichEditor;
 
 /** Wrap a .odt byte array as an engine adapter: parse, serialize, capabilities. */
-export function createOdtAdapter(bytes: Uint8Array): Adapter {
+export function createOdtAdapter(bytes: Uint8Array, preunzipped?: Record<string, Uint8Array>): Adapter {
   const original = bytes.slice();
   return {
     original,
     read(): RichDoc {
       // Let a parse failure propagate: the engine latches the editor read-only so a
       // blank surface can never overwrite the real file on save.
-      const p = odtToParts(bytes);
+      const p = odtToParts(bytes, preunzipped);
       const parts = { ...p, body: p.body || "<p><br></p>" };
       return {
         body: parts.body,
@@ -96,4 +97,18 @@ export function createOdtAdapter(bytes: Uint8Array): Adapter {
 /** Mount a .odt editor in `container`: the odt adapter driving the shared engine. */
 export function createOdtEditor(container: HTMLElement, bytes: Uint8Array, options: OdtEditorOptions = {}): OdtEditor {
   return createRichEditor(container, createOdtAdapter(bytes), options);
+}
+
+// Same, but inflate the .odt off the main thread first. The DOM-bound parse still runs on the
+// main thread once the map is ready.
+export async function createOdtEditorAsync(container: HTMLElement, bytes: Uint8Array, options: OdtEditorOptions = {}, preunzipped?: Record<string, Uint8Array>): Promise<OdtEditor> {
+  let files = preunzipped;
+  if (!files) {
+    try {
+      files = await unzipAsync(bytes);
+    } catch {
+      /* not a readable zip; let the sync adapter surface the parse failure (read-only latch) */
+    }
+  }
+  return createRichEditor(container, createOdtAdapter(bytes, files), options);
 }

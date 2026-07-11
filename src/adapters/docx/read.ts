@@ -1251,9 +1251,9 @@ function readStyles(stylesXml: Uint8Array | undefined): {
 }
 
 /** Parse a .docx into the editable body HTML plus the header/footer HTML and part keys. */
-export function docxToParts(bytes: Uint8Array): DocxParts {
+export function docxToParts(bytes: Uint8Array, preunzipped?: Record<string, Uint8Array>): DocxParts {
   const empty: DocxParts = { body: "", header: "", footer: "", comments: [] };
-  const files = unzipSync(bytes);
+  const files = preunzipped ?? unzipSync(bytes);
   const docXml = files["word/document.xml"];
   if (!docXml) return empty;
   const doc = new DOMParser().parseFromString(strFromU8(docXml), "application/xml");

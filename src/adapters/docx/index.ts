@@ -5,6 +5,7 @@
 // surface, and the write half (./write) rebuilds the archive from the edited HTML on save,
 // preserving every other part (styles, headers/footers, images, numbering) byte-for-byte.
 import { unzipSync } from "fflate";
+import { unzipAsync } from "../../core/zip";
 import { createRichEditor } from "../../core/editor";
 import type { Adapter, CommentEdits, EditorOptions, NewCommentMeta, NewStyle, Note, PageGeometry, RichDoc, RichEditor } from "../../core/types";
 import "./docxedit.css";
@@ -59,19 +60,19 @@ function docxCommentMarkers(meta: NewCommentMeta): { start: HTMLElement; end: HT
 }
 
 /** Wrap a .docx byte array as an engine adapter: parse, serialize, comment markers, capabilities. */
-export function createDocxAdapter(bytes: Uint8Array): Adapter {
+export function createDocxAdapter(bytes: Uint8Array, preunzipped?: Record<string, Uint8Array>): Adapter {
   const original = bytes.slice();
   return {
     original,
     read(): RichDoc {
       // Let a parse failure propagate: the engine latches the editor read-only so a
       // blank surface can never overwrite the real file on save.
-      const parts: DocxParts = docxToParts(bytes);
+      const parts: DocxParts = docxToParts(bytes, preunzipped);
       let fontCss = "";
       let fontUrls: string[] = [];
       let defaultFontName: string | undefined;
       try {
-        const fileMap = unzipSync(bytes);
+        const fileMap = preunzipped ?? unzipSync(bytes);
         const ff = loadEmbeddedFonts(fileMap);
         fontCss = ff.css;
         fontUrls = ff.urls;
@@ -111,4 +112,18 @@ export function createDocxAdapter(bytes: Uint8Array): Adapter {
 /** Mount a .docx editor in `container`: the docx adapter driving the shared engine. */
 export function createDocxEditor(container: HTMLElement, bytes: Uint8Array, options: DocxEditorOptions = {}): DocxEditor {
   return createRichEditor(container, createDocxAdapter(bytes), options);
+}
+
+// Same, but inflate the .docx off the main thread first (single inflate, reused for parse and
+// embedded fonts). The DOM-bound parse still runs on the main thread once the map is ready.
+export async function createDocxEditorAsync(container: HTMLElement, bytes: Uint8Array, options: DocxEditorOptions = {}, preunzipped?: Record<string, Uint8Array>): Promise<DocxEditor> {
+  let files = preunzipped;
+  if (!files) {
+    try {
+      files = await unzipAsync(bytes);
+    } catch {
+      /* not a readable zip; let the sync adapter surface the parse failure (read-only latch) */
+    }
+  }
+  return createRichEditor(container, createDocxAdapter(bytes, files), options);
 }

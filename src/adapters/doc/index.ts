@@ -111,3 +111,9 @@ export function createDocAdapter(bytes: Uint8Array): Adapter {
 export function createDocEditor(container: HTMLElement, bytes: Uint8Array, options: DocEditorOptions = {}): DocEditor {
   return createRichEditor(container, createDocAdapter(bytes), options);
 }
+
+// Async form for a uniform host mount path. A .doc is an OLE compound file, not a zip, so
+// there is no inflate to offload; the CFB + record parse is inherently main-thread.
+export function createDocEditorAsync(container: HTMLElement, bytes: Uint8Array, options: DocEditorOptions = {}): Promise<DocEditor> {
+  return Promise.resolve(createDocEditor(container, bytes, options));
+}

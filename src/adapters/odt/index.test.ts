@@ -54,6 +54,11 @@ describe("odt <-> html", () => {
     expect(html2).not.toContain("monde");
   });
 
+  it("odtToParts from a pre-inflated map matches parsing from raw bytes", () => {
+    const odt = makeOdt();
+    expect(odtToParts(odt, unzipSync(odt))).toEqual(odtToParts(odt));
+  });
+
   it("htmlToOdtAsync (off-thread zip) matches the synchronous writer", async () => {
     const odt = makeOdt();
     const edited = "<h1>Titre</h1><p>Bonjour <strong>planete</strong> la.</p>";
