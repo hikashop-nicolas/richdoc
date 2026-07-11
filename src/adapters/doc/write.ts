@@ -592,42 +592,81 @@ interface ParaRun {
   istd: number;
 }
 
-function buildChpxFkp(runs: CharRun[]): Uint8Array {
+// A single formatted-disk page plus the FC range it describes.
+interface FkpPage { page: Uint8Array; fcStart: number; fcEnd: number }
+
+// A CHPX/PAPX FKP is one 512-byte page: an FC array (n+1), a per-run offset table, and the grpprl
+// blobs packed downward from the end. A page holds only as many runs as fit in 512 bytes, so a
+// document is split across as many pages as it needs; the PlcfBte then maps FC ranges to pages.
+
+// Does runs[from, to) fit in one CHPX FKP page? (FC array + 1-byte offsets + packed CHPX blobs.)
+function chpxPageFits(runs: CharRun[], from: number, to: number): boolean {
+  const n = to - from;
+  const headerEnd = 4 * (n + 1) + n;
+  let pos = 511;
+  for (let i = to - 1; i >= from; i--) { pos -= 1 + runs[i].grpprl.length; if (pos % 2 !== 0) pos -= 1; }
+  return pos >= headerEnd;
+}
+
+function buildChpxPage(runs: CharRun[], from: number, to: number): FkpPage {
   const page = new Uint8Array(512);
   const dv = new DataView(page.buffer);
-  const crun = runs.length;
-  for (let i = 0; i <= crun; i++) dv.setUint32(i * 4, i < crun ? runs[i].fcStart : runs[crun - 1].fcEnd, true);
-  const offArr = 4 * (crun + 1);
-  // Pack CHPX blobs downward from the end (before the crun byte at 511).
+  const n = to - from;
+  for (let i = 0; i <= n; i++) dv.setUint32(i * 4, i < n ? runs[from + i].fcStart : runs[to - 1].fcEnd, true);
+  const offArr = 4 * (n + 1);
   let pos = 511;
-  for (let i = crun - 1; i >= 0; i--) {
-    const g = runs[i].grpprl;
+  for (let i = n - 1; i >= 0; i--) {
+    const g = runs[from + i].grpprl;
     pos -= 1 + g.length;
     if (pos % 2 !== 0) pos -= 1; // CHPX must start at an even offset
     page[pos] = g.length;
     page.set(g, pos + 1);
     page[offArr + i] = pos / 2;
   }
-  page[511] = crun;
-  return page;
+  page[511] = n;
+  return { page, fcStart: runs[from].fcStart, fcEnd: runs[to - 1].fcEnd };
 }
 
-function buildPapxFkp(paras: ParaRun[]): Uint8Array {
+function buildChpxFkps(runs: CharRun[]): FkpPage[] {
+  if (!runs.length) return [buildChpxPage([{ fcStart: TEXT_START, fcEnd: TEXT_START + 2, grpprl: new Uint8Array(0) }], 0, 1)];
+  const pages: FkpPage[] = [];
+  let from = 0;
+  while (from < runs.length) {
+    let to = from + 1;
+    while (to < runs.length && chpxPageFits(runs, from, to + 1)) to++;
+    pages.push(buildChpxPage(runs, from, to));
+    from = to;
+  }
+  return pages;
+}
+
+// The stored PAPX blob for one paragraph: istd (2) + sprms, padded to an odd length so PapxInFkp's
+// cb encodes it as (len+1)/2.
+function papxStored(p: ParaRun): Uint8Array {
+  const grpprl = new Uint8Array(2 + p.grpprl.length);
+  grpprl[0] = p.istd & 0xff;
+  grpprl[1] = (p.istd >> 8) & 0xff;
+  grpprl.set(p.grpprl, 2);
+  return grpprl.length % 2 === 0 ? new Uint8Array([...grpprl, 0]) : grpprl;
+}
+
+function papxPageFits(paras: ParaRun[], from: number, to: number): boolean {
+  const n = to - from;
+  const headerEnd = 4 * (n + 1) + 13 * n; // FC array + aBxPap (13 bytes each)
+  let pos = 511;
+  for (let i = to - 1; i >= from; i--) { pos -= 1 + papxStored(paras[i]).length; if (pos % 2 !== 0) pos -= 1; }
+  return pos >= headerEnd;
+}
+
+function buildPapxPage(paras: ParaRun[], from: number, to: number): FkpPage {
   const page = new Uint8Array(512);
   const dv = new DataView(page.buffer);
-  const cpara = paras.length;
-  for (let i = 0; i <= cpara; i++) dv.setUint32(i * 4, i < cpara ? paras[i].fcStart : paras[cpara - 1].fcEnd, true);
-  const bxArr = 4 * (cpara + 1); // aBxPap: 13 bytes each
+  const n = to - from;
+  for (let i = 0; i <= n; i++) dv.setUint32(i * 4, i < n ? paras[from + i].fcStart : paras[to - 1].fcEnd, true);
+  const bxArr = 4 * (n + 1); // aBxPap: 13 bytes each
   let pos = 511;
-  for (let i = cpara - 1; i >= 0; i--) {
-    // grpprl = istd (2 bytes) + sprms
-    const g = paras[i].grpprl;
-    const grpprl = new Uint8Array(2 + g.length);
-    grpprl[0] = paras[i].istd & 0xff;
-    grpprl[1] = (paras[i].istd >> 8) & 0xff;
-    grpprl.set(g, 2);
-    // PapxInFkp: 1-byte cb where the stored grpprl length is 2*cb-1 (pad if even).
-    const stored = grpprl.length % 2 === 0 ? new Uint8Array([...grpprl, 0]) : grpprl;
+  for (let i = n - 1; i >= 0; i--) {
+    const stored = papxStored(paras[from + i]);
     const cb = (stored.length + 1) / 2;
     pos -= 1 + stored.length;
     if (pos % 2 !== 0) pos -= 1;
@@ -635,8 +674,21 @@ function buildPapxFkp(paras: ParaRun[]): Uint8Array {
     page.set(stored, pos + 1);
     page[bxArr + i * 13] = pos / 2;
   }
-  page[511] = cpara;
-  return page;
+  page[511] = n;
+  return { page, fcStart: paras[from].fcStart, fcEnd: paras[to - 1].fcEnd };
+}
+
+function buildPapxFkps(paras: ParaRun[]): FkpPage[] {
+  if (!paras.length) return [buildPapxPage([{ fcStart: TEXT_START, fcEnd: TEXT_START + 2, grpprl: new Uint8Array(0), istd: 0 }], 0, 1)];
+  const pages: FkpPage[] = [];
+  let from = 0;
+  while (from < paras.length) {
+    let to = from + 1;
+    while (to < paras.length && papxPageFits(paras, from, to + 1)) to++;
+    pages.push(buildPapxPage(paras, from, to));
+    from = to;
+  }
+  return pages;
 }
 
 // Build a paragraph "Heading N" STD (sti=N, based on Normal), carrying bold + the heading
@@ -1173,12 +1225,13 @@ export function htmlToDoc(bodyHtml: string, page?: PageGeometry, notes?: Note[],
 
   // 2. WordDocument = FIB template + text + CHPX FKP + PAPX FKP.
   const fib = b64(B64.FIB).slice(); // 1536 bytes
-  const chpxFkp = buildChpxFkp(charRuns);
-  const papxFkp = buildPapxFkp(paraRuns);
+  const chpxFkps = buildChpxFkps(charRuns);
+  const papxFkps = buildPapxFkps(paraRuns);
   const textEnd = TEXT_START + textBytes.length;
   const fkpBase = Math.ceil(textEnd / 512) * 512;
-  const chpxPage = fkpBase / 512;
-  const papxPage = chpxPage + 1;
+  const chpxPage0 = fkpBase / 512; // first CHPX FKP page number; PAPX pages follow
+  const papxPage0 = chpxPage0 + chpxFkps.length;
+  const afterFkp = (papxPage0 + papxFkps.length) * 512;
   // Sections: each boundary paragraph ends a section carrying its geometry; the final section
   // uses the document page. A SEPX is emitted for an explicit page geometry, whenever there is a
   // header/footer (Word ignores the header/footer stories without one), or for every section of
@@ -1188,7 +1241,7 @@ export function htmlToDoc(bodyHtml: string, page?: PageGeometry, notes?: Note[],
   const sections: { endCp: number; geom: PageGeometry | null }[] = sectionEnds.length
     ? [...sectionEnds.map((s) => ({ endCp: s.endCp, geom: s.geom as PageGeometry | null })), { endCp: ccpText, geom: page ?? defaultPage }]
     : [{ endCp: ccpText, geom: needSepx ? page ?? defaultPage : null }];
-  let sepxCursor = (papxPage + 1) * 512;
+  let sepxCursor = afterFkp;
   const sepxBlobs: { off: number; bytes: Uint8Array }[] = [];
   const sedFcSepx = sections.map((s) => {
     if (!s.geom) return 0xffffffff;
@@ -1198,7 +1251,7 @@ export function htmlToDoc(bodyHtml: string, page?: PageGeometry, notes?: Note[],
     sepxCursor += bytes.length;
     return off;
   });
-  const wdEndBase = sepxBlobs.length ? sepxCursor : (papxPage + 1) * 512;
+  const wdEndBase = sepxBlobs.length ? sepxCursor : afterFkp;
   // Floating pictures store their blips in a delay area appended to WordDocument; the FSPA table and
   // the drawing group go in the table stream (added below). ccpText bounds the FSPA anchor CPs.
   const delayBase = floatAnchors.length ? Math.ceil(wdEndBase / 4) * 4 : wdEndBase;
@@ -1208,8 +1261,8 @@ export function htmlToDoc(bodyHtml: string, page?: PageGeometry, notes?: Note[],
   const wd = new Uint8Array(wdLen);
   wd.set(fib, 0);
   wd.set(textBytes, TEXT_START);
-  wd.set(chpxFkp, chpxPage * 512);
-  wd.set(papxFkp, papxPage * 512);
+  chpxFkps.forEach((p, i) => wd.set(p.page, (chpxPage0 + i) * 512));
+  papxFkps.forEach((p, i) => wd.set(p.page, (papxPage0 + i) * 512));
   for (const b of sepxBlobs) wd.set(b.bytes, b.off);
   if (floats) wd.set(floats.delay, delayBase);
 
@@ -1232,16 +1285,18 @@ export function htmlToDoc(bodyHtml: string, page?: PageGeometry, notes?: Note[],
   }
   const lcbSed = tbl.length - fcSed;
 
+  // PlcfBteChpx / PlcfBtePapx: an FC array (one boundary per FKP page + a final FC) then the page
+  // number of each FKP. With multi-page FKPs each page covers a contiguous FC sub-range.
   const fcChpxBte = tbl.length;
-  tbl.u32(TEXT_START);
-  tbl.u32(textEnd);
-  tbl.u32(chpxPage);
+  for (const p of chpxFkps) tbl.u32(p.fcStart);
+  tbl.u32(chpxFkps[chpxFkps.length - 1].fcEnd);
+  for (let i = 0; i < chpxFkps.length; i++) tbl.u32(chpxPage0 + i);
   const lcbChpxBte = tbl.length - fcChpxBte;
 
   const fcPapxBte = tbl.length;
-  tbl.u32(TEXT_START);
-  tbl.u32(textEnd);
-  tbl.u32(papxPage);
+  for (const p of papxFkps) tbl.u32(p.fcStart);
+  tbl.u32(papxFkps[papxFkps.length - 1].fcEnd);
+  for (let i = 0; i < papxFkps.length; i++) tbl.u32(papxPage0 + i);
   const lcbPapxBte = tbl.length - fcPapxBte;
 
   // Footnote / endnote PLCFs: reference CPs (each with a 2-byte FRD of 0 = auto-numbered)

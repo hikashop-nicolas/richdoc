@@ -155,6 +155,19 @@ describe("doc write -> read round trip", () => {
     expect(m![0]).toMatch(/data-reserve="1"/); // top-and-bottom wrap survives via the FSPA flags
   });
 
+  it("writes a large document across multiple FKP pages", () => {
+    // A single 512-byte FKP page holds only a few dozen runs; this many paragraphs forces the
+    // writer to split CHPX/PAPX across pages and the PlcfBte to map each FC range to its page.
+    const n = 400;
+    const src = Array.from({ length: n }, (_, i) => `<p>Paragraph number ${i} with some <b>bold</b> text.</p>`).join("");
+    const html = docToHtml(htmlToDoc(src));
+    const paras = html.match(/<p>/g) || [];
+    expect(paras.length).toBe(n);
+    expect(html).toContain("Paragraph number 0 ");
+    expect(html).toContain(`Paragraph number ${n - 1} `);
+    expect(html).toMatch(/font-weight:bold">bold</); // formatting survives on a late page
+  });
+
   it("preserves manual page breaks", () => {
     const html = docToHtml(htmlToDoc('<p>a<span data-docx-pagebreak="manual"></span>b</p>'));
     expect(html).toContain('data-docx-pagebreak="manual"');
