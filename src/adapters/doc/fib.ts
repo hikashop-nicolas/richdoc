@@ -19,6 +19,7 @@ export const FC = {
   grpXstAtnOwners: 36, // comment author names (group of Xst), indexed by ATRD.ibst
   clx: 33,
   plcfspaMom: 40, // FSPA shape anchors in the main document (floating drawings)
+  dggInfo: 50, // OfficeArt drawing group (blip store + per-shape records) in the table stream
   plcfendRef: 46, // endnote reference CPs (main doc)
   plcfendTxt: 47, // endnote text spans (endnote subdocument)
   plcftxbxTxt: 56, // textbox story breaks (CPs + FTXBXS) for the textbox subdocument

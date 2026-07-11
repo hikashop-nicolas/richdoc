@@ -1542,8 +1542,8 @@ export function createRichEditor(container: HTMLElement, adapter: Adapter, optio
     mergeSplitTables(tmp); // rejoin any split table so the saved HTML has one whole table
     for (const s of Array.from(tmp.querySelectorAll(".docxedit-pagespacer"))) s.remove();
     for (const el of Array.from(tmp.querySelectorAll(".docxedit-pagetop"))) el.classList.remove("docxedit-pagetop");
-    // Read-only floating images are a view decoration; drop them (and their anchor marker) on save.
-    for (const f of Array.from(tmp.querySelectorAll(".docx-float"))) f.remove();
+    // Floating images ride along to the adapter (the .doc writer re-emits them as anchored
+    // OfficeArt shapes); just drop the view-only anchor marker class.
     for (const a of Array.from(tmp.querySelectorAll(".docx-float-anchor"))) a.classList.remove("docx-float-anchor");
     // Unwrap the per-page column / per-section page / vertical band boxes, lifting blocks to the body.
     for (const w of Array.from(tmp.querySelectorAll(".docxedit-colpage, .docxedit-secpage, .docxedit-vband"))) {

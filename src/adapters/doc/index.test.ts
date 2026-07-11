@@ -145,6 +145,16 @@ describe("doc write -> read round trip", () => {
     expect(html).toContain("margin-bottom:12px");
   });
 
+  it("preserves a floating picture (FSPA anchor + OfficeArt drawing)", () => {
+    const png = "data:image/png;base64,iVBORw0KGgoAAAANSUhEUgAAAAgAAAAICAYAAADED76LAAAAFElEQVR42mP8z8BQz0AEYBxVSF+FAP5FDvcfRYWgAAAAAElFTkSuQmCC";
+    const html = docToHtml(htmlToDoc(`<p>C<img class="docx-float" src="${png}" data-reserve="1" style="left:40px;top:45px;width:120px;height:100px"></p>`));
+    const m = html.match(/<img class="docx-float"[^>]*>/);
+    expect(m).not.toBeNull();
+    expect(m![0]).toContain("data:image/png"); // the blip round-trips through the delay stream
+    expect(m![0]).toMatch(/width:120px/);
+    expect(m![0]).toMatch(/data-reserve="1"/); // top-and-bottom wrap survives via the FSPA flags
+  });
+
   it("preserves manual page breaks", () => {
     const html = docToHtml(htmlToDoc('<p>a<span data-docx-pagebreak="manual"></span>b</p>'));
     expect(html).toContain('data-docx-pagebreak="manual"');

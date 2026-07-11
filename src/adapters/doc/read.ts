@@ -1245,7 +1245,7 @@ function buildHtml(
       for (const f of floatsByCp.get(cp) ?? []) {
         if (inlineImgs.has(f.img)) continue; // already shown inline (its textbox) - don't double it
         flushRun();
-        runHtml += `<img class="docx-float" src="${f.img}" alt="" contenteditable="false" style="left:${f.dx}px;top:${f.dy}px;width:${f.w}px;height:${f.h}px">`;
+        runHtml += `<img class="docx-float" src="${f.img}" alt="" contenteditable="false" data-reserve="${f.reserve ? 1 : 0}" style="left:${f.dx}px;top:${f.dy}px;width:${f.w}px;height:${f.h}px">`;
         paraHasFloat = true;
         injected = true;
         // A wrapping float (top-and-bottom / square) reserves its vertical extent: make the anchor

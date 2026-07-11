@@ -35,6 +35,7 @@ interface Run {
   special?: boolean; // sprmCFSpec: a special character (footnote/endnote ref auto-number)
   fnRef?: { id: string; kind: SubKind }; // an inline reference (note or comment) in the main text
   image?: { bytes: Uint8Array; mime: string; wTwips: number; hTwips: number }; // an inline picture
+  float?: { bytes: Uint8Array; mime: string; xTw: number; yTw: number; wTw: number; hTw: number; reserve: boolean }; // an anchored floating picture (0x08)
   picLoc?: number; // sprmCPicLocation: this picture's offset in the Data stream (set during assembly)
   fldFlt?: number; // on a 0x13 field-begin char: the field type (PAGE=33, NUMPAGES=26, TOC=13, EQ=49, HYPERLINK=88)
   rev?: "ins" | "del"; // a tracked insertion / deletion
@@ -177,6 +178,28 @@ function imageRun(el: HTMLImageElement, f: Fmt): Run | null {
   return { ...mkRun("\x01", f), special: true, image: { bytes: dec.bytes, mime: dec.mime, wTwips: Math.round(w * 15), hTwips: Math.round(h * 15) } };
 }
 
+// A floating <img class="docx-float"> becomes an anchored drawn-object run (0x08, special) carrying
+// the image plus its paragraph-relative position and size (from the inline style, px -> twips) and
+// the wrap-reserve flag. The assembler turns these into an FSPA anchor + an OfficeArt shape.
+function floatRun(el: HTMLElement, f: Fmt): Run | null {
+  const dec = decodeDataUrl(el.getAttribute("src") || "");
+  if (!dec) return null;
+  const kind = BLIP_KINDS[dec.mime];
+  if (!kind || dec.mime === "image/gif") return null;
+  const px = (v: string) => Math.round((parseFloat(v) || 0) * 15);
+  const [wPx, hPx] = imageSizePx(dec.bytes);
+  const st = el.style;
+  return {
+    ...mkRun("\x08", f), special: true,
+    float: {
+      bytes: dec.bytes, mime: dec.mime,
+      xTw: px(st.left), yTw: px(st.top),
+      wTw: px(st.width) || Math.round((wPx || 96) * 15), hTw: px(st.height) || Math.round((hPx || 96) * 15),
+      reserve: el.getAttribute("data-reserve") === "1",
+    },
+  };
+}
+
 function collectRuns(node: Node, f: Fmt, runs: Run[]): void {
   for (const child of Array.from(node.childNodes)) {
     if (child.nodeType === 3) {
@@ -215,6 +238,11 @@ function collectRuns(node: Node, f: Fmt, runs: Run[]): void {
       }
       if (el.classList.contains("docx-comment")) {
         collectRuns(el, f, runs); // a comment range wrapper: keep the text it spans
+        continue;
+      }
+      if (tag === "img" && el.classList.contains("docx-float")) {
+        const fr = floatRun(el as HTMLElement, f);
+        if (fr) runs.push(fr);
         continue;
       }
       if (tag === "img") {
@@ -870,6 +898,134 @@ function buildPictureData(bytes: Uint8Array, blip: { bt: number; type: number; i
 }
 
 // ---------------------------------------------------------------------------
+// Floating pictures (anchored OfficeArt shapes)
+//
+// A floating picture is an FSPA anchor (in plcfspaMom, keyed by the CP of a 0x08 char in the main
+// text) that points at a shape in the document's OfficeArt drawing group (fcDggInfo). The drawing
+// group holds a blip store (one BSE per image, its bytes in the WordDocument delay area at foDelay)
+// and one picture shape per float carrying the pib that selects its blip. The reader mirrors this:
+// FSPA rect -> position, spid -> pib -> blip.
+// ---------------------------------------------------------------------------
+
+interface FloatAnchor { cp: number; float: NonNullable<Run["float"]> }
+
+// A 16-byte blip id derived from the image (Word uses an MD5; only used for de-dup, which we skip).
+function blipUid(bytes: Uint8Array): Uint8Array {
+  const uid = new Uint8Array(16);
+  for (let i = 0; i < 16; i++) uid[i] = (bytes[(i * 37) % bytes.length] ?? i) & 0xff;
+  return uid;
+}
+
+// An OfficeArt record = header + inner payload.
+function escherRec(inst: number, ver: number, type: number, inner: Uint8Array): Uint8Array {
+  const b = new Buf();
+  escherHeader(b, inst, ver, type, inner.length);
+  b.bytes(inner);
+  return b.done();
+}
+
+// A shape's property table (FOPT): the pib property (0x4104) selects blip #pib; the rest are the
+// fill/line defaults Word writes for a picture frame.
+function buildFopt(pib: number): Uint8Array {
+  const b = new Buf();
+  const prop = (id: number, val: number) => { b.u16(id); b.u32(val >>> 0); };
+  prop(0x0081, 0); prop(0x0082, 0); prop(0x0083, 0); prop(0x0084, 0);
+  prop(0x4104, pib); // pib | fBid: blip index (1-based)
+  prop(0x0106, 0); prop(0x013f, 0);
+  prop(0x0181, 0x00ffffff); prop(0x0183, 0); prop(0x01bf, 0x00100010); prop(0x01ff, 0x00080000);
+  return escherRec(11, 3, 0xf00b, b.done());
+}
+
+// Build the three structures a set of floats needs: the FSPA table (plcfspaMom), the OfficeArt
+// drawing group (fcDggInfo), and the delay bytes appended to the WordDocument stream (holding each
+// blip at its foDelay). spids start at 1024 (the group patriarch); float shapes are 1025, 1026, ...
+function buildFloats(anchors: FloatAnchor[], ccpText: number, delayBase: number): { fspa: Uint8Array; dgg: Uint8Array; delay: Uint8Array } {
+  const SPID_GROUP = 1024;
+  const n = anchors.length;
+
+  // Blip records into the delay area, one BSE per float (no de-dup).
+  const delay = new Buf();
+  const blips = anchors.map((a) => {
+    const kind = BLIP_KINDS[a.float.mime]!;
+    const uid = blipUid(a.float.bytes);
+    const rec = new Buf();
+    escherHeader(rec, kind.inst, 0, kind.type, 16 + 1 + a.float.bytes.length);
+    rec.bytes(uid); rec.u8(0xff); rec.bytes(a.float.bytes);
+    const recBytes = rec.done();
+    const foDelay = delayBase + delay.length;
+    delay.bytes(recBytes);
+    return { kind, uid, blipRecLen: recBytes.length, foDelay };
+  });
+
+  // FSPA plcf: CP array (n anchors + terminator) then a 26-byte FSPA per float.
+  const fspa = new Buf();
+  for (const a of anchors) fspa.u32(a.cp);
+  fspa.u32(ccpText);
+  anchors.forEach((a, i) => {
+    const f = a.float;
+    fspa.u32(SPID_GROUP + 1 + i); // spid
+    fspa.u32(f.xTw); fspa.u32(f.yTw); fspa.u32(f.xTw + f.wTw); fspa.u32(f.yTw + f.hTw);
+    fspa.u16(0x14 | ((f.reserve ? 1 : 2) << 5)); // flags: bx=2, by=2, wr (1 = top-and-bottom, 2 = none)
+    fspa.u32(0); // cTxbx
+  });
+
+  // OfficeArt drawing group.
+  const fdgg = new Buf();
+  fdgg.u32(SPID_GROUP + n + 1); // spidMax
+  fdgg.u32(2); // cidcl
+  fdgg.u32(n + 1); // cspSaved (patriarch + n shapes)
+  fdgg.u32(1); // cdgSaved
+  fdgg.u32(1); fdgg.u32(SPID_GROUP + n + 1); // rgidcl[0] = { dgid, cspidCur }
+  const fdggRec = escherRec(0, 0, 0xf006, fdgg.done());
+
+  const bstore = new Buf();
+  for (const bl of blips) {
+    const bse = new Buf();
+    bse.u8(bl.kind.bt); bse.u8(bl.kind.bt); // btWin32, btMacOS
+    bse.bytes(bl.uid); bse.u16(0xff); // rgbUid, tag
+    bse.u32(bl.blipRecLen); bse.u32(1); bse.u32(bl.foDelay); // size, cRef, foDelay
+    bse.u8(0); bse.u8(0); bse.u8(0); bse.u8(0); // usage, cbName, unused1, unused2
+    bstore.bytes(escherRec(bl.kind.bt, 2, 0xf007, bse.done()));
+  }
+  const bstoreRec = escherRec(n, 0xf, 0xf001, bstore.done());
+
+  const fdg = new Buf();
+  fdg.u32(n + 1); fdg.u32(SPID_GROUP + n); // csp, spidCur
+  const fdgRec = escherRec(1, 0, 0xf008, fdg.done());
+
+  const spgr = new Buf();
+  // The group patriarch shape (bounds 0, fGroup | fPatriarch).
+  const grp = new Buf();
+  grp.bytes(escherRec(0, 0, 0xf009, (() => { const g = new Buf(); g.u32(0); g.u32(0); g.u32(0); g.u32(0); return g.done(); })()));
+  grp.bytes(escherRec(0, 2, 0xf00a, (() => { const g = new Buf(); g.u32(SPID_GROUP); g.u32(0x5); return g.done(); })()));
+  spgr.bytes(escherRec(0, 0xf, 0xf004, grp.done()));
+  // One picture-frame shape per float.
+  anchors.forEach((_, i) => {
+    const sp = new Buf();
+    sp.bytes(escherRec(0x4b, 2, 0xf00a, (() => { const g = new Buf(); g.u32(SPID_GROUP + 1 + i); g.u32(0xa00); return g.done(); })())); // FSP: picture frame, fHaveSpt | fHaveAnchor
+    sp.bytes(buildFopt(i + 1));
+    sp.bytes(escherRec(0, 0, 0xf010, (() => { const g = new Buf(); g.u32(0x80000000); return g.done(); })())); // ClientAnchor
+    spgr.bytes(escherRec(0, 0xf, 0xf004, sp.done()));
+  });
+  const dgInner = new Buf();
+  dgInner.bytes(fdgRec);
+  dgInner.bytes(escherRec(0, 0xf, 0xf003, spgr.done()));
+  const dgRec = escherRec(0, 0xf, 0xf002, dgInner.done());
+
+  // The Dgg container holds the drawing-group data, blip store and split-menu-colours; the per-
+  // document Dg container is a SIBLING that follows it (this is the shape Word/LibreOffice expect,
+  // not the Dg nested inside the Dgg).
+  const splitMenu = (() => { const g = new Buf(); g.u32(0x0800000d); g.u32(0x0800000c); g.u32(0x08000017); g.u32(0x100000f7); return escherRec(4, 0, 0xf11e, g.done()); })();
+  const dggInner = new Buf();
+  dggInner.bytes(fdggRec); dggInner.bytes(bstoreRec); dggInner.bytes(splitMenu);
+  const content = new Buf();
+  content.bytes(escherRec(0, 0xf, 0xf000, dggInner.done())); // Dgg container
+  content.bytes(dgRec); // Dg container (sibling)
+
+  return { fspa: fspa.done(), dgg: content.done(), delay: delay.done() };
+}
+
+// ---------------------------------------------------------------------------
 // Assemble
 // ---------------------------------------------------------------------------
 
@@ -942,6 +1098,7 @@ export function htmlToDoc(bodyHtml: string, page?: PageGeometry, notes?: Note[],
   const txtCps: Record<SubKind, number[]> = { footnote: [], comment: [], endnote: [] }; // text-span starts within each subdoc
   const regionBaseCp = new Map<SubKind, number>(); // CP where each subdocument starts
   const fieldChars: { cp: number; ch: number; flt: number }[] = []; // every field char (0x13/0x14/0x15)
+  const floatAnchors: FloatAnchor[] = []; // floating pictures, keyed by their 0x08 anchor CP
   const sectionEnds: { endCp: number; geom: PageGeometry }[] = []; // section-boundary paragraphs
   let hddBaseCp = -1; // CP where the header/footer subdocument starts
   let footerStoryCp = -1; // CP where the footer story starts inside the header/footer subdoc
@@ -958,6 +1115,7 @@ export function htmlToDoc(bodyHtml: string, page?: PageGeometry, notes?: Note[],
       if (r.fnRef) refCps[r.fnRef.kind].push(startCp);
       if (r.text === "\x13" || r.text === "\x14" || r.text === "\x15")
         fieldChars.push({ cp: startCp, ch: r.text.charCodeAt(0), flt: r.text === "\x13" ? (r.fldFlt ?? 0) : r.text === "\x14" ? 0xff : 0x80 });
+      if (r.float) floatAnchors.push({ cp: startCp, float: r.float });
       for (const ch of r.text) chars.push(ch.codePointAt(0)!);
       charRuns.push({ fcStart: fcAt(startCp), fcEnd: fcAt(chars.length), grpprl: chpxGrpprl(r, fontTable.ftc, rmIbst) });
     }
@@ -1040,7 +1198,12 @@ export function htmlToDoc(bodyHtml: string, page?: PageGeometry, notes?: Note[],
     sepxCursor += bytes.length;
     return off;
   });
-  const wdEnd = sepxBlobs.length ? sepxCursor : (papxPage + 1) * 512;
+  const wdEndBase = sepxBlobs.length ? sepxCursor : (papxPage + 1) * 512;
+  // Floating pictures store their blips in a delay area appended to WordDocument; the FSPA table and
+  // the drawing group go in the table stream (added below). ccpText bounds the FSPA anchor CPs.
+  const delayBase = floatAnchors.length ? Math.ceil(wdEndBase / 4) * 4 : wdEndBase;
+  const floats = floatAnchors.length ? buildFloats(floatAnchors, ccpText, delayBase) : null;
+  const wdEnd = floats ? delayBase + floats.delay.length : wdEndBase;
   const wdLen = Math.max(4096, Math.ceil(wdEnd / 512) * 512);
   const wd = new Uint8Array(wdLen);
   wd.set(fib, 0);
@@ -1048,6 +1211,7 @@ export function htmlToDoc(bodyHtml: string, page?: PageGeometry, notes?: Note[],
   wd.set(chpxFkp, chpxPage * 512);
   wd.set(papxFkp, papxPage * 512);
   for (const b of sepxBlobs) wd.set(b.bytes, b.off);
+  if (floats) wd.set(floats.delay, delayBase);
 
   // 3. 1Table = STSH + PlcfSed + PlcfBteChpx + PlcfBtePapx + Clx + Sttbfffn.
   const stsh = buildStshWithHeadings();
@@ -1147,6 +1311,19 @@ export function htmlToDoc(bodyHtml: string, page?: PageGeometry, notes?: Note[],
     }
     return { fc, lcb: tbl.length - fc };
   })();
+  // Floating pictures: the FSPA anchor table and the OfficeArt drawing group live in the table stream.
+  const spaMom = ((): { fc: number; lcb: number } => {
+    if (!floats) return { fc: 0, lcb: 0 };
+    const fc = tbl.length;
+    tbl.bytes(floats.fspa);
+    return { fc, lcb: tbl.length - fc };
+  })();
+  const dggInfo = ((): { fc: number; lcb: number } => {
+    if (!floats) return { fc: 0, lcb: 0 };
+    const fc = tbl.length;
+    tbl.bytes(floats.dgg);
+    return { fc, lcb: tbl.length - fc };
+  })();
 
   const fcClx = tbl.length;
   // Clx = Pcdt(0x02) + lcb(4) + PlcPcd{ aCP[2]={0,total}, aPcd[1]{flags:0, fc, prm:0} }. The
@@ -1194,6 +1371,8 @@ export function htmlToDoc(bodyHtml: string, page?: PageGeometry, notes?: Note[],
       [FC.grpXstAtnOwners, grpXst.fc, grpXst.lcb],
       [FC.plcfendRef, endRef.fc, endRef.lcb],
       [FC.plcfendTxt, endTxt.fc, endTxt.lcb],
+      [FC.plcfspaMom, spaMom.fc, spaMom.lcb],
+      [FC.dggInfo, dggInfo.fc, dggInfo.lcb],
     ],
   });
 
