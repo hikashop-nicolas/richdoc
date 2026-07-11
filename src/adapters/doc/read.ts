@@ -83,6 +83,7 @@ interface ParaProps {
   indentTwips?: number;
   istd?: number;
   headingLevel?: number; // 1..6 when the paragraph's style is a heading
+  styleChp?: CharProps; // character formatting inherited from the paragraph's named style
   inTable?: boolean; // sprmPFInTable
   ttp?: boolean; // sprmPFTtp (table-terminating / row-end paragraph)
 }
@@ -260,6 +261,55 @@ function parseStyleHeadings(table: Uint8Array, fc: number, lcb: number): Map<num
     i += cbStd;
   }
   return map;
+}
+
+// Resolve each style index (istd) to the character formatting it defines (bold/size/font/...),
+// following the istdBase chain so a style inherits from the one it is based on. This is what lets
+// a paragraph in a named style (e.g. a bold "Title") render styled even when its runs carry no
+// direct character formatting. Each STD holds a UpxChpx (a CHPX grpprl) after its STDF + name +
+// UpxPapx; toggle sprms (bold value 0x81) read as on, which matches heading/title styles.
+function parseStyleChps(table: Uint8Array, fc: number, lcb: number, fonts: string[]): Map<number, CharProps> {
+  const resolved = new Map<number, CharProps>();
+  if (lcb < 6) return resolved;
+  const dv = new DataView(table.buffer, table.byteOffset + fc, lcb);
+  const cbStshi = dv.getUint16(0, true);
+  const cstd = dv.getUint16(2, true);
+  const cbBase = dv.getUint16(4, true); // cbSTDBaseInFile: the fixed STDF length
+  const raw = new Map<number, { istdBase: number; chp: CharProps }>();
+  let i = 2 + cbStshi;
+  for (let istd = 0; istd < cstd && i + 2 <= lcb; istd++) {
+    const cbStd = dv.getUint16(i, true);
+    i += 2;
+    const std = i;
+    i += cbStd;
+    if (cbStd < cbBase + 2 || std + cbStd > lcb) continue;
+    const istdBase = dv.getUint16(std + 2, true) >> 4; // STDF: sgc(4) + istdBase(12) at offset 2
+    let p = std + cbBase;
+    const cch = dv.getUint16(p, true); // style name: cch UTF-16 units + a null terminator
+    p += 2 + cch * 2 + 2;
+    if (p % 2) p++;
+    if (p + 2 > std + cbStd) continue;
+    const cbUpxPapx = dv.getUint16(p, true);
+    p += 2 + cbUpxPapx;
+    if (cbUpxPapx % 2) p++;
+    if (p + 2 > std + cbStd) { raw.set(istd, { istdBase, chp: {} }); continue; }
+    const cbUpxChpx = dv.getUint16(p, true);
+    const chpxStart = p + 2;
+    const chp = chpxStart + cbUpxChpx <= std + cbStd ? decodeCharSprms(table.subarray(fc + chpxStart, fc + chpxStart + cbUpxChpx), fonts) : {};
+    raw.set(istd, { istdBase, chp });
+  }
+  const resolve = (istd: number, seen: Set<number>): CharProps => {
+    if (resolved.has(istd)) return resolved.get(istd)!;
+    const r = raw.get(istd);
+    if (!r || seen.has(istd)) return {};
+    seen.add(istd);
+    const base = r.istdBase !== 0xfff && r.istdBase !== istd ? resolve(r.istdBase, seen) : {};
+    const merged = { ...base, ...r.chp };
+    resolved.set(istd, merged);
+    return merged;
+  };
+  for (const istd of raw.keys()) resolve(istd, new Set());
+  return resolved;
 }
 
 // Parse one SEPX (section properties) at fcSepx into richdoc page geometry (undefined if it
@@ -613,7 +663,24 @@ export function docToParts(bytes: Uint8Array): DocParts {
   const paraSpans = readFkpSpans(wd, table, papxPlc.fc, papxPlc.lcb, true, decodeParaSprms);
   const stshFc = fib.fc(FC.stshf);
   const headings = parseStyleHeadings(table, stshFc.fc, stshFc.lcb);
-  for (const sp of paraSpans) if (sp.props.istd != null) sp.props.headingLevel = headings.get(sp.props.istd);
+  const styleChps = parseStyleChps(table, stshFc.fc, stshFc.lcb, fonts);
+  // The default style (istd 0 = Normal) IS the document default, so only carry a style's DELTA
+  // from it: a plain Normal paragraph then adds no formatting, while e.g. a bold Title style does.
+  const defaultChp = styleChps.get(0) ?? {};
+  const CHP_KEYS = ["b", "i", "u", "strike", "sizeHalf", "color", "font", "highlight"] as const;
+  const deltaChp = (chp: CharProps): CharProps | undefined => {
+    const d: CharProps = {};
+    let has = false;
+    for (const k of CHP_KEYS) if (chp[k] !== undefined && chp[k] !== defaultChp[k]) { (d as Record<string, unknown>)[k] = chp[k]; has = true; }
+    return has ? d : undefined;
+  };
+  for (const sp of paraSpans) {
+    if (sp.props.istd != null) {
+      sp.props.headingLevel = headings.get(sp.props.istd);
+      const full = styleChps.get(sp.props.istd);
+      if (full) sp.props.styleChp = deltaChp(full);
+    }
+  }
   const cpToFc = makeCpToFc(pieces);
   const dataStream = cfb.get("Data");
   const imageAt = (offset: number) => extractImageHtml(dataStream, offset);
@@ -955,7 +1022,11 @@ function buildHtml(
       if (curRev) runHtml += `</${curRev.tag}>`;
       if (rev) { runHtml += rev.open; curRev = { tag: rev.tag, key: rev.key }; } else curRev = null;
     }
-    const style = runStyle(lookup(charSpans, cpToFc(cp)), curHeading > 0) || null;
+    // Merge the paragraph's named-style character formatting (base) under the run's own (override),
+    // so a run inherits e.g. a bold Title style unless it sets those properties itself.
+    const runChp = lookup(charSpans, cpToFc(cp));
+    const styleChp = lookup(paraSpans, cpToFc(cp))?.styleChp;
+    const style = runStyle(styleChp ? { ...styleChp, ...runChp } : runChp, curHeading > 0) || null;
     if (style !== curStyle) {
       flushRun();
       curStyle = style;
