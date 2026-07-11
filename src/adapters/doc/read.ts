@@ -98,6 +98,11 @@ interface ParaProps {
   styleChp?: CharProps; // character formatting inherited from the paragraph's named style
   inTable?: boolean; // sprmPFInTable
   ttp?: boolean; // sprmPFTtp (table-terminating / row-end paragraph)
+  ilfo?: number; // sprmPIlfo: list-format index (>0 = a list item)
+  ilvl?: number; // sprmPIlvl: list nesting level (0-based)
+  pageBreakBefore?: boolean; // sprmPFPageBreakBefore: start this paragraph on a new page
+  spaceBeforeTw?: number; // sprmPDyaBefore: space above the paragraph (twips)
+  spaceAfterTw?: number; // sprmPDyaAfter: space below the paragraph (twips)
 }
 
 function esc(s: string): string {
@@ -179,6 +184,11 @@ function decodeParaSprms(g: Uint8Array): ParaProps {
     else if (op === 0x840f) p.indentTwips = dv.getInt16(i - len, true);
     else if (op === 0x2416) p.inTable = v[0] !== 0;
     else if (op === 0x2417) p.ttp = v[0] !== 0;
+    else if (op === 0x460b) p.ilfo = dv.getInt16(i - len, true); // sprmPIlfo: list index
+    else if (op === 0x260a) p.ilvl = v[0]; // sprmPIlvl: list level
+    else if (op === 0x2407) p.pageBreakBefore = v[0] !== 0; // sprmPFPageBreakBefore
+    else if (op === 0xa413) p.spaceBeforeTw = dv.getUint16(i - len, true); // sprmPDyaBefore
+    else if (op === 0xa414) p.spaceAfterTw = dv.getUint16(i - len, true); // sprmPDyaAfter
   }
   return p;
 }
@@ -280,14 +290,15 @@ function parseStyleHeadings(table: Uint8Array, fc: number, lcb: number): Map<num
 // a paragraph in a named style (e.g. a bold "Title") render styled even when its runs carry no
 // direct character formatting. Each STD holds a UpxChpx (a CHPX grpprl) after its STDF + name +
 // UpxPapx; toggle sprms (bold value 0x81) read as on, which matches heading/title styles.
-function parseStyleChps(table: Uint8Array, fc: number, lcb: number, fonts: string[]): Map<number, CharProps> {
-  const resolved = new Map<number, CharProps>();
+interface StyleProps { chp: CharProps; pap: ParaProps }
+function parseStyleChps(table: Uint8Array, fc: number, lcb: number, fonts: string[]): Map<number, StyleProps> {
+  const resolved = new Map<number, StyleProps>();
   if (lcb < 6) return resolved;
   const dv = new DataView(table.buffer, table.byteOffset + fc, lcb);
   const cbStshi = dv.getUint16(0, true);
   const cstd = dv.getUint16(2, true);
   const cbBase = dv.getUint16(4, true); // cbSTDBaseInFile: the fixed STDF length
-  const raw = new Map<number, { istdBase: number; chp: CharProps }>();
+  const raw = new Map<number, { istdBase: number; chp: CharProps; pap: ParaProps }>();
   let i = 2 + cbStshi;
   for (let istd = 0; istd < cstd && i + 2 <= lcb; istd++) {
     const cbStd = dv.getUint16(i, true);
@@ -301,22 +312,24 @@ function parseStyleChps(table: Uint8Array, fc: number, lcb: number, fonts: strin
     p += 2 + cch * 2 + 2;
     if (p % 2) p++;
     if (p + 2 > std + cbStd) continue;
+    // UpxPapx = istd (2) + a PAPX grpprl; decodeParaSprms reads exactly that shape (istd, then sprms).
     const cbUpxPapx = dv.getUint16(p, true);
+    const pap = p + 2 + cbUpxPapx <= std + cbStd ? decodeParaSprms(table.subarray(fc + p + 2, fc + p + 2 + cbUpxPapx)) : {};
     p += 2 + cbUpxPapx;
     if (cbUpxPapx % 2) p++;
-    if (p + 2 > std + cbStd) { raw.set(istd, { istdBase, chp: {} }); continue; }
+    if (p + 2 > std + cbStd) { raw.set(istd, { istdBase, chp: {}, pap }); continue; }
     const cbUpxChpx = dv.getUint16(p, true);
     const chpxStart = p + 2;
     const chp = chpxStart + cbUpxChpx <= std + cbStd ? decodeCharSprms(table.subarray(fc + chpxStart, fc + chpxStart + cbUpxChpx), fonts) : {};
-    raw.set(istd, { istdBase, chp });
+    raw.set(istd, { istdBase, chp, pap });
   }
-  const resolve = (istd: number, seen: Set<number>): CharProps => {
+  const resolve = (istd: number, seen: Set<number>): StyleProps => {
     if (resolved.has(istd)) return resolved.get(istd)!;
     const r = raw.get(istd);
-    if (!r || seen.has(istd)) return {};
+    if (!r || seen.has(istd)) return { chp: {}, pap: {} };
     seen.add(istd);
-    const base = r.istdBase !== 0xfff && r.istdBase !== istd ? resolve(r.istdBase, seen) : {};
-    const merged = { ...base, ...r.chp };
+    const base = r.istdBase !== 0xfff && r.istdBase !== istd ? resolve(r.istdBase, seen) : { chp: {}, pap: {} };
+    const merged: StyleProps = { chp: { ...base.chp, ...r.chp }, pap: { ...base.pap, ...r.pap } };
     resolved.set(istd, merged);
     return merged;
   };
@@ -432,6 +445,8 @@ function renderNoteBody(
   };
   let leadStripped = false; // the leading 0x02 + optional tab is the auto-number, not body text
   let inFieldInstr = false; // between a field begin (0x13) and separator (0x14): hidden field code
+  let instr = "";
+  let suppressResult = false; // drop a live field's cached result (a docx-field span replaces it)
   for (let cp = start; cp < end && cp < full.length; cp++) {
     const c = full.charCodeAt(cp);
     if (!leadStripped) {
@@ -439,12 +454,19 @@ function renderNoteBody(
       if (c === 0x09) { leadStripped = true; continue; }
       leadStripped = true;
     }
-    // Field codes (e.g. an EMBED field around an embedded object): drop the markers and the hidden
-    // instruction, keeping only the field's cached result so we don't render "EMBED Word.Picture".
-    if (c === 0x13) { inFieldInstr = true; continue; }
-    if (c === 0x14) { inFieldInstr = false; continue; }
-    if (c === 0x15) continue;
-    if (inFieldInstr) continue;
+    // Field codes: drop the markers and hidden instruction. A PAGE / NUMPAGES field (common in a
+    // running footer) becomes a live field span the engine fills; other fields keep their cached
+    // result (so an EMBED field doesn't print "EMBED Word.Picture").
+    if (c === 0x13) { inFieldInstr = true; instr = ""; suppressResult = false; continue; }
+    if (c === 0x14) {
+      inFieldInstr = false;
+      const k = fieldKind(instr);
+      if (k === "PAGE" || k === "NUMPAGES") { flushRun(); runHtml += `<span class="docx-field" data-field="${k}" contenteditable="false"></span>`; suppressResult = true; }
+      continue;
+    }
+    if (c === 0x15) { suppressResult = false; continue; }
+    if (inFieldInstr) { instr += full[cp]; continue; }
+    if (suppressResult) continue;
     if (c === 0x01) {
       // A picture char (e.g. an embedded Word.Picture in this story): render its raster blip.
       const off = lookup(charSpans, cpToFc(cp))?.picOffset;
@@ -589,7 +611,20 @@ function parseHeaderFooter(
   const base = fib.ccpText + fib.ccpFtn;
   const story = (i: number) => (cp(i + 1) > cp(i) ? renderNoteBody(full, base + cp(i), base + cp(i + 1), cpToFc, charSpans, imageAt) : "");
   const clean = (h: string) => (h === "<p><br></p>" ? "" : h);
-  return { header: clean(story(7)), footer: clean(story(9)) };
+  // Each section has its own 6 stories after the 6 note separators: [evenHdr, oddHdr, evenFtr,
+  // oddFtr, firstHdr, firstFtr]. The cover section's footer is often just a page number while a
+  // later section carries the real running footer, so pick the section story with the most text.
+  const letters = (h: string) => h.replace(/<[^>]+>/g, "").replace(/[^\p{L}]/gu, "").length;
+  const sections = Math.max(1, Math.floor((n - 6) / 6));
+  const pick = (slot: number): string => {
+    let best = "";
+    for (let s = 0; s < sections; s++) {
+      const h = story(6 + s * 6 + slot);
+      if (letters(h) > letters(best)) best = h;
+    }
+    return best;
+  };
+  return { header: clean(pick(1)), footer: clean(pick(3)) };
 }
 
 // Parse the textbox subdocument: the story text of every drawn text box, sitting after the
@@ -760,7 +795,7 @@ export function docToParts(bytes: Uint8Array): DocParts {
   const styleChps = parseStyleChps(table, stshFc.fc, stshFc.lcb, fonts);
   // The default style (istd 0 = Normal) IS the document default, so only carry a style's DELTA
   // from it: a plain Normal paragraph then adds no formatting, while e.g. a bold Title style does.
-  const defaultChp = styleChps.get(0) ?? {};
+  const defaultChp = styleChps.get(0)?.chp ?? {};
   const CHP_KEYS = ["b", "i", "u", "strike", "sizeHalf", "color", "font", "highlight"] as const;
   const deltaChp = (chp: CharProps): CharProps | undefined => {
     const d: CharProps = {};
@@ -771,8 +806,16 @@ export function docToParts(bytes: Uint8Array): DocParts {
   for (const sp of paraSpans) {
     if (sp.props.istd != null) {
       sp.props.headingLevel = headings.get(sp.props.istd);
-      const full = styleChps.get(sp.props.istd);
-      if (full) sp.props.styleChp = deltaChp(full);
+      const style = styleChps.get(sp.props.istd);
+      if (style) {
+        sp.props.styleChp = deltaChp(style.chp);
+        // Inherit list membership / page-break / spacing from the style when the paragraph is silent.
+        if (sp.props.ilfo == null) sp.props.ilfo = style.pap.ilfo;
+        if (sp.props.ilvl == null) sp.props.ilvl = style.pap.ilvl;
+        if (sp.props.pageBreakBefore == null) sp.props.pageBreakBefore = style.pap.pageBreakBefore;
+        if (sp.props.spaceBeforeTw == null) sp.props.spaceBeforeTw = style.pap.spaceBeforeTw;
+        if (sp.props.spaceAfterTw == null) sp.props.spaceAfterTw = style.pap.spaceAfterTw;
+      }
     }
   }
   const cpToFc = makeCpToFc(pieces);
@@ -951,6 +994,8 @@ function buildHtml(
     else if (al === 2) styles.push("text-align:right");
     else if (al === 3) styles.push("text-align:justify");
     if (pp?.indentTwips && pp.indentTwips > 0) styles.push(`margin-left:${Math.round(pp.indentTwips / 15)}px`);
+    if (pp?.spaceBeforeTw) styles.push(`margin-top:${Math.round(pp.spaceBeforeTw / 15)}px`);
+    if (pp?.spaceAfterTw) styles.push(`margin-bottom:${Math.round(pp.spaceAfterTw / 15)}px`);
     if (pp?.inTable) {
       if (pp.ttp) {
         // The row terminator: Word/LibreOffice put the last cell's content on the ttp
@@ -968,6 +1013,16 @@ function buildHtml(
       return;
     }
     flushTable();
+    // A list-formatted paragraph (sprmPIlfo) renders as a bullet item: prepend the marker the
+    // list grouping recognises (a real Word list can be a number too, but bullet is the common
+    // run-in list and we do not resolve the LST/LFO tables). Deeper levels add an indent.
+    if (pp?.ilfo && pp.ilfo > 0 && curHeading < 1 && !pp.inTable) {
+      runHtml = `•\t${runHtml}`;
+      if (pp.ilvl) styles.push(`margin-left:${pp.ilvl * 24}px`);
+    }
+    // A paragraph flagged "page break before" starts a new page: an inline manual-break marker the
+    // paginator honours (it breaks before a block that contains one).
+    if (pp?.pageBreakBefore) runHtml = `<span class="docx-pagebreak" contenteditable="false" data-docx-pagebreak="manual"></span>${runHtml}`;
     const secAttr = pendingSecBreak ? ` data-rdoc-secbreak="${esc(pendingSecBreak).replace(/"/g, "&quot;")}"` : "";
     pendingSecBreak = "";
     const cls = paraHasFloat ? ' class="docx-float-anchor"' : "";
