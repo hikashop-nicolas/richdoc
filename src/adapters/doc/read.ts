@@ -2,7 +2,19 @@ import { readCfb } from "./cfb";
 import { parseFib, parsePieceTable, readPieceText, FC, type Piece } from "./fib";
 import { mtefToMathml } from "./mtef";
 import { bytesToBase64 } from "../../core/util";
-import type { CommentThread, DocFloat, Note, PageGeometry } from "../../core/types";
+import type { CommentThread, Note, PageGeometry } from "../../core/types";
+
+// A floating drawing anchored in the main text: a positioned image (logo, banner, page watermark).
+// Offsets are px relative to its anchor paragraph (Word anchors these to the paragraph, not the
+// page), so buildHtml places it inside that paragraph, absolutely positioned behind the text.
+interface DocFloat {
+  img: string; // data URL
+  cp: number; // the anchor char position (a 0x08 drawn-object char) in the main text
+  dx: number;
+  dy: number;
+  w: number;
+  h: number;
+}
 
 // Read half of the .doc adapter: bytes -> HTML in richdoc's vocabulary. It extracts the
 // text (piece table) and the character/paragraph formatting (CHPX/PAPX formatted-disk
@@ -15,7 +27,6 @@ export interface DocParts {
   comments?: CommentThread[];
   header?: string;
   footer?: string;
-  floats?: DocFloat[];
 }
 
 /** A footnote / endnote reference found in the main text, keyed by its character position. */
@@ -711,6 +722,7 @@ function parseFloats(wd: Uint8Array, table: Uint8Array, fib: ReturnType<typeof p
   const px = (tw: number) => Math.round(tw / 15);
   const floats: DocFloat[] = [];
   for (let k = 0; k < n; k++) {
+    const cp = dv.getUint32(k * 4, true); // the anchor CP (a 0x08 drawn-object char)
     const o = base + k * 26;
     const pib = spidPib.get(dv.getUint32(o, true));
     const img = pib && pib > 0 ? blips[pib] : undefined;
@@ -718,7 +730,7 @@ function parseFloats(wd: Uint8Array, table: Uint8Array, fib: ReturnType<typeof p
     const xl = dv.getInt32(o + 4, true), yt = dv.getInt32(o + 8, true);
     const xr = dv.getInt32(o + 12, true), yb = dv.getInt32(o + 16, true);
     if (xr <= xl || yb <= yt) continue;
-    floats.push({ img, x: px(xl), y: px(yt), w: px(xr - xl), h: px(yb - yt) });
+    floats.push({ img, cp, dx: px(xl), dy: px(yt), w: px(xr - xl), h: px(yb - yt) });
   }
   return floats;
 }
@@ -805,13 +817,12 @@ export function docToParts(bytes: Uint8Array): DocParts {
   const rmAuthors = parseSttbStrings(table, rmFc.fc, rmFc.lcb);
   const floats = parseFloats(wd, table, fib);
   return {
-    body: buildHtml(text, cpToFc, charSpans, paraSpans, refMap, cmtRefMap, imageAt, rmAuthors, sectionBreaks, textboxes, { mathml: equationMathml, present: !!eqNative }),
+    body: buildHtml(text, cpToFc, charSpans, paraSpans, refMap, cmtRefMap, imageAt, rmAuthors, sectionBreaks, textboxes, { mathml: equationMathml, present: !!eqNative }, floats),
     page,
     notes: notes.length ? notes : undefined,
     comments: comments.length ? comments : undefined,
     header: header || undefined,
     footer: footer || undefined,
-    floats: floats.length ? floats : undefined,
   };
 }
 
@@ -871,8 +882,16 @@ function buildHtml(
   sectionBreaks: Map<number, string> = new Map(),
   textboxes: string[] = [],
   equation: { mathml: string | null; present: boolean } = { mathml: null, present: false },
+  floats: DocFloat[] = [],
 ): string {
   const blocks: { tag: string; attr: string; inner: string }[] = [];
+  // Floating drawings by their anchor CP; the first image already shown inline (a shape that is also
+  // an inline/textbox picture) is skipped so it does not appear twice.
+  const floatsByCp = new Map<number, DocFloat[]>();
+  for (const f of floats) (floatsByCp.get(f.cp) ?? floatsByCp.set(f.cp, []).get(f.cp)!).push(f);
+  const inlineImgs = new Set<string>(); // image srcs already shown inline (e.g. in a textbox)
+  for (const tb of textboxes) for (const m of tb.matchAll(/<img [^>]*src="([^"]+)"/g)) inlineImgs.add(m[1]!);
+  let paraHasFloat = false; // the current paragraph anchors a float (mark it position:relative)
   let textboxIdx = 0; // next textbox story to place (they follow the order of 0x08 anchors)
   let eqUsed = false; // the parsed equation has been placed (only one is recoverable)
   const emitEquation = (): string => {
@@ -951,7 +970,9 @@ function buildHtml(
     flushTable();
     const secAttr = pendingSecBreak ? ` data-rdoc-secbreak="${esc(pendingSecBreak).replace(/"/g, "&quot;")}"` : "";
     pendingSecBreak = "";
-    const attr = (styles.length ? ` style="${styles.join(";")}"` : "") + secAttr;
+    const cls = paraHasFloat ? ' class="docx-float-anchor"' : "";
+    paraHasFloat = false;
+    const attr = cls + (styles.length ? ` style="${styles.join(";")}"` : "") + secAttr;
     const tag = curHeading >= 1 && curHeading <= 6 ? `h${curHeading}` : "p";
     blocks.push({ tag, attr, inner: runHtml || "<br>" });
     // A text box anchored in this paragraph renders as a bordered block right after it (its
@@ -1094,8 +1115,20 @@ function buildHtml(
       continue;
     }
     if (c === 0x08) {
-      // A drawn-object anchor: pair it with the next textbox story, placed after this paragraph.
-      if (textboxIdx < textboxes.length) pendingTextboxes.push(textboxes[textboxIdx++]);
+      // A drawn-object anchor. A floating picture anchored here (logo/banner/watermark) is placed
+      // absolutely inside this paragraph, offset from it and drawn behind the text; the paragraph is
+      // marked position:relative. A shape that is also shown inline (a textbox picture) is skipped.
+      let injected = false;
+      for (const f of floatsByCp.get(cp) ?? []) {
+        if (inlineImgs.has(f.img)) continue; // already shown inline (its textbox) - don't double it
+        flushRun();
+        runHtml += `<img class="docx-float" src="${f.img}" alt="" contenteditable="false" style="left:${f.dx}px;top:${f.dy}px;width:${f.w}px;height:${f.h}px">`;
+        paraHasFloat = true;
+        injected = true;
+      }
+      // No floating image placed here: pair the anchor with the next textbox story (placed after
+      // this paragraph). A deduped float still falls through to its textbox, which shows the image.
+      if (!injected && textboxIdx < textboxes.length) pendingTextboxes.push(textboxes[textboxIdx++]);
       continue;
     }
     if (c === 0x1f || c === 0x00 || c === 0x03) continue;

@@ -257,23 +257,6 @@ export function createRichEditor(container: HTMLElement, adapter: Adapter, optio
   const pagelayer = document.createElement("div"); // page cards, behind the body
   pagelayer.className = "docxedit-pagelayer";
   pagelayer.setAttribute("aria-hidden", "true");
-  // Floating page images (logos / banners / watermarks the adapter positions on the page): a
-  // non-editable layer drawn behind the text, at page-1 coordinates. Built once from parts.floats.
-  const floatlayer = document.createElement("div");
-  floatlayer.className = "docxedit-floatlayer";
-  floatlayer.setAttribute("aria-hidden", "true");
-  // Skip a float whose image is already rendered inline in the body (a shape that is both a floating
-  // picture and an inline/textbox image would otherwise appear twice).
-  const inlineSrcs = new Set(Array.from(doc.querySelectorAll("img")).map((im) => im.getAttribute("src")));
-  for (const f of parts.floats ?? []) {
-    if (inlineSrcs.has(f.img)) continue;
-    const im = document.createElement("img");
-    im.src = f.img;
-    im.alt = "";
-    im.style.cssText = `position:absolute;left:${f.x}px;top:${f.y}px;width:${f.w}px;height:${f.h}px`;
-    floatlayer.appendChild(im);
-  }
-  const hasFloats = floatlayer.childElementCount > 0;
   const hflayer = document.createElement("div"); // header/footer clones, above the body (clickable)
   hflayer.className = "docxedit-hflayer";
   // Off-screen holder so header/footer can be measured (and kept as the save source)
@@ -282,13 +265,12 @@ export function createRichEditor(container: HTMLElement, adapter: Adapter, optio
   measure.className = "docxedit-measure";
   if (paginated) {
     page.classList.add("is-paginated");
-    page.append(pagelayer, ...(hasFloats ? [floatlayer] : []), doc, hflayer);
+    page.append(pagelayer, doc, hflayer);
     for (const b of [header, footer, headerFirst, footerFirst, headerEven, footerEven]) if (b) measure.appendChild(b);
     for (const { el } of secBands.values()) measure.appendChild(el); // off-screen, for measuring
     page.appendChild(measure);
   } else {
     if (header) page.appendChild(header);
-    if (hasFloats) page.appendChild(floatlayer);
     page.appendChild(doc);
     if (footer) page.appendChild(footer);
   }
@@ -1555,11 +1537,14 @@ export function createRichEditor(container: HTMLElement, adapter: Adapter, optio
   // Body HTML for saving: the live doc minus pagination artifacts (inert spacers and the
   // transient page-top class the engine adds for alignment).
   const cleanBody = (): string => {
-    if (!doc.querySelector(`.docxedit-pagespacer, .docxedit-pagetop, .docxedit-colpage, .docxedit-secpage, .docxedit-vband, table[${TSPLIT_ATTR}]`)) return doc.innerHTML;
+    if (!doc.querySelector(`.docxedit-pagespacer, .docxedit-pagetop, .docxedit-colpage, .docxedit-secpage, .docxedit-vband, .docx-float, table[${TSPLIT_ATTR}]`)) return doc.innerHTML;
     const tmp = doc.cloneNode(true) as HTMLElement;
     mergeSplitTables(tmp); // rejoin any split table so the saved HTML has one whole table
     for (const s of Array.from(tmp.querySelectorAll(".docxedit-pagespacer"))) s.remove();
     for (const el of Array.from(tmp.querySelectorAll(".docxedit-pagetop"))) el.classList.remove("docxedit-pagetop");
+    // Read-only floating images are a view decoration; drop them (and their anchor marker) on save.
+    for (const f of Array.from(tmp.querySelectorAll(".docx-float"))) f.remove();
+    for (const a of Array.from(tmp.querySelectorAll(".docx-float-anchor"))) a.classList.remove("docx-float-anchor");
     // Unwrap the per-page column / per-section page / vertical band boxes, lifting blocks to the body.
     for (const w of Array.from(tmp.querySelectorAll(".docxedit-colpage, .docxedit-secpage, .docxedit-vband"))) {
       while (w.firstChild) w.parentNode!.insertBefore(w.firstChild, w);

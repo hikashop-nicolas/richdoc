@@ -56,7 +56,6 @@ export function createDocAdapter(bytes: Uint8Array): Adapter {
         comments: parts.comments ?? [],
         page: parts.page,
         notes: parts.notes,
-        floats: parts.floats,
       };
     },
     // The .doc writer regenerates the whole file from the edited body HTML plus the footnote /
