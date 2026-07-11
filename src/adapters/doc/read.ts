@@ -427,6 +427,7 @@ function renderNoteBody(
   cpToFc: (cp: number) => number,
   charSpans: Span<CharProps>[],
   imageAt: (offset: number) => string | null = () => null,
+  styleChpAt: (cp: number) => CharProps | undefined = () => undefined,
 ): string {
   const paras: string[] = [];
   let runHtml = "";
@@ -448,12 +449,21 @@ function renderNoteBody(
   let inFieldInstr = false; // between a field begin (0x13) and separator (0x14): hidden field code
   let instr = "";
   let suppressResult = false; // drop a live field's cached result (a docx-field span replaces it)
+  let skipLeadField = false; // drop a framed page-number field that leads the story (out of flow)
+  let swallowTab = false; // drop the tab right after that framed field
   for (let cp = start; cp < end && cp < full.length; cp++) {
     const c = full.charCodeAt(cp);
     if (!leadStripped) {
       if (c === 0x02) continue;
       if (c === 0x09) { leadStripped = true; continue; }
       leadStripped = true;
+    }
+    if (c === 0x08) {
+      // A drawn-frame anchor. When it leads a header/footer story, Word positions the framed content
+      // (typically a page number) out of flow; if a field follows immediately, drop it so it does not
+      // duplicate the inline running text (e.g. MULTINAT's footer page number showing twice).
+      if (paras.length === 0 && !runHtml && !curText && full.charCodeAt(cp + 1) === 0x13) skipLeadField = true;
+      continue;
     }
     // Field codes: drop the markers and hidden instruction. A PAGE / NUMPAGES field (common in a
     // running footer) becomes a live field span the engine fills; other fields keep their cached
@@ -462,10 +472,11 @@ function renderNoteBody(
     if (c === 0x14) {
       inFieldInstr = false;
       const k = fieldKind(instr);
-      if (k === "PAGE" || k === "NUMPAGES") { flushRun(); runHtml += `<span class="docx-field" data-field="${k}" contenteditable="false"></span>`; suppressResult = true; }
+      if (skipLeadField) suppressResult = true; // the framed lead field: drop its result outright
+      else if (k === "PAGE" || k === "NUMPAGES") { flushRun(); runHtml += `<span class="docx-field" data-field="${k}" contenteditable="false"></span>`; suppressResult = true; }
       continue;
     }
-    if (c === 0x15) { suppressResult = false; continue; }
+    if (c === 0x15) { suppressResult = false; if (skipLeadField) { skipLeadField = false; swallowTab = true; } continue; }
     if (inFieldInstr) { instr += full[cp]; continue; }
     if (suppressResult) continue;
     if (c === 0x01) {
@@ -476,10 +487,14 @@ function renderNoteBody(
       continue;
     }
     if (c === PARA) { flushPara(); continue; }
-    if (c === 0x09) { curText += "\t"; continue; }
+    if (c === 0x09) { if (swallowTab) { swallowTab = false; continue; } curText += "\t"; continue; }
     if (c === 0x0b) { curText += "\n"; continue; }
     if (c === 0x02 || c < 0x09) continue;
-    const style = runStyle(lookup(charSpans, cpToFc(cp))) || null;
+    // Merge the paragraph's named-style character formatting (base: e.g. the Footer style's font)
+    // under the run's own props, so a footer/note run is not left with the bare serif default.
+    const runChp = lookup(charSpans, cpToFc(cp));
+    const sChp = styleChpAt(cp);
+    const style = runStyle(sChp ? { ...sChp, ...runChp } : runChp) || null;
     if (style !== curStyle) { flushRun(); curStyle = style; }
     curText += full[cp];
   }
@@ -601,6 +616,7 @@ function parseHeaderFooter(
   cpToFc: (cp: number) => number,
   charSpans: Span<CharProps>[],
   imageAt: (offset: number) => string | null = () => null,
+  styleChpAt: (cp: number) => CharProps | undefined = () => undefined,
 ): { header: string; footer: string } {
   const empty = { header: "", footer: "" };
   if (fib.ccpHdd <= 0) return empty;
@@ -610,7 +626,7 @@ function parseHeaderFooter(
   const n = hdd.lcb / 4;
   const cp = (k: number) => (k < n ? dv.getUint32(k * 4, true) : dv.getUint32((n - 1) * 4, true));
   const base = fib.ccpText + fib.ccpFtn;
-  const story = (i: number) => (cp(i + 1) > cp(i) ? renderNoteBody(full, base + cp(i), base + cp(i + 1), cpToFc, charSpans, imageAt) : "");
+  const story = (i: number) => (cp(i + 1) > cp(i) ? renderNoteBody(full, base + cp(i), base + cp(i + 1), cpToFc, charSpans, imageAt, styleChpAt) : "");
   const clean = (h: string) => (h === "<p><br></p>" ? "" : h);
   // Each section has its own 6 stories after the 6 note separators: [evenHdr, oddHdr, evenFtr,
   // oddFtr, firstHdr, firstFtr]. The cover section's footer is often just a page number while a
@@ -826,6 +842,15 @@ export function docToParts(bytes: Uint8Array): DocParts {
   const cpToFc = makeCpToFc(pieces);
   const dataStream = cfb.get("Data");
   const imageAt = (offset: number) => extractImageHtml(dataStream, offset);
+  // A paragraph's named-style character formatting as a DELTA from the document default, by CP.
+  // Header/footer and note bodies use it so their text picks up the style's own font/size/weight
+  // (e.g. the Footer style's bold Arial) while a plain Normal paragraph stays unstyled. Same delta
+  // buildHtml applies inline via paraSpans.styleChp.
+  const styleChpAt = (cp: number): CharProps | undefined => {
+    const istd = lookup(paraSpans, cpToFc(cp))?.istd;
+    const chp = istd != null ? styleChps.get(istd)?.chp : undefined;
+    return chp ? deltaChp(chp) : undefined;
+  };
 
   const sedFc = fib.fc(FC.plcfSed);
   const sections = parseSections(wd, table, sedFc.fc, sedFc.lcb);
@@ -854,7 +879,7 @@ export function docToParts(bytes: Uint8Array): DocParts {
     ...parseNotes(full, fib, table, "endnote", ednStart, fib.ccpEdn, FC.plcfendRef, FC.plcfendTxt, cpToFc, charSpans, refMap, imageAt),
   ];
   const comments = parseComments(full, fib, table, atnStart, cpToFc, charSpans, cmtRefMap);
-  const { header, footer } = parseHeaderFooter(full, fib, table, cpToFc, charSpans, imageAt);
+  const { header, footer } = parseHeaderFooter(full, fib, table, cpToFc, charSpans, imageAt, styleChpAt);
   const textboxes = parseTextboxes(full, fib, table, cpToFc, charSpans, imageAt);
   // An MS Equation 3.0 object stores its formula as MTEF in the "Equation Native" stream. We
   // can recover MathML for the common constructs; multiple equations can't be told apart from
