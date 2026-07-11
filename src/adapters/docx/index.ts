@@ -11,7 +11,7 @@ import "./docxedit.css";
 import { W } from "./shared";
 import { docxToParts, loadEmbeddedFonts, defaultFont } from "./read";
 import type { DocxParts } from "./read";
-import { htmlToDocx } from "./write";
+import { htmlToDocxAsync } from "./write";
 
 // Public surface (also consumed by the tests).
 export { docxToHtml, docxToParts, deobfuscateFont } from "./read";
@@ -81,8 +81,8 @@ export function createDocxAdapter(bytes: Uint8Array): Adapter {
       }
       return { ...parts, fontCss, fontUrls, defaultFont: defaultFontName };
     },
-    write(bodyHtml: string, editedParts: { path: string; html: string }[], edits: CommentEdits, page?: PageGeometry, newStyles?: NewStyle[], notes?: Note[]): Uint8Array {
-      return htmlToDocx(bodyHtml, original, editedParts, { ...edits, pageGeometry: page, newStyles, notes });
+    write(bodyHtml: string, editedParts: { path: string; html: string }[], edits: CommentEdits, page?: PageGeometry, newStyles?: NewStyle[], notes?: Note[]): Promise<Uint8Array> {
+      return htmlToDocxAsync(bodyHtml, original, editedParts, { ...edits, pageGeometry: page, newStyles, notes });
     },
     newCommentMarkers: docxCommentMarkers,
     capabilities: {

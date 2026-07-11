@@ -49,6 +49,25 @@ realistic / not worth it; "complete" for them means surviving a save, which they
 
 ---
 
+## `.doc` (Word 97-2003 binary)
+
+The `.doc` adapter reads and writes MS-DOC and is wired into Omnitext. Read is a
+normal binary parser and fairly complete; write is **from-scratch** (regenerates a
+whole valid `.doc` on every save), so anything richdoc's HTML model does not
+represent (macros, exotic/unmapped formatting) is dropped on save, the same
+capability-gated trade-off as odt. Validated against the LibreOffice oracle. Beyond
+the shipped set (text/runs, headings, lists, links, tables + cell shading, floating
+and inline images, headers/footers, footnotes/endnotes, comments, TOC field,
+tategaki/furigana, multi-page FKP for large docs), the known gaps are:
+
+- **Single header/footer model**: one header + one footer for the document; no
+  per-section header/footer variants and no first-page / even-odd variants.
+- **Intra-row table splitting**: a table row taller than a whole page cannot be
+  broken across the page boundary (would need to split a cell's content mid-row).
+  Multi-row tables split cleanly at row boundaries.
+- **Static read-side fields**: a pre-existing Word PAGE/DATE field shows its cached
+  value (same read-side gap as docx/odt, tracked in the family audit).
+
 ## Notes
 
 - The odt adapter mirrors docx throughout. A few page-setup properties have no odt home and are

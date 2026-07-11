@@ -247,7 +247,7 @@ export interface Adapter {
   read(): RichDoc;
   /** Serialize edits. `page` is passed when the user changed the page geometry (margins);
       `newStyles` are styles authored in-session, to add to the stylesheet. */
-  write(bodyHtml: string, parts: { path: string; html: string }[], edits: CommentEdits, page?: PageGeometry, newStyles?: NewStyle[], notes?: Note[]): Uint8Array;
+  write(bodyHtml: string, parts: { path: string; html: string }[], edits: CommentEdits, page?: PageGeometry, newStyles?: NewStyle[], notes?: Note[]): Uint8Array | Promise<Uint8Array>;
   newCommentMarkers(meta: NewCommentMeta): CommentMarkers;
   capabilities: Capabilities;
 }

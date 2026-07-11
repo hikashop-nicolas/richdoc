@@ -1,7 +1,8 @@
 // odt WRITE: rebuild an .odt archive from edited HTML, preserving every untouched part.
 // Pure HTML -> XML (body, styles, header/footer, comments, tracked changes, page margins);
 // the read half lives in ./read.
-import { strFromU8, strToU8, unzipSync, zipSync } from "fflate";
+import { strFromU8, strToU8, unzipSync, zipSync, type AsyncZippable } from "fflate";
+import { zipAsync } from "../../core/zip";
 import { firstFontFamily, fontSizeToHalfPt, toHex6, imageLayoutFromEl, blockBorders, parseCssBorder } from "../../core/util";
 import type { BlockBorderSide } from "../../core/util";
 import type { NewStyle, Note, PageBorder, PageGeometry } from "../../core/types";
@@ -1283,11 +1284,12 @@ function addOdtStyles(files: Record<string, Uint8Array>, styles: NewStyle[]): vo
   files[key] = strToU8(new XMLSerializer().serializeToString(doc));
 }
 
-export function htmlToOdt(
-  html: string,
-  original: Uint8Array,
-  opts?: { done?: Map<string, boolean>; parts?: { path: string; html: string }[]; page?: PageGeometry; newStyles?: NewStyle[]; notes?: Note[]; edited?: { id: string; text: string }[] },
-): Uint8Array {
+type OdtOpts = { done?: Map<string, boolean>; parts?: { path: string; html: string }[]; page?: PageGeometry; newStyles?: NewStyle[]; notes?: Note[]; edited?: { id: string; text: string }[] };
+
+// Rebuild the .odt part map (content.xml rewritten, styles/manifest patched, every other
+// entry kept byte-for-byte) and return it zip-ready with the mimetype stored first. The
+// caller compresses it sync or on a worker; htmlToOdt and htmlToOdtAsync share this.
+function buildOdtFiles(html: string, original: Uint8Array, opts?: OdtOpts): Record<string, Uint8Array | [Uint8Array, { level: 0 }]> {
   const files = unzipSync(original);
   const content = files["content.xml"];
   if (!content) throw new Error("not an .odt: content.xml missing");
@@ -1342,6 +1344,15 @@ export function htmlToOdt(
     if (name === "mimetype") continue;
     repacked[name] = name === "content.xml" ? strToU8(out) : data;
   }
-  return zipSync(repacked as Record<string, Uint8Array>);
+  return repacked;
+}
+
+export function htmlToOdt(html: string, original: Uint8Array, opts?: OdtOpts): Uint8Array {
+  return zipSync(buildOdtFiles(html, original, opts) as Record<string, Uint8Array>);
+}
+
+// Same output as htmlToOdt, but the zip runs off the main thread (used by getBytes on save).
+export function htmlToOdtAsync(html: string, original: Uint8Array, opts?: OdtOpts): Promise<Uint8Array> {
+  return zipAsync(buildOdtFiles(html, original, opts) as AsyncZippable);
 }
 

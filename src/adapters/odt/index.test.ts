@@ -1,6 +1,7 @@
 import { describe, expect, it } from "vitest";
 import { strFromU8, strToU8, unzipSync, zipSync } from "fflate";
 import { htmlToOdt, odtToHtml, odtToParts } from "./index";
+import { htmlToOdtAsync } from "./write";
 
 const CONTENT = `<?xml version="1.0" encoding="UTF-8"?>
 <office:document-content xmlns:office="urn:oasis:names:tc:opendocument:xmlns:office:1.0" xmlns:text="urn:oasis:names:tc:opendocument:xmlns:text:1.0" xmlns:style="urn:oasis:names:tc:opendocument:xmlns:style:1.0" xmlns:fo="urn:oasis:names:tc:opendocument:xmlns:xsl-fo-compatible:1.0" xmlns:xlink="http://www.w3.org/1999/xlink" office:version="1.2">
@@ -51,6 +52,15 @@ describe("odt <-> html", () => {
     expect(html2).toContain("<strong>planete</strong>");
     expect(html2).toContain("la.");
     expect(html2).not.toContain("monde");
+  });
+
+  it("htmlToOdtAsync (off-thread zip) matches the synchronous writer", async () => {
+    const odt = makeOdt();
+    const edited = "<h1>Titre</h1><p>Bonjour <strong>planete</strong> la.</p>";
+    const sync = unzipSync(htmlToOdt(edited, odt));
+    const asyncOut = unzipSync(await htmlToOdtAsync(edited, odt));
+    expect(Object.keys(asyncOut).sort()).toEqual(Object.keys(sync).sort());
+    for (const k of Object.keys(sync)) expect(Array.from(asyncOut[k]!)).toEqual(Array.from(sync[k]!));
   });
 
   it("preserves bold/italic/underline added in the editor", () => {

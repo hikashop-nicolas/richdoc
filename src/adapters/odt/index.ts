@@ -6,7 +6,7 @@
 import { createRichEditor } from "../../core/editor";
 import type { Adapter, CommentEdits, CommentMarkers, EditorOptions, NewCommentMeta, NewStyle, Note, PageGeometry, RichDoc, RichEditor } from "../../core/types";
 import { odtToParts } from "./read";
-import { htmlToOdt } from "./write";
+import { htmlToOdtAsync } from "./write";
 
 // Public surface (also consumed by the tests).
 export { odtToHtml, odtToParts } from "./read";
@@ -47,8 +47,8 @@ export function createOdtAdapter(bytes: Uint8Array): Adapter {
         noteCss: parts.noteCss,
       };
     },
-    write(bodyHtml: string, parts: { path: string; html: string }[], edits: CommentEdits, page?: PageGeometry, newStyles?: NewStyle[], notes?: Note[]): Uint8Array {
-      return htmlToOdt(bodyHtml, original, { done: edits.done, parts, page, newStyles, notes, edited: edits.edited });
+    write(bodyHtml: string, parts: { path: string; html: string }[], edits: CommentEdits, page?: PageGeometry, newStyles?: NewStyle[], notes?: Note[]): Promise<Uint8Array> {
+      return htmlToOdtAsync(bodyHtml, original, { done: edits.done, parts, page, newStyles, notes, edited: edits.edited });
     },
     newCommentMarkers(meta: NewCommentMeta): CommentMarkers {
       const cmark = (): HTMLElement => {

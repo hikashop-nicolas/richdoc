@@ -2,6 +2,7 @@
 // Pure HTML -> XML (body, header/footer, comments, reactions, replies, page margins); the
 // read half lives in ./read.
 import { strFromU8, strToU8, unzipSync, zipSync } from "fflate";
+import { zipAsync } from "../../core/zip";
 import { toHex6, fontSizeToHalfPt, firstFontFamily, imageLayoutFromEl, blockBorders, parseCssBorder } from "../../core/util";
 import type { ImageLayout, NewStyle, Note, PageBorder, PageGeometry } from "../../core/types";
 import { W, R, PKG, REL_HYPERLINK, NS_DECLS, FMT0, HL_BY_HEX, JC_BY_ALIGN } from "./shared";
@@ -2032,12 +2033,12 @@ function registerStylesPart(files: Record<string, Uint8Array>): void {
   }
 }
 
-export function htmlToDocx(
-  html: string,
-  original: Uint8Array,
-  parts?: { path: string; html: string }[],
-  opts?: { reactions?: ReactionEdit[]; replies?: ReplyEdit[]; done?: Map<string, boolean>; deletedComments?: string[]; edited?: { id: string; text: string }[]; pageGeometry?: PageGeometry; newStyles?: NewStyle[]; notes?: Note[] },
-): Uint8Array {
+type DocxOpts = { reactions?: ReactionEdit[]; replies?: ReplyEdit[]; done?: Map<string, boolean>; deletedComments?: string[]; edited?: { id: string; text: string }[]; pageGeometry?: PageGeometry; newStyles?: NewStyle[]; notes?: Note[] };
+
+// Rebuild the .docx part map from the edited HTML, editing only the parts that changed and
+// keeping every other entry byte-for-byte. The caller compresses the result (sync or on a
+// worker). Splitting this from the zip lets htmlToDocx and htmlToDocxAsync share it.
+function buildDocxFiles(html: string, original: Uint8Array, parts?: { path: string; html: string }[], opts?: DocxOpts): Record<string, Uint8Array> {
   const files = unzipSync(original);
   // Per-section header/footer HTML by key, so buildSectPr can mint a new part for an unlinked
   // section while rebuilding the body.
@@ -2063,6 +2064,15 @@ export function htmlToDocx(
   applyDone(files, opts?.done ?? new Map());
   applyDeletedComments(files, opts?.deletedComments ?? []);
   if (opts?.pageGeometry) { applyPageMargins(files, opts.pageGeometry); applyHFVariants(files, opts.pageGeometry, hfVariants); }
-  return zipSync(files);
+  return files;
+}
+
+export function htmlToDocx(html: string, original: Uint8Array, parts?: { path: string; html: string }[], opts?: DocxOpts): Uint8Array {
+  return zipSync(buildDocxFiles(html, original, parts, opts));
+}
+
+// Same output as htmlToDocx, but the zip runs off the main thread (used by getBytes on save).
+export function htmlToDocxAsync(html: string, original: Uint8Array, parts?: { path: string; html: string }[], opts?: DocxOpts): Promise<Uint8Array> {
+  return zipAsync(buildDocxFiles(html, original, parts, opts));
 }
 

@@ -1,6 +1,7 @@
 import { describe, expect, it } from "vitest";
 import { strFromU8, strToU8, unzipSync, zipSync } from "fflate";
 import { deobfuscateFont, docxToHtml, docxToParts, htmlToDocx } from "./index";
+import { htmlToDocxAsync } from "./write";
 
 const DOCUMENT = `<?xml version="1.0" encoding="UTF-8" standalone="yes"?>
 <w:document xmlns:w="http://schemas.openxmlformats.org/wordprocessingml/2006/main" xmlns:r="http://schemas.openxmlformats.org/officeDocument/2006/relationships">
@@ -52,6 +53,15 @@ describe("docx <-> html", () => {
     expect(html2).toContain("<strong>planete</strong>");
     expect(html2).toContain("la.");
     expect(html2).not.toContain("monde");
+  });
+
+  it("htmlToDocxAsync (off-thread zip) matches the synchronous writer", async () => {
+    const docx = makeDocx();
+    const html = "<h1>Titre</h1><p>Bonjour <strong>planete</strong> la.</p>";
+    const sync = unzipSync(htmlToDocx(html, docx));
+    const asyncOut = unzipSync(await htmlToDocxAsync(html, docx));
+    expect(Object.keys(asyncOut).sort()).toEqual(Object.keys(sync).sort());
+    for (const k of Object.keys(sync)) expect(Array.from(asyncOut[k]!)).toEqual(Array.from(sync[k]!));
   });
 
   it("round-trips bold/italic/underline", () => {
