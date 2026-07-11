@@ -14,6 +14,7 @@ interface DocFloat {
   dy: number;
   w: number;
   h: number;
+  reserve: boolean; // wrap "top and bottom" / "square": reserve the shape's vertical space in the flow
 }
 
 // Read half of the .doc adapter: bytes -> HTML in richdoc's vocabulary. It extracts the
@@ -765,7 +766,11 @@ function parseFloats(wd: Uint8Array, table: Uint8Array, fib: ReturnType<typeof p
     const xl = dv.getInt32(o + 4, true), yt = dv.getInt32(o + 8, true);
     const xr = dv.getInt32(o + 12, true), yb = dv.getInt32(o + 16, true);
     if (xr <= xl || yb <= yt) continue;
-    floats.push({ img, cp, dx: px(xl), dy: px(yt), w: px(xr - xl), h: px(yb - yt) });
+    // FSPA flags (2-byte bitfield at o+20): wr = bits 5-8 = text-wrap mode. wr 2 = "none"
+    // (floats in front of / behind text, no space reserved); every other mode (square,
+    // top-and-bottom, tight) reserves the shape's vertical extent in the text flow.
+    const wr = (dv.getUint16(o + 20, true) >> 5) & 0xf;
+    floats.push({ img, cp, dx: px(xl), dy: px(yt), w: px(xr - xl), h: px(yb - yt), reserve: wr !== 2 });
   }
   return floats;
 }
@@ -935,6 +940,7 @@ function buildHtml(
   const inlineImgs = new Set<string>(); // image srcs already shown inline (e.g. in a textbox)
   for (const tb of textboxes) for (const m of tb.matchAll(/<img [^>]*src="([^"]+)"/g)) inlineImgs.add(m[1]!);
   let paraHasFloat = false; // the current paragraph anchors a float (mark it position:relative)
+  let paraFloatReserve = 0; // px of vertical space a wrapping float reserves in this paragraph
   let textboxIdx = 0; // next textbox story to place (they follow the order of 0x08 anchors)
   let eqUsed = false; // the parsed equation has been placed (only one is recoverable)
   const emitEquation = (): string => {
@@ -1025,6 +1031,8 @@ function buildHtml(
     if (pp?.pageBreakBefore) runHtml = `<span class="docx-pagebreak" contenteditable="false" data-docx-pagebreak="manual"></span>${runHtml}`;
     const secAttr = pendingSecBreak ? ` data-rdoc-secbreak="${esc(pendingSecBreak).replace(/"/g, "&quot;")}"` : "";
     pendingSecBreak = "";
+    if (paraFloatReserve > 0) styles.push(`min-height:${paraFloatReserve}px`);
+    paraFloatReserve = 0;
     const cls = paraHasFloat ? ' class="docx-float-anchor"' : "";
     paraHasFloat = false;
     const attr = cls + (styles.length ? ` style="${styles.join(";")}"` : "") + secAttr;
@@ -1180,6 +1188,9 @@ function buildHtml(
         runHtml += `<img class="docx-float" src="${f.img}" alt="" contenteditable="false" style="left:${f.dx}px;top:${f.dy}px;width:${f.w}px;height:${f.h}px">`;
         paraHasFloat = true;
         injected = true;
+        // A wrapping float (top-and-bottom / square) reserves its vertical extent: make the anchor
+        // paragraph at least tall enough to contain it so following content flows below, not over it.
+        if (f.reserve) paraFloatReserve = Math.max(paraFloatReserve, f.dy + f.h);
       }
       // No floating image placed here: pair the anchor with the next textbox story (placed after
       // this paragraph). A deduped float still falls through to its textbox, which shows the image.
