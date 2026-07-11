@@ -350,6 +350,7 @@ function renderNoteBody(
   end: number,
   cpToFc: (cp: number) => number,
   charSpans: Span<CharProps>[],
+  imageAt: (offset: number) => string | null = () => null,
 ): string {
   const paras: string[] = [];
   let runHtml = "";
@@ -382,6 +383,13 @@ function renderNoteBody(
     if (c === 0x14) { inFieldInstr = false; continue; }
     if (c === 0x15) continue;
     if (inFieldInstr) continue;
+    if (c === 0x01) {
+      // A picture char (e.g. an embedded Word.Picture in this story): render its raster blip.
+      const off = lookup(charSpans, cpToFc(cp))?.picOffset;
+      const img = off !== undefined ? imageAt(off) : null;
+      if (img) { flushRun(); runHtml += img; }
+      continue;
+    }
     if (c === PARA) { flushPara(); continue; }
     if (c === 0x09) { curText += "\t"; continue; }
     if (c === 0x0b) { curText += "\n"; continue; }
@@ -410,6 +418,7 @@ function parseNotes(
   cpToFc: (cp: number) => number,
   charSpans: Span<CharProps>[],
   refMap: Map<number, NoteRef>,
+  imageAt: (offset: number) => string | null = () => null,
 ): Note[] {
   if (ccpSub <= 0) return [];
   const ref = fib.fc(refIdx);
@@ -421,7 +430,7 @@ function parseNotes(
   for (let i = 0; i < cNotes; i++) {
     const id = `${kind === "footnote" ? "fn" : "en"}${i + 1}`;
     refMap.set(refCps[i], { id, kind });
-    notes.push({ id, kind, html: renderNoteBody(full, subStart + txtCps[i], subStart + txtCps[i + 1], cpToFc, charSpans) });
+    notes.push({ id, kind, html: renderNoteBody(full, subStart + txtCps[i], subStart + txtCps[i + 1], cpToFc, charSpans, imageAt) });
   }
   return notes;
 }
@@ -506,6 +515,7 @@ function parseHeaderFooter(
   table: Uint8Array,
   cpToFc: (cp: number) => number,
   charSpans: Span<CharProps>[],
+  imageAt: (offset: number) => string | null = () => null,
 ): { header: string; footer: string } {
   const empty = { header: "", footer: "" };
   if (fib.ccpHdd <= 0) return empty;
@@ -515,7 +525,7 @@ function parseHeaderFooter(
   const n = hdd.lcb / 4;
   const cp = (k: number) => (k < n ? dv.getUint32(k * 4, true) : dv.getUint32((n - 1) * 4, true));
   const base = fib.ccpText + fib.ccpFtn;
-  const story = (i: number) => (cp(i + 1) > cp(i) ? renderNoteBody(full, base + cp(i), base + cp(i + 1), cpToFc, charSpans) : "");
+  const story = (i: number) => (cp(i + 1) > cp(i) ? renderNoteBody(full, base + cp(i), base + cp(i + 1), cpToFc, charSpans, imageAt) : "");
   const clean = (h: string) => (h === "<p><br></p>" ? "" : h);
   return { header: clean(story(7)), footer: clean(story(9)) };
 }
@@ -532,6 +542,7 @@ function parseTextboxes(
   table: Uint8Array,
   cpToFc: (cp: number) => number,
   charSpans: Span<CharProps>[],
+  imageAt: (offset: number) => string | null = () => null,
 ): string[] {
   if (fib.ccpTxbx <= 0) return [];
   const txbxStart = fib.ccpText + fib.ccpFtn + fib.ccpHdd + fib.ccpAtn + fib.ccpEdn;
@@ -542,7 +553,7 @@ function parseTextboxes(
   for (let i = 0; i < cps.length - 2; i++) {
     const a = txbxStart + cps[i];
     const b = txbxStart + cps[i + 1];
-    if (b > a) boxes.push(renderNoteBody(full, a, b, cpToFc, charSpans));
+    if (b > a) boxes.push(renderNoteBody(full, a, b, cpToFc, charSpans, imageAt));
   }
   return boxes;
 }
@@ -604,6 +615,8 @@ export function docToParts(bytes: Uint8Array): DocParts {
   const headings = parseStyleHeadings(table, stshFc.fc, stshFc.lcb);
   for (const sp of paraSpans) if (sp.props.istd != null) sp.props.headingLevel = headings.get(sp.props.istd);
   const cpToFc = makeCpToFc(pieces);
+  const dataStream = cfb.get("Data");
+  const imageAt = (offset: number) => extractImageHtml(dataStream, offset);
 
   const sedFc = fib.fc(FC.plcfSed);
   const sections = parseSections(wd, table, sedFc.fc, sedFc.lcb);
@@ -624,19 +637,17 @@ export function docToParts(bytes: Uint8Array): DocParts {
   const atnStart = ccp + fib.ccpFtn + fib.ccpHdd;
   const ednStart = ccp + fib.ccpFtn + fib.ccpHdd + fib.ccpAtn;
   const notes = [
-    ...parseNotes(full, fib, table, "footnote", ftnStart, fib.ccpFtn, FC.plcffndRef, FC.plcffndTxt, cpToFc, charSpans, refMap),
-    ...parseNotes(full, fib, table, "endnote", ednStart, fib.ccpEdn, FC.plcfendRef, FC.plcfendTxt, cpToFc, charSpans, refMap),
+    ...parseNotes(full, fib, table, "footnote", ftnStart, fib.ccpFtn, FC.plcffndRef, FC.plcffndTxt, cpToFc, charSpans, refMap, imageAt),
+    ...parseNotes(full, fib, table, "endnote", ednStart, fib.ccpEdn, FC.plcfendRef, FC.plcfendTxt, cpToFc, charSpans, refMap, imageAt),
   ];
   const comments = parseComments(full, fib, table, atnStart, cpToFc, charSpans, cmtRefMap);
-  const { header, footer } = parseHeaderFooter(full, fib, table, cpToFc, charSpans);
-  const textboxes = parseTextboxes(full, fib, table, cpToFc, charSpans);
+  const { header, footer } = parseHeaderFooter(full, fib, table, cpToFc, charSpans, imageAt);
+  const textboxes = parseTextboxes(full, fib, table, cpToFc, charSpans, imageAt);
   // An MS Equation 3.0 object stores its formula as MTEF in the "Equation Native" stream. We
   // can recover MathML for the common constructs; multiple equations can't be told apart from
   // the flat stream map, so only the first renders as math and the rest as a placeholder.
   const eqNative = cfb.get("Equation Native");
   const equationMathml = eqNative ? mtefToMathml(eqNative) : null;
-  const dataStream = cfb.get("Data");
-  const imageAt = (offset: number) => extractImageHtml(dataStream, offset);
   const rmFc = fib.fc(FC.sttbfRMark);
   const rmAuthors = parseSttbStrings(table, rmFc.fc, rmFc.lcb);
   return {
