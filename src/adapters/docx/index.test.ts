@@ -1696,6 +1696,34 @@ describe("list fidelity: nesting and ordered/bullet", () => {
     expect(html).toContain('data-seq="Figure"');
   });
 
+  it("maps PAGE/NUMPAGES/DATE fields to live spans on read (simple and complex), round-tripping", () => {
+    const r = (xml: string) => `<w:r>${xml}</w:r>`;
+    const complex = (instr: string, cached: string) =>
+      r('<w:fldChar w:fldCharType="begin"/>') +
+      r(`<w:instrText xml:space="preserve">${instr}</w:instrText>`) +
+      r('<w:fldChar w:fldCharType="separate"/>') +
+      r(`<w:t>${cached}</w:t>`) +
+      r('<w:fldChar w:fldCharType="end"/>');
+    const doc = `<?xml version="1.0"?>
+<w:document xmlns:w="http://schemas.openxmlformats.org/wordprocessingml/2006/main">
+ <w:body>
+  <w:p>Page <w:fldSimple w:instr=" PAGE "><w:r><w:t>1</w:t></w:r></w:fldSimple> of <w:fldSimple w:instr=" NUMPAGES "><w:r><w:t>9</w:t></w:r></w:fldSimple></w:p>
+  <w:p>Printed ${complex(" DATE \\@ \"M/d/yyyy\" ", "1/2/2026")}</w:p>
+ </w:body>
+</w:document>`;
+    const html = docxToHtml(makeDocx(doc));
+    expect(html).toContain('data-field="PAGE"'); // simple PAGE -> live span (was static)
+    expect(html).toContain('data-field="NUMPAGES"');
+    expect(html).toContain('data-field="DATE"'); // complex DATE with a \@ format switch
+    expect(html).toContain(">1/2/2026</span>"); // cached snapshot kept as the display value
+    expect(html).not.toContain("PAGEREF"); // PAGE must not swallow a PAGEREF-style instr
+    // The live spans survive a save as real w:fldSimple fields.
+    const xml = strFromU8(unzipSync(htmlToDocx(html, makeDocx(doc)))["word/document.xml"]);
+    expect(xml).toMatch(/w:instr=" PAGE "/);
+    expect(xml).toMatch(/w:instr=" NUMPAGES "/);
+    expect(xml).toMatch(/w:instr=" DATE "/);
+  });
+
   it("reads complex (fldChar) REF/PAGEREF and SEQ fields, not just fldSimple", () => {
     const r = (xml: string) => `<w:r>${xml}</w:r>`;
     const ref = (instr: string, cached: string) =>
@@ -1720,7 +1748,8 @@ describe("list fidelity: nesting and ordered/bullet", () => {
     expect(html).toContain('data-rdoc-caption="figure"');
     expect(html).toContain('data-seq="Figure"');
     expect(html).not.toMatch(/REF intro/); // the instruction text is no longer shown
-    expect(html).toContain("docx-pass"); // the unmodelled DATE field stays passthrough
+    expect(html).toContain('data-field="DATE"'); // the DATE field becomes a live field span
+    expect(html).toContain(">2026-01-01</span>"); // showing its cached snapshot value
   });
 
   it("reads and writes an equation caption (SEQ Equation)", () => {

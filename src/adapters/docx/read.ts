@@ -684,9 +684,11 @@ function inlineToHtml(p: Element, ctx: RenderCtx): string {
       const instr = el.getAttribute("w:instr") ?? "";
       const ref = parseRefInstr(instr);
       const seq = parseSeqInstr(instr);
+      const info = infoFieldKind(instr);
       if (ref) html += xrefHtml(ref.name, ref.fmt, el.textContent ?? "");
       else if (seq) html += seqFieldHtml(seq, el.textContent ?? "");
-      else html += inlinePassthrough(el); // PAGE / other simple fields stay as-is
+      else if (info) html += infoFieldHtml(info, el.textContent ?? "");
+      else html += inlinePassthrough(el); // an unmodeled simple field stays as-is
     } else if (el.tagName === "w:hyperlink") {
       const id = el.getAttributeNS(R, "id") ?? el.getAttribute("r:id") ?? "";
       const anchor = el.getAttribute("w:anchor"); // an internal link to a bookmark
@@ -990,11 +992,26 @@ function finishField(field: FieldState): string {
   if (ref) return xrefHtml(ref.name, ref.fmt, field.result);
   const seq = parseSeqInstr(field.instr);
   if (seq) return seqFieldHtml(seq, field.result);
-  return field.raw; // PAGE / TOC / DATE / unknown: keep the original runs
+  const info = infoFieldKind(field.instr);
+  if (info) return infoFieldHtml(info, field.result);
+  return field.raw; // TOC / unknown: keep the original runs
 }
 // A caption auto-number field; the engine renumbers each sequence on reflow.
 function seqFieldHtml(id: string, cached: string): string {
   return `<span class="docx-field docx-field-seq" data-field="seq" data-seq="${escapeAttr(id)}" contenteditable="false">${escapeHtml(cached)}</span>`;
+}
+// A live document field the engine keeps current: PAGE / NUMPAGES are recomputed per page (so a
+// footer page number is right on every page, not the one value Word cached), and DATE / TIME /
+// AUTHOR / FILENAME round-trip as real fields showing their cached snapshot. REF / PAGEREF / SEQ
+// are matched earlier, so the leading-PAGE test never captures PAGEREF.
+function infoFieldKind(instr: string): "PAGE" | "NUMPAGES" | "DATE" | "TIME" | "AUTHOR" | "FILENAME" | null {
+  const t = instr.trim().toUpperCase();
+  for (const k of ["PAGE", "NUMPAGES", "DATE", "TIME", "AUTHOR", "FILENAME"] as const)
+    if (new RegExp(`^${k}(\\s|\\\\|$)`).test(t)) return k;
+  return null;
+}
+function infoFieldHtml(kind: string, cached: string): string {
+  return `<span class="docx-field" data-field="${kind}" contenteditable="false">${escapeHtml(cached)}</span>`;
 }
 
 // Footnote / endnote bodies from word/footnotes.xml or endnotes.xml, keyed by id (skipping the

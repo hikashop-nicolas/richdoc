@@ -35,6 +35,25 @@ describe("odt <-> html", () => {
     expect(html).toContain("ici.");
   });
 
+  it("maps ODF page/date field elements to live field spans on read, round-tripping", () => {
+    const content = CONTENT.replace(
+      "<text:p>Bonjour <text:span text:style-name=\"T1\">monde</text:span> ici.</text:p>",
+      '<text:p>Page <text:page-number text:select-page="current">2</text:page-number>' +
+        " of <text:page-count>7</text:page-count>" +
+        " on <text:date>2026-01-02</text:date></text:p>",
+    );
+    const html = odtToHtml(makeOdt(content));
+    expect(html).toContain('data-field="PAGE"'); // text:page-number -> live span
+    expect(html).toContain('data-field="NUMPAGES"'); // text:page-count -> live span
+    expect(html).toContain('data-field="DATE"');
+    expect(html).toContain(">2026-01-02</span>"); // date field keeps its cached snapshot
+    // The live spans survive a save as real ODF field elements.
+    const out = strFromU8(unzipSync(htmlToOdt(html, makeOdt(content)))["content.xml"]);
+    expect(out).toContain("text:page-number");
+    expect(out).toContain("text:page-count");
+    expect(out).toContain("text:date");
+  });
+
   it("writes edited HTML back to a valid .odt, preserving other parts", () => {
     const odt = makeOdt();
     const edited = "<h1>Titre</h1><p>Bonjour <strong>planete</strong> la.</p>";

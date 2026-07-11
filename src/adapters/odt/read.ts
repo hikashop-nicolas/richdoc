@@ -233,6 +233,11 @@ function bmEndHtml(name: string): string {
 function seqFieldHtml(name: string, cached: string): string {
   return `<span class="docx-field docx-field-seq" data-field="seq" data-seq="${escapeAttr(name)}" contenteditable="false">${escapeHtml(cached)}</span>`;
 }
+// A live document field (PAGE / NUMPAGES / DATE / TIME / AUTHOR / FILENAME); the same span the
+// engine recomputes and the odt writer serializes back to the matching ODF field element.
+function infoFieldHtml(kind: string, cached: string): string {
+  return `<span class="docx-field" data-field="${kind}" contenteditable="false">${escapeHtml(cached)}</span>`;
+}
 
 /** A draw:frame holding a draw:image -> an <img> with a data URL; otherwise passthrough. The
  *  frame is stashed (data-odt-xml) so its layout + the draw:image href survive a save, and its
@@ -750,6 +755,27 @@ function inlineToHtml(el: Element, ctx: RCtx): string {
       }
       case "text:sequence":
         html += seqFieldHtml(child.getAttribute("text:name") ?? "Figure", child.textContent ?? "");
+        break;
+      // Document fields the engine keeps live: page-number / page-count are recomputed per page
+      // (so a footer page number is right on every page); date / time / author / file-name keep
+      // their cached snapshot and round-trip as real fields instead of degrading to passthrough.
+      case "text:page-number":
+        html += infoFieldHtml("PAGE", child.textContent ?? "");
+        break;
+      case "text:page-count":
+        html += infoFieldHtml("NUMPAGES", child.textContent ?? "");
+        break;
+      case "text:date":
+        html += infoFieldHtml("DATE", child.textContent ?? "");
+        break;
+      case "text:time":
+        html += infoFieldHtml("TIME", child.textContent ?? "");
+        break;
+      case "text:author-name":
+        html += infoFieldHtml("AUTHOR", child.textContent ?? "");
+        break;
+      case "text:file-name":
+        html += infoFieldHtml("FILENAME", child.textContent ?? "");
         break;
       default:
         // Unmodelled inline content (bookmarks, notes, change marks, ...) preserved verbatim.
