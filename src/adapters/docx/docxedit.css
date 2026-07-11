@@ -299,6 +299,10 @@
 .docxedit-page.is-paginated { position: relative; background: transparent; box-shadow: none; }
 .docxedit-page.is-paginated:focus-within { box-shadow: none; }
 .docxedit-pagelayer { position: absolute; inset: 0; z-index: 0; pointer-events: none; }
+/* Floating page images (logos / banners / watermarks) sit above the page cards but behind the
+   editable text, at page-1 coordinates; non-interactive so they never intercept editing. */
+.docxedit-floatlayer { position: absolute; inset: 0; z-index: 0; pointer-events: none; }
+.docxedit-floatlayer img { position: absolute; }
 .docxedit-pagecard { position: absolute; left: 0; width: 100%; background: #fff; box-sizing: border-box; box-shadow: 0 2px 12px rgba(0, 0, 0, .45); }
 /* Page border: an inset box drawn on every card, off the document's page geometry. */
 .docxedit-page.has-pageborder .docxedit-pagecard::after { content: ""; position: absolute; inset: 24px; border: var(--rdoc-pageborder); pointer-events: none; }

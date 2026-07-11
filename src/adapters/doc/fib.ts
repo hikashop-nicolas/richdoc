@@ -18,6 +18,7 @@ export const FC = {
   sttbfRMark: 51, // revision (tracked-change) author names
   grpXstAtnOwners: 36, // comment author names (group of Xst), indexed by ATRD.ibst
   clx: 33,
+  plcfspaMom: 40, // FSPA shape anchors in the main document (floating drawings)
   plcfendRef: 46, // endnote reference CPs (main doc)
   plcfendTxt: 47, // endnote text spans (endnote subdocument)
   plcftxbxTxt: 56, // textbox story breaks (CPs + FTXBXS) for the textbox subdocument

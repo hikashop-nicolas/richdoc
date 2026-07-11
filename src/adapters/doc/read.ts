@@ -2,7 +2,7 @@ import { readCfb } from "./cfb";
 import { parseFib, parsePieceTable, readPieceText, FC, type Piece } from "./fib";
 import { mtefToMathml } from "./mtef";
 import { bytesToBase64 } from "../../core/util";
-import type { CommentThread, Note, PageGeometry } from "../../core/types";
+import type { CommentThread, DocFloat, Note, PageGeometry } from "../../core/types";
 
 // Read half of the .doc adapter: bytes -> HTML in richdoc's vocabulary. It extracts the
 // text (piece table) and the character/paragraph formatting (CHPX/PAPX formatted-disk
@@ -15,6 +15,7 @@ export interface DocParts {
   comments?: CommentThread[];
   header?: string;
   footer?: string;
+  floats?: DocFloat[];
 }
 
 /** A footnote / endnote reference found in the main text, keyed by its character position. */
@@ -641,6 +642,87 @@ function extractImageHtml(data: Uint8Array | undefined, offset: number): string 
   return null;
 }
 
+// The OfficeArt blip store: each BSE record (0xF007) names an image whose bytes live in the delay
+// stream (WordDocument) at foDelay. Returns a raster data URL per blip, indexed 1-based by pib
+// (the order shapes reference them). Metafile blips (WMF/EMF) are skipped (not browser-raster).
+function parseBlipStore(table: Uint8Array, wd: Uint8Array): (string | undefined)[] {
+  const blips: (string | undefined)[] = [undefined]; // pib is 1-based; index 0 is unused
+  const tdv = new DataView(table.buffer, table.byteOffset, table.byteLength);
+  const wdv = new DataView(wd.buffer, wd.byteOffset, wd.byteLength);
+  for (let i = 0; i + 44 <= table.length; i++) {
+    if (tdv.getUint16(i + 2, true) !== 0xf007) continue; // msofbtBSE
+    if (tdv.getUint32(i + 4, true) < 36) continue;
+    const btWin = table[i + 8];
+    if (btWin < 2 || btWin > 8) continue; // blip type (EMF..TIFF); guards against false matches
+    const size = tdv.getUint32(i + 8 + 20, true);
+    const foDelay = tdv.getUint32(i + 8 + 28, true);
+    let url: string | undefined;
+    if (foDelay !== 0xffffffff && foDelay + 8 <= wd.length) {
+      const brl = wdv.getUint32(foDelay + 4, true); // the blip record's own length bounds the data
+      const end = Math.min(foDelay + 8 + (brl > 0 && brl < wd.length ? brl : size), wd.length);
+      const region = wd.subarray(foDelay, end);
+      for (const { mime, sig } of IMAGE_SIGS) {
+        const at = indexOfSig(region, sig);
+        if (at >= 0) { url = `data:${mime};base64,${bytesToBase64(region.subarray(at))}`; break; }
+      }
+    }
+    blips.push(url);
+  }
+  return blips;
+}
+
+// Map each shape id (spid) to the blip it displays (pib), by walking the OfficeArt records: an Sp
+// record (0xF00A) carries the spid, the following OPT record (0xF00B) may hold the pib property
+// (0x0104) in its property table (6 bytes each). -1 when the shape shows no picture (e.g. a textbox).
+function parseShapePibs(table: Uint8Array): Map<number, number> {
+  const map = new Map<number, number>();
+  const tdv = new DataView(table.buffer, table.byteOffset, table.byteLength);
+  let lastSpid = -1;
+  for (let i = 0; i + 8 <= table.length; i++) {
+    const rt = tdv.getUint16(i + 2, true);
+    if (rt === 0xf00a) lastSpid = tdv.getUint32(i + 8, true);
+    else if (rt === 0xf00b) {
+      const nProp = (tdv.getUint16(i, true) >> 4) & 0xfff;
+      let p = i + 8;
+      let pib = -1;
+      for (let q = 0; q < nProp && p + 6 <= table.length; q++) {
+        if ((tdv.getUint16(p, true) & 0x3fff) === 0x0104) pib = tdv.getUint32(p + 2, true);
+        p += 6;
+      }
+      if (lastSpid >= 0) { map.set(lastSpid, pib); lastSpid = -1; }
+    }
+  }
+  return map;
+}
+
+// Parse the main document's floating drawings: each FSPA (26-byte shape anchor) gives a shape id and
+// a page-relative rectangle in twips; resolving spid -> pib -> blip yields a positioned picture (a
+// logo, banner or page watermark). Returns floats in px, on page 1 (cover-page graphics; anchoring to
+// a specific later page is not modelled). Metafile and non-picture shapes are skipped.
+function parseFloats(wd: Uint8Array, table: Uint8Array, fib: ReturnType<typeof parseFib>): DocFloat[] {
+  const spa = fib.fc(FC.plcfspaMom);
+  if (spa.lcb < 34 || (spa.lcb - 4) % 30 !== 0) return [];
+  const blips = parseBlipStore(table, wd);
+  if (blips.every((b) => !b)) return [];
+  const spidPib = parseShapePibs(table);
+  const dv = new DataView(table.buffer, table.byteOffset + spa.fc, spa.lcb);
+  const n = (spa.lcb - 4) / 30; // FSPA is 26 bytes: lcb = 4*(n+1) + 26*n = 30n + 4
+  const base = (n + 1) * 4;
+  const px = (tw: number) => Math.round(tw / 15);
+  const floats: DocFloat[] = [];
+  for (let k = 0; k < n; k++) {
+    const o = base + k * 26;
+    const pib = spidPib.get(dv.getUint32(o, true));
+    const img = pib && pib > 0 ? blips[pib] : undefined;
+    if (!img) continue;
+    const xl = dv.getInt32(o + 4, true), yt = dv.getInt32(o + 8, true);
+    const xr = dv.getInt32(o + 12, true), yb = dv.getInt32(o + 16, true);
+    if (xr <= xl || yb <= yt) continue;
+    floats.push({ img, x: px(xl), y: px(yt), w: px(xr - xl), h: px(yb - yt) });
+  }
+  return floats;
+}
+
 export function docToParts(bytes: Uint8Array): DocParts {
   const cfb = readCfb(bytes);
   const wd = cfb.get("WordDocument");
@@ -690,10 +772,14 @@ export function docToParts(bytes: Uint8Array): DocParts {
   // The last section's geometry is the document page; earlier sections mark a break (with their
   // own geometry) on the paragraph holding their section-break char (at endCp - 1).
   const page = sections.length ? sections[sections.length - 1].geom : undefined;
+  const pageJson = page ? secGeomJson(page) : "";
   const sectionBreaks = new Map<number, string>();
   for (let k = 0; k < sections.length - 1; k++) {
     const g = sections[k].geom;
-    if (g) sectionBreaks.set(sections[k].endCp - 1, secGeomJson(g));
+    // Only mark a break when the section's page geometry actually differs from the document's: a
+    // same-geometry (typically continuous) section break needs no separate page layout, and forcing
+    // one would switch on the multi-section renderer (per-section page cards) unnecessarily.
+    if (g && secGeomJson(g) !== pageJson) sectionBreaks.set(sections[k].endCp - 1, secGeomJson(g));
   }
 
   // Footnote / endnote subdocuments follow the main text in CP order: main, footnote,
@@ -717,6 +803,7 @@ export function docToParts(bytes: Uint8Array): DocParts {
   const equationMathml = eqNative ? mtefToMathml(eqNative) : null;
   const rmFc = fib.fc(FC.sttbfRMark);
   const rmAuthors = parseSttbStrings(table, rmFc.fc, rmFc.lcb);
+  const floats = parseFloats(wd, table, fib);
   return {
     body: buildHtml(text, cpToFc, charSpans, paraSpans, refMap, cmtRefMap, imageAt, rmAuthors, sectionBreaks, textboxes, { mathml: equationMathml, present: !!eqNative }),
     page,
@@ -724,6 +811,7 @@ export function docToParts(bytes: Uint8Array): DocParts {
     comments: comments.length ? comments : undefined,
     header: header || undefined,
     footer: footer || undefined,
+    floats: floats.length ? floats : undefined,
   };
 }
 

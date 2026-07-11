@@ -257,6 +257,23 @@ export function createRichEditor(container: HTMLElement, adapter: Adapter, optio
   const pagelayer = document.createElement("div"); // page cards, behind the body
   pagelayer.className = "docxedit-pagelayer";
   pagelayer.setAttribute("aria-hidden", "true");
+  // Floating page images (logos / banners / watermarks the adapter positions on the page): a
+  // non-editable layer drawn behind the text, at page-1 coordinates. Built once from parts.floats.
+  const floatlayer = document.createElement("div");
+  floatlayer.className = "docxedit-floatlayer";
+  floatlayer.setAttribute("aria-hidden", "true");
+  // Skip a float whose image is already rendered inline in the body (a shape that is both a floating
+  // picture and an inline/textbox image would otherwise appear twice).
+  const inlineSrcs = new Set(Array.from(doc.querySelectorAll("img")).map((im) => im.getAttribute("src")));
+  for (const f of parts.floats ?? []) {
+    if (inlineSrcs.has(f.img)) continue;
+    const im = document.createElement("img");
+    im.src = f.img;
+    im.alt = "";
+    im.style.cssText = `position:absolute;left:${f.x}px;top:${f.y}px;width:${f.w}px;height:${f.h}px`;
+    floatlayer.appendChild(im);
+  }
+  const hasFloats = floatlayer.childElementCount > 0;
   const hflayer = document.createElement("div"); // header/footer clones, above the body (clickable)
   hflayer.className = "docxedit-hflayer";
   // Off-screen holder so header/footer can be measured (and kept as the save source)
@@ -265,12 +282,13 @@ export function createRichEditor(container: HTMLElement, adapter: Adapter, optio
   measure.className = "docxedit-measure";
   if (paginated) {
     page.classList.add("is-paginated");
-    page.append(pagelayer, doc, hflayer);
+    page.append(pagelayer, ...(hasFloats ? [floatlayer] : []), doc, hflayer);
     for (const b of [header, footer, headerFirst, footerFirst, headerEven, footerEven]) if (b) measure.appendChild(b);
     for (const { el } of secBands.values()) measure.appendChild(el); // off-screen, for measuring
     page.appendChild(measure);
   } else {
     if (header) page.appendChild(header);
+    if (hasFloats) page.appendChild(floatlayer);
     page.appendChild(doc);
     if (footer) page.appendChild(footer);
   }

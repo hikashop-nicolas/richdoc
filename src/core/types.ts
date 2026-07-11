@@ -88,10 +88,21 @@ export interface PageGeometry {
 }
 
 /** The editable model the engine renders: body + header/footer HTML, comments, fonts. */
+/** A floating image positioned on the page (a logo, banner or page watermark). Coordinates are in
+    px relative to the top-left of page 1. Rendered behind the text as a non-editable layer. */
+export interface DocFloat {
+  img: string; // data URL (or blob URL) of the raster image
+  x: number;
+  y: number;
+  w: number;
+  h: number;
+}
+
 export interface RichDoc {
   body: string;
   header: string;
   footer: string;
+  floats?: DocFloat[]; // page-positioned floating images (drawn behind the text)
   headerPath?: string; // adapter-specific key of the header part, for write-back
   footerPath?: string;
   /** First-page and even-page header/footer variants (the default lives in header/footer above).
