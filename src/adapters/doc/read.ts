@@ -104,6 +104,27 @@ interface ParaProps {
   pageBreakBefore?: boolean; // sprmPFPageBreakBefore: start this paragraph on a new page
   spaceBeforeTw?: number; // sprmPDyaBefore: space above the paragraph (twips)
   spaceAfterTw?: number; // sprmPDyaAfter: space below the paragraph (twips)
+  cellShd?: (string | null)[]; // per-cell background colour (#rrggbb) from sprmTDefTableShd, on a ttp
+}
+
+// One COLORREF from a Shd: 4 bytes {red, green, blue, fAuto}. fAuto 0xFF means "automatic" (no
+// explicit colour), returned as null.
+function shdCv(v: Uint8Array, off: number): string | null {
+  if (off + 4 > v.length || v[off + 3] === 0xff) return null;
+  const h = (n: number) => n.toString(16).padStart(2, "0");
+  return `#${h(v[off]!)}${h(v[off + 1]!)}${h(v[off + 2]!)}`;
+}
+
+// sprmTDefTableShd operand: an array of 10-byte Shd {cvFore(4), cvBack(4), ipat(2)}, one per cell.
+// The visible fill is cvFore for a solid pattern (ipat 1) and cvBack for the clear/automatic
+// pattern (ipat 0), matching how Word stores a flat cell background (e.g. a maroon header row).
+function parseCellShd(v: Uint8Array): (string | null)[] {
+  const out: (string | null)[] = [];
+  for (let o = 0; o + 10 <= v.length; o += 10) {
+    const ipat = v[o + 8]! | (v[o + 9]! << 8);
+    out.push(ipat === 1 ? shdCv(v, o) : shdCv(v, o + 4));
+  }
+  return out;
 }
 
 function esc(s: string): string {
@@ -190,6 +211,8 @@ function decodeParaSprms(g: Uint8Array): ParaProps {
     else if (op === 0x2407) p.pageBreakBefore = v[0] !== 0; // sprmPFPageBreakBefore
     else if (op === 0xa413) p.spaceBeforeTw = dv.getUint16(i - len, true); // sprmPDyaBefore
     else if (op === 0xa414) p.spaceAfterTw = dv.getUint16(i - len, true); // sprmPDyaAfter
+    // sprmTDefTableShd (and its raw twin 0xd670): per-cell background shading on the row terminator.
+    else if ((op === 0xd612 || op === 0xd670) && !p.cellShd) p.cellShd = parseCellShd(v);
   }
   return p;
 }
@@ -998,15 +1021,20 @@ function buildHtml(
   const headingAt = (cp: number): number => lookup(paraSpans, cpToFc(cp))?.headingLevel ?? 0;
   let curHeading = headingAt(0);
   let tableRows: string[][] = [];
+  let tableRowShd: (string | null)[][] = []; // per-row, per-cell background colour (parallel to tableRows)
   let rowCells: string[] = [];
   const flushTable = (): void => {
     if (!tableRows.length) return;
-    const td = 'style="border:1px solid #999;padding:2px 6px"';
     const rows = tableRows
-      .map((cells) => `<tr>${cells.map((c) => `<td ${td}>${c || "<br>"}</td>`).join("")}</tr>`)
+      .map((cells, r) => `<tr>${cells.map((c, i) => {
+        const bg = tableRowShd[r]?.[i];
+        const style = `border:1px solid #999;padding:2px 6px${bg ? `;background-color:${bg}` : ""}`;
+        return `<td style="${style}">${c || "<br>"}</td>`;
+      }).join("")}</tr>`)
       .join("");
     blocks.push({ tag: "table", attr: ' style="border-collapse:collapse"', inner: rows });
     tableRows = [];
+    tableRowShd = [];
   };
 
   const flushRun = (): void => {
@@ -1034,6 +1062,7 @@ function buildHtml(
         // own writer emits an empty ttp paragraph, which contributes no extra cell.
         if (runHtml) rowCells.push(runHtml);
         tableRows.push(rowCells);
+        tableRowShd.push(pp.cellShd ?? []);
         rowCells = [];
       } else {
         rowCells.push(runHtml);
