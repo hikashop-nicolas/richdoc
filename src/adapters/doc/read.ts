@@ -263,8 +263,8 @@ function parseStyleHeadings(table: Uint8Array, fc: number, lcb: number): Map<num
 }
 
 // Parse one SEPX (section properties) at fcSepx into richdoc page geometry (undefined if it
-// declares nothing recognisable).
-function parseSepx(wd: Uint8Array, fcSepx: number): PageGeometry | undefined {
+// declares nothing recognisable). Exported for unit testing of the margin resolution.
+export function parseSepx(wd: Uint8Array, fcSepx: number): PageGeometry | undefined {
   if (fcSepx === 0xffffffff || fcSepx + 2 > wd.length) return undefined;
   const cb = wd[fcSepx] | (wd[fcSepx + 1] << 8);
   const g = wd.subarray(fcSepx + 2, fcSepx + 2 + cb);
@@ -273,6 +273,10 @@ function parseSepx(wd: Uint8Array, fcSepx: number): PageGeometry | undefined {
   const page: PageGeometry = { widthPx: 816, heightPx: 1056, margin: { top: 96, right: 96, bottom: 96, left: 96 } };
   let any = false;
   let i = 0;
+  // Word stores the top/bottom margin as signed twips; a NEGATIVE value means the margin is
+  // measured to the header/footer, so the effective body margin is the header/footer distance.
+  // The binding gutter (dzaGutter) adds to the left margin. Collect these, resolve after the loop.
+  let topTw = 1440, bottomTw = 1440, leftTw = 1440, gutterTw = 0, hdrTopTw = 720, ftrBottomTw = 720;
   while (i + 2 <= g.length) {
     const op = gdv.getUint16(i, true);
     i += 2;
@@ -283,15 +287,21 @@ function parseSepx(wd: Uint8Array, fcSepx: number): PageGeometry | undefined {
     const u16 = () => g[start] | (g[start + 1] << 8);
     if (op === 0xb01f) { page.widthPx = px(u16()); any = true; }
     else if (op === 0xb020) { page.heightPx = px(u16()); any = true; }
-    else if (op === 0xb021) { page.margin.left = px(u16()); any = true; }
+    else if (op === 0xb021) { leftTw = u16(); any = true; }
     else if (op === 0xb022) page.margin.right = px(u16());
-    else if (op === 0x9023) page.margin.top = px(gdv.getInt16(start, true));
-    else if (op === 0x9024) page.margin.bottom = px(gdv.getInt16(start, true));
+    else if (op === 0x9023) topTw = gdv.getInt16(start, true);
+    else if (op === 0x9024) bottomTw = gdv.getInt16(start, true);
+    else if (op === 0xb025) gutterTw = u16(); // sprmSDzaGutter: binding space added to the left
+    else if (op === 0xb017) hdrTopTw = u16(); // sprmSDyaHdrTop: header distance from the top edge
+    else if (op === 0xb018) ftrBottomTw = u16(); // sprmSDyaHdrBottom: footer distance from the bottom
     else if (op === 0x500b) { page.columns = u16() + 1; any = true; }
     else if (op === 0x900c) page.columnGapPx = px(u16());
     else if (op === 0x5453) { if (u16() !== 0) { page.vertical = true; any = true; } }
     else if (op === 0x5228) { if (u16() !== 0) { page.rtl = true; any = true; } }
   }
+  page.margin.top = px(topTw < 0 ? hdrTopTw : topTw);
+  page.margin.bottom = px(bottomTw < 0 ? ftrBottomTw : bottomTw);
+  page.margin.left = px(leftTw + gutterTw);
   return any ? page : undefined;
 }
 
@@ -948,7 +958,7 @@ function buildHtml(
   // Any textbox whose anchor we could not place (e.g. anchored outside the main story) is
   // appended so its content is never silently dropped.
   for (; textboxIdx < textboxes.length; textboxIdx++)
-    blocks.push({ tag: "div", attr: ' class="doc-textbox" style="border:1px solid #888;padding:6px;margin:6px 0;display:inline-block;min-width:120px"', inner: textboxes[textboxIdx] });
+    blocks.push({ tag: "div", attr: ' class="docx-textbox"', inner: textboxes[textboxIdx] });
   return blocksToHtml(blocks) || "<p><br></p>";
 }
 

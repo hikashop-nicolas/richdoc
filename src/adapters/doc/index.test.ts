@@ -2,7 +2,7 @@ import { gunzipSync } from "fflate";
 import { describe, expect, it } from "vitest";
 import type { Note } from "../../core/types";
 import { isCfb, readCfb, writeCfb } from "./cfb";
-import { docToHtml, docToParts } from "./read";
+import { docToHtml, docToParts, parseSepx } from "./read";
 import { EQUATION_DOC_GZ_B64, TEXTBOX_DOC_GZ_B64 } from "./textbox.fixture";
 import { htmlToDoc } from "./write";
 
@@ -296,6 +296,28 @@ describe("doc write -> read round trip", () => {
     expect(html).toMatch(/The formula is .*<\/span> here\./); // placed inline at its field
     // On save the equation degrades to the math's text content (no OLE synthesis).
     expect(docToHtml(htmlToDoc(html))).toContain("x2+1");
+  });
+
+  it("resolves section margins: negative bottom -> footer distance, gutter added to left", () => {
+    // A SEPX matching a real Word doc (MULTINAT): left 2592tw, bottom -1440tw (negative -> use the
+    // 720tw footer distance), plus a 245tw binding gutter added to the left. Twips / 15 = px.
+    const sprm = (op: number, val: number) => [op & 0xff, (op >> 8) & 0xff, val & 0xff, (val >> 8) & 0xff];
+    const body = [
+      ...sprm(0xb01f, 12240), // page width 8.5in
+      ...sprm(0xb020, 15840), // page height 11in
+      ...sprm(0xb021, 2592), // left margin (before gutter)
+      ...sprm(0xb022, 1080), // right margin
+      ...sprm(0x9023, 1440), // top margin (positive -> used directly)
+      ...sprm(0x9024, -1440 & 0xffff), // bottom margin negative -> footer distance
+      ...sprm(0xb025, 245), // gutter
+      ...sprm(0xb018, 720), // footer distance from bottom
+    ];
+    const wd = Uint8Array.from([body.length & 0xff, (body.length >> 8) & 0xff, ...body]);
+    const geom = parseSepx(wd, 0)!;
+    expect(geom.margin.left).toBe(Math.round((2592 + 245) / 15)); // 189
+    expect(geom.margin.right).toBe(72);
+    expect(geom.margin.top).toBe(96);
+    expect(geom.margin.bottom).toBe(48); // footer distance, not the raw -96
   });
 
   it("is idempotent across a second round trip", () => {
