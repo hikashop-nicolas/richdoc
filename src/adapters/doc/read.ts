@@ -199,7 +199,13 @@ function decodeParaSprms(g: Uint8Array): ParaProps {
     const op = dv.getUint16(i, true);
     i += 2;
     const spra = (op >> 13) & 7;
-    const len = spra === 6 ? g[i++] : [1, 1, 2, 4, 2, 2, 0, 3][spra];
+    // sprmTDefTable is the one variable-length sprm with a 2-byte operand size; every other
+    // spra-6 sprm uses a 1-byte size. Reading it correctly keeps later sprms (e.g. the table
+    // shading 0xd612) in alignment.
+    let len: number;
+    if (op === 0xd608) { len = dv.getUint16(i, true); i += 2; }
+    else if (spra === 6) len = g[i++]!;
+    else len = [1, 1, 2, 4, 2, 2, 0, 3][spra]!;
     const v = g.subarray(i, i + len);
     i += len;
     if (op === 0x2403 || op === 0x2461) p.align = v[0];

@@ -131,6 +131,20 @@ describe("doc write -> read round trip", () => {
     expect(html).toContain("B2");
   });
 
+  it("preserves table cell shading (sprmTDefTableShd)", () => {
+    const html = docToHtml(htmlToDoc('<table><tr><td style="background-color:#800000">H</td><td style="background-color:#800000">I</td></tr><tr><td>a</td><td>b</td></tr></table>'));
+    // header cells keep the fill; the data row stays unshaded
+    expect(html).toMatch(/<td[^>]*background-color:#800000[^>]*>H<\/td>/);
+    expect(html).toMatch(/<td[^>]*background-color:#800000[^>]*>I<\/td>/);
+    expect(html).not.toMatch(/<td[^>]*background-color[^>]*>a<\/td>/);
+  });
+
+  it("preserves paragraph spacing (space before / after)", () => {
+    const html = docToHtml(htmlToDoc('<p style="margin-top:24px;margin-bottom:12px">s</p>'));
+    expect(html).toContain("margin-top:24px");
+    expect(html).toContain("margin-bottom:12px");
+  });
+
   it("preserves manual page breaks", () => {
     const html = docToHtml(htmlToDoc('<p>a<span data-docx-pagebreak="manual"></span>b</p>'));
     expect(html).toContain('data-docx-pagebreak="manual"');

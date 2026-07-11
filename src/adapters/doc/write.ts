@@ -46,8 +46,10 @@ interface Para {
   runs: Run[];
   istd: number; // paragraph style index (0 = Normal, 1..6 = Heading 1..6)
   indentTwips?: number; // left indent in twips
+  spaceBeforeTw?: number; // space above the paragraph (twips) -> sprmPDyaBefore
+  spaceAfterTw?: number; // space below the paragraph (twips) -> sprmPDyaAfter
   endChar?: number; // paragraph terminator (0x0D normally, 0x07 for table cells/rows)
-  table?: { cell?: boolean; ttp?: boolean; cols?: number };
+  table?: { cell?: boolean; ttp?: boolean; cols?: number; shd?: (number | null)[] };
   noteBoundary?: SubKind; // first para of a note/comment (or its subdoc's trailing mark)
   hddFooter?: boolean; // first paragraph of the footer story inside the header/footer subdoc
   secBreak?: PageGeometry; // this paragraph ends a section with this geometry
@@ -311,12 +313,15 @@ function parseHtml(bodyHtml: string): Para[] {
       else if (tag === "table" || tag === "tbody" || tag === "thead") walk(child, list);
       else if (tag === "tr") {
         const cells = Array.from(child.children).filter((c) => /^t[dh]$/.test(c.tagName.toLowerCase()));
+        const shd: (number | null)[] = [];
         for (const td of cells) {
           const cr: Run[] = [];
           collectRuns(td, { b: false, i: false, u: false, strike: false }, cr);
           paras.push({ align: 0, runs: cr, istd: 0, endChar: 0x07, table: { cell: true } });
+          const bg = (td as HTMLElement).style.backgroundColor || (td.getAttribute("style")?.match(/background(?:-color)?:\s*([^;]+)/i)?.[1] ?? "");
+          shd.push(bg ? (parseColor(bg) ?? null) : null);
         }
-        paras.push({ align: 0, runs: [], istd: 0, endChar: 0x07, table: { ttp: true, cols: cells.length } });
+        paras.push({ align: 0, runs: [], istd: 0, endChar: 0x07, table: { ttp: true, cols: cells.length, shd: shd.some((c) => c != null) ? shd : undefined } });
       }
       else if (blockTags.has(tag)) {
         const hMatch = /^h([1-6])$/.exec(tag);
@@ -336,7 +341,9 @@ function parseHtml(bodyHtml: string): Para[] {
         // ending section's geometry.
         const secAttr = child.getAttribute("data-rdoc-secbreak");
         const secBreak = secAttr ? secGeomToPage(secAttr) : undefined;
-        paras.push({ align: blockAlign(child), runs: [...prefix, ...runs], istd: level, indentTwips: indent, secBreak, endChar: secBreak ? 0x0c : undefined });
+        const px2tw = (v: string) => { const n = parseFloat(v); return n > 0 ? Math.round(n * 15) : undefined; };
+        const st = (child as HTMLElement).style;
+        paras.push({ align: blockAlign(child), runs: [...prefix, ...runs], istd: level, indentTwips: indent, spaceBeforeTw: px2tw(st.marginTop), spaceAfterTw: px2tw(st.marginBottom), secBreak, endChar: secBreak ? 0x0c : undefined });
       }
     }
   };
@@ -458,6 +465,14 @@ function papxGrpprl(p: Para): Uint8Array {
     b.u16(0x840f); // sprmPDxaLeft
     b.u16(p.indentTwips);
   }
+  if (p.spaceBeforeTw) {
+    b.u16(0xa413); // sprmPDyaBefore
+    b.u16(p.spaceBeforeTw);
+  }
+  if (p.spaceAfterTw) {
+    b.u16(0xa414); // sprmPDyaAfter
+    b.u16(p.spaceAfterTw);
+  }
   if (p.table?.cell || p.table?.ttp) {
     b.u16(0x2416); // sprmPFInTable
     b.u8(1);
@@ -469,6 +484,27 @@ function papxGrpprl(p: Para): Uint8Array {
     b.u16(0xd608); // sprmTDefTable (2-byte length prefix)
     b.u16(operand.length);
     b.bytes(operand);
+    if (p.table.shd) {
+      const shd = buildTableShd(p.table.shd, p.table.cols || 1);
+      b.u16(0xd612); // sprmTDefTableShd (1-byte length prefix): per-cell background
+      b.u8(shd.length);
+      b.bytes(shd);
+    }
+  }
+  return b.done();
+}
+
+// sprmTDefTableShd operand: a 10-byte Shd per cell {cvFore(4), cvBack(4), ipat(2)}. A shaded cell
+// stores its fill in cvBack with the clear/automatic pattern (ipat 0); an unshaded cell is all
+// automatic. COLORREF bytes are {red, green, blue, fAuto}; fAuto 0xFF marks "automatic" (no colour).
+function buildTableShd(shd: (number | null)[], cols: number): Uint8Array {
+  const b = new Buf();
+  for (let i = 0; i < cols; i++) {
+    const c = shd[i] ?? null;
+    b.u8(0); b.u8(0); b.u8(0); b.u8(0xff); // cvFore = automatic
+    if (c == null) { b.u8(0); b.u8(0); b.u8(0); b.u8(0xff); } // cvBack = automatic (no fill)
+    else { b.u8(c & 0xff); b.u8((c >> 8) & 0xff); b.u8((c >> 16) & 0xff); b.u8(0); } // cvBack = colour
+    b.u16(0); // ipat = automatic (clear): cvBack is the flat fill
   }
   return b.done();
 }
