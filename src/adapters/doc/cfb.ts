@@ -76,33 +76,32 @@ export function readCfb(bytes: Uint8Array): Map<string, Uint8Array> {
     return out.subarray(0, size);
   };
 
-  // Directory entries.
+  // Directory entries. The directory is a red-black tree, not a flat list: a linear scan of the
+  // 128-byte slots also picks up streams nested inside storages (e.g. an embedded OLE object's own
+  // "WordDocument" / "1Table" under an ObjectPool), which for a .doc must NOT shadow the top-level
+  // streams. Walk from the root's child instead and resolve each name to its shallowest entry
+  // (top-level wins), while still surfacing uniquely-named nested streams (e.g. "Equation Native").
   const dir = readRegular(firstDirSec, chain(firstDirSec).length * sectorSize);
   const ddv = new DataView(dir.buffer, dir.byteOffset, dir.byteLength);
-  interface Entry {
-    name: string;
-    type: number;
-    start: number;
-    size: number;
-  }
-  const entries: Entry[] = [];
-  let rootStart = 0;
-  let rootSize = 0;
-  for (let i = 0; i + 128 <= dir.length; i += 128) {
-    const type = dir[i + 66];
-    if (type === 0) continue;
-    const nlen = ddv.getUint16(i + 64, true);
+  const slot = (i: number) => {
+    const b = i * 128;
+    if (b < 0 || b + 128 > dir.length) return null;
+    const nlen = ddv.getUint16(b + 64, true);
     let name = "";
-    for (let j = 0; j < Math.max(0, nlen - 2); j += 2) name += String.fromCharCode(dir[i + j] | (dir[i + j + 1] << 8));
-    const start = ddv.getUint32(i + 116, true);
-    const size = ddv.getUint32(i + 120, true);
-    if (type === 5) {
-      rootStart = start;
-      rootSize = size;
-    } else if (type === 2) {
-      entries.push({ name, type, start, size });
-    }
-  }
+    for (let j = 0; j < Math.max(0, nlen - 2); j += 2) name += String.fromCharCode(dir[b + j] | (dir[b + j + 1] << 8));
+    return {
+      type: dir[b + 66],
+      name,
+      left: ddv.getUint32(b + 68, true),
+      right: ddv.getUint32(b + 72, true),
+      child: ddv.getUint32(b + 76, true),
+      start: ddv.getUint32(b + 116, true),
+      size: ddv.getUint32(b + 120, true),
+    };
+  };
+  const root = slot(0); // the Root Entry is always directory slot 0
+  const rootStart = root?.start ?? 0;
+  const rootSize = root?.size ?? 0;
 
   // Mini stream (owned by the root entry) + mini FAT.
   const miniStream = readRegular(rootStart, rootSize);
@@ -126,9 +125,29 @@ export function readCfb(bytes: Uint8Array): Map<string, Uint8Array> {
     return out.subarray(0, size);
   };
 
+  // In-order tree walk from the root's child; recurse into storages so nested streams are still
+  // reachable, but track depth (0 = direct child of root) so the shallowest wins per name.
+  const best = new Map<string, { start: number; size: number; depth: number }>();
+  const seen = new Set<number>();
+  const walk = (i: number, depth: number): void => {
+    if (i >= FATSECT || seen.has(i)) return;
+    seen.add(i);
+    const e = slot(i);
+    if (!e) return;
+    walk(e.left, depth);
+    if (e.type === 2) {
+      const prev = best.get(e.name);
+      if (!prev || depth < prev.depth) best.set(e.name, { start: e.start, size: e.size, depth });
+    } else if (e.type === 1 && e.child < FATSECT) {
+      walk(e.child, depth + 1);
+    }
+    walk(e.right, depth);
+  };
+  if (root && root.child < FATSECT) walk(root.child, 0);
+
   const result = new Map<string, Uint8Array>();
-  for (const e of entries) {
-    result.set(e.name, e.size < miniCutoff ? readMini(e.start, e.size) : readRegular(e.start, e.size));
+  for (const [name, e] of best) {
+    result.set(name, e.size < miniCutoff ? readMini(e.start, e.size) : readRegular(e.start, e.size));
   }
   return result;
 }

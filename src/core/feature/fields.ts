@@ -46,9 +46,12 @@ export function setupFields(deps: FieldsDeps) {
   };
   const tocSig = new WeakMap<Element, string>();
   const decorateFields = (cardCount: number, pageStep: number, vertical: boolean): void => {
+    // The 1-based page an element sits on. Guard pageStep <= 0 (e.g. before pagination has measured,
+    // or a pageless view) so the division never yields Infinity in a page number.
+    const pageAt = (el: HTMLElement) => (pageStep > 0 ? Math.max(1, Math.floor(el.offsetTop / pageStep) + 1) : 1);
     for (const f of Array.from(doc.querySelectorAll<HTMLElement>('.docx-field[data-field="NUMPAGES"]'))) f.textContent = String(cardCount);
     for (const f of Array.from(doc.querySelectorAll<HTMLElement>('.docx-field[data-field="PAGE"]')))
-      f.textContent = formatPage(vertical ? 1 : Math.max(1, Math.floor(f.offsetTop / pageStep) + 1));
+      f.textContent = formatPage(vertical ? 1 : pageAt(f));
     // Caption numbers: number each sequence (data-seq) on its own, in document order.
     const seqCounts = new Map<string, number>();
     for (const s of Array.from(doc.querySelectorAll<HTMLElement>('.docx-field[data-field="seq"]'))) {
@@ -65,7 +68,7 @@ export function setupFields(deps: FieldsDeps) {
       if (!target) continue;
       const fmt = x.getAttribute("data-rdoc-xref-fmt");
       let text: string;
-      if (fmt === "page") text = vertical ? "1" : String(Math.max(1, Math.floor(target.offsetTop / pageStep) + 1));
+      if (fmt === "page") text = vertical ? "1" : String(pageAt(target));
       else if (fmt === "direction") text = x.compareDocumentPosition(target) & Node.DOCUMENT_POSITION_FOLLOWING ? t("refBelow") : t("refAbove");
       else text = xrefTargetText(target, name!);
       if (text && x.textContent !== text) x.textContent = text;
@@ -73,7 +76,7 @@ export function setupFields(deps: FieldsDeps) {
     let needReflow = false;
     for (const toc of Array.from(doc.querySelectorAll<HTMLElement>(".docx-field-toc"))) {
       const headings = Array.from(doc.querySelectorAll<HTMLElement>("h1,h2,h3")).filter((h) => !h.closest(".docx-field-toc"));
-      const pageOf = (el: HTMLElement) => (vertical ? "" : String(Math.max(1, Math.floor(el.offsetTop / pageStep) + 1)));
+      const pageOf = (el: HTMLElement) => (vertical ? "" : String(pageAt(el)));
       const sig = `${cardCount}|` + headings.map((h) => `${h.tagName}:${h.textContent}:${pageOf(h)}`).join("|");
       if (tocSig.get(toc) === sig) continue; // unchanged: don't rebuild (and don't loop reflow)
       tocSig.set(toc, sig);

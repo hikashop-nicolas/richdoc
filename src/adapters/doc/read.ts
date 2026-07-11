@@ -358,6 +358,7 @@ function renderNoteBody(
     curStyle = null;
   };
   let leadStripped = false; // the leading 0x02 + optional tab is the auto-number, not body text
+  let inFieldInstr = false; // between a field begin (0x13) and separator (0x14): hidden field code
   for (let cp = start; cp < end && cp < full.length; cp++) {
     const c = full.charCodeAt(cp);
     if (!leadStripped) {
@@ -365,6 +366,12 @@ function renderNoteBody(
       if (c === 0x09) { leadStripped = true; continue; }
       leadStripped = true;
     }
+    // Field codes (e.g. an EMBED field around an embedded object): drop the markers and the hidden
+    // instruction, keeping only the field's cached result so we don't render "EMBED Word.Picture".
+    if (c === 0x13) { inFieldInstr = true; continue; }
+    if (c === 0x14) { inFieldInstr = false; continue; }
+    if (c === 0x15) continue;
+    if (inFieldInstr) continue;
     if (c === PARA) { flushPara(); continue; }
     if (c === 0x09) { curText += "\t"; continue; }
     if (c === 0x0b) { curText += "\n"; continue; }

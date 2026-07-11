@@ -20,6 +20,54 @@ describe("cfb", () => {
     expect(Array.from(back.get("WordDocument")!.subarray(0, 5))).toEqual([1, 2, 3, 4, 5]);
     expect(back.get("1Table")!.subarray(0, 300).every((b) => b === 7)).toBe(true);
   });
+
+  it("prefers a top-level stream over a same-named one nested in a storage", () => {
+    // Real .doc files (e.g. one with an embedded OLE object under an ObjectPool) carry a second
+    // "WordDocument" inside the nested object. A flat directory scan can pick the wrong one; the
+    // reader must resolve names via the directory tree so the top-level stream wins.
+    const SEC = 512;
+    const ENDOFCHAIN = 0xfffffffe, FREESECT = 0xffffffff, FATSECT = 0xfffffffd, NOSTREAM = 0xffffffff;
+    // Sectors: 0=FAT, 1=directory, 2..11=top WordDocument (>=4096 -> regular), 12..21=nested.
+    const buf = new Uint8Array(SEC * 23);
+    const dv = new DataView(buf.buffer);
+    buf.set([0xd0, 0xcf, 0x11, 0xe0, 0xa1, 0xb1, 0x1a, 0xe1], 0); // CFB magic
+    dv.setUint16(30, 9, true); // sector shift -> 512
+    dv.setUint16(32, 6, true); // mini shift -> 64
+    dv.setUint32(44, 1, true); // one FAT sector
+    dv.setUint32(48, 1, true); // first directory sector
+    dv.setUint32(56, 4096, true); // mini cutoff
+    dv.setUint32(60, ENDOFCHAIN, true); // first mini FAT
+    dv.setUint32(68, ENDOFCHAIN, true); // first DIFAT sector
+    for (let i = 0; i < 109; i++) dv.setUint32(76 + i * 4, FREESECT, true);
+    dv.setUint32(76, 0, true); // DIFAT[0] -> FAT is in sector 0
+    const secOff = (s: number) => (s + 1) * SEC;
+    const fat = (s: number, v: number) => dv.setUint32(secOff(0) + s * 4, v, true);
+    for (let s = 0; s < 128; s++) fat(s, FREESECT);
+    fat(0, FATSECT); fat(1, ENDOFCHAIN);
+    for (let s = 2; s <= 10; s++) fat(s, s + 1); fat(11, ENDOFCHAIN); // top chain 2..11
+    for (let s = 12; s <= 20; s++) fat(s, s + 1); fat(21, ENDOFCHAIN); // nested chain 12..21
+    const entry = (i: number, name: string, type: number, left: number, right: number, child: number, start: number, size: number) => {
+      const b = secOff(1) + i * 128;
+      for (let j = 0; j < name.length; j++) dv.setUint16(b + j * 2, name.charCodeAt(j), true);
+      dv.setUint16(b + 64, (name.length + 1) * 2, true); // name length incl. terminator
+      buf[b + 66] = type;
+      dv.setUint32(b + 68, left, true);
+      dv.setUint32(b + 72, right, true);
+      dv.setUint32(b + 76, child, true);
+      dv.setUint32(b + 116, start, true);
+      dv.setUint32(b + 120, size, true);
+    };
+    // Root -> child "OP" (storage). OP's right sibling is the top-level WordDocument; OP's child
+    // is the nested WordDocument. So both are reachable, at different depths.
+    entry(0, "Root Entry", 5, NOSTREAM, NOSTREAM, 1, ENDOFCHAIN, 0);
+    entry(1, "OP", 1, NOSTREAM, 2, 3, 0, 0);
+    entry(2, "WordDocument", 2, NOSTREAM, NOSTREAM, NOSTREAM, 2, 5000); // top-level
+    entry(3, "WordDocument", 2, NOSTREAM, NOSTREAM, NOSTREAM, 12, 5000); // nested in OP
+    buf.set([0x54, 0x4f, 0x50, 0x21], secOff(2)); // "TOP!" at start of top data
+    buf.set([0x4e, 0x45, 0x53, 0x54], secOff(12)); // "NEST" at start of nested data
+    const streams = readCfb(buf);
+    expect(Array.from(streams.get("WordDocument")!.subarray(0, 4))).toEqual([0x54, 0x4f, 0x50, 0x21]);
+  });
 });
 
 describe("doc write -> read round trip", () => {
