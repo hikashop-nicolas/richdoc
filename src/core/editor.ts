@@ -31,59 +31,77 @@ const TSPLIT_ATTR = "data-rdoc-tsplit";
 function tableRowContainer(t: HTMLTableElement): HTMLElement {
   return (t.tBodies[0] as HTMLElement | undefined) ?? t;
 }
+const SPLITCOL_ATTR = "data-rdoc-splitcol"; // marks a colgroup added only to lock split-table widths
+const TOC_SEL = ".docx-field-toc";
+// The row container and per-row list differ between a table (rows in the tbody) and a TOC field
+// (its entry rows are direct children); everything else about splitting is shared.
+function isTocField(el: Element): el is HTMLElement { return el.classList.contains("docx-field-toc"); }
+function splitRowContainer(el: HTMLElement): HTMLElement { return el.tagName === "TABLE" ? tableRowContainer(el as HTMLTableElement) : el; }
+
 function mergeSplitTables(root: HTMLElement): void {
-  const groups = new Map<string, HTMLTableElement[]>();
-  for (const t of Array.from(root.querySelectorAll<HTMLTableElement>(`table[${TSPLIT_ATTR}]`))) {
+  const groups = new Map<string, HTMLElement[]>();
+  for (const t of Array.from(root.querySelectorAll<HTMLElement>(`table[${TSPLIT_ATTR}], ${TOC_SEL}[${TSPLIT_ATTR}]`))) {
     const gid = t.getAttribute(TSPLIT_ATTR)!;
     const arr = groups.get(gid) ?? [];
     arr.push(t);
     groups.set(gid, arr);
   }
   for (const frags of groups.values()) {
-    const dst = tableRowContainer(frags[0]!);
+    const dst = splitRowContainer(frags[0]!);
     for (let k = 1; k < frags.length; k++) {
-      const src = tableRowContainer(frags[k]!);
+      const src = splitRowContainer(frags[k]!);
       while (src.firstChild) dst.appendChild(src.firstChild); // appendChild keeps the caret's node connected
       frags[k]!.remove();
     }
-    frags[0]!.removeAttribute(TSPLIT_ATTR);
+    const main = frags[0]!;
+    main.removeAttribute(TSPLIT_ATTR);
+    // Undo the fixed-column lock a table split added so the merged table auto-sizes again.
+    main.querySelector(`:scope > colgroup[${SPLITCOL_ATTR}]`)?.remove();
+    if (main.tagName === "TABLE") { main.style.tableLayout = ""; if (main.dataset.rdocSplitw !== undefined) { main.style.width = main.dataset.rdocSplitw; delete main.dataset.rdocSplitw; } }
   }
 }
-// Split each too-tall direct-child table of `parent` into row-boundary fragments no taller
-// than `contentHeight`. Rows are moved (not cloned) so a caret inside one is preserved.
-// `firstBudget` optionally gives a table's first fragment less room than a full page, so it
-// fills out the space left on the page where the table starts before continuing overleaf.
+// Split each too-tall direct child of `parent` (a table, at row boundaries, or a TOC field, at its
+// entry rows) into sibling fragments no taller than `contentHeight`. Rows are moved (not cloned) so
+// a caret inside one is preserved. `firstBudget` optionally gives a block's first fragment less room
+// than a full page, so it fills the space left where the block starts before continuing overleaf.
+//
+// An auto-layout table re-flows (rows grow) once its widest row moves to another fragment, which
+// would make the fragments overflow the page they were split to fit. To keep row heights stable we
+// first lock the table to its rendered column widths (table-layout: fixed + a colgroup); the lock
+// is a view-only artefact that mergeSplitTables removes.
 function splitTallTables(parent: HTMLElement, contentHeight: number, firstBudget?: Map<HTMLElement, number>): void {
   const EPS = 2;
   const MIN_FRAG = 40; // don't bother filling a sliver at the page foot; start clean instead
   for (const el of Array.from(parent.children)) {
-    if (el.tagName !== "TABLE") continue;
-    const t = el as HTMLTableElement;
+    const isTable = el.tagName === "TABLE";
+    if (!isTable && !isTocField(el)) continue;
+    const t = el as HTMLElement;
     if (t.offsetHeight <= contentHeight + EPS) continue;
-    const rc = tableRowContainer(t);
-    const rows = Array.from(rc.children) as HTMLElement[];
-    if (rows.length < 2) continue; // one giant row cannot be split further
+    const rc = splitRowContainer(t);
+    const rows = (isTable ? Array.from(rc.children) : Array.from(rc.querySelectorAll<HTMLElement>(":scope > .docx-field-toc-row, :scope > .docx-field-toc-title, :scope > .docx-field-toc-empty"))) as HTMLElement[];
+    if (rows.length < 2) continue; // a single indivisible row cannot be split further
+    if (isTable) lockTableColumns(t as HTMLTableElement, rows);
     const gid = "ts" + Math.random().toString(36).slice(2, 9);
     t.setAttribute(TSPLIT_ATTR, gid);
-    const hasTbody = !!t.tBodies[0];
+    const hasTbody = isTable && !!(t as HTMLTableElement).tBodies[0];
     const first = firstBudget?.get(t);
     let limit = first != null && first >= MIN_FRAG ? first : contentHeight;
     let curRc = rc;
-    let curTable: HTMLTableElement = t;
+    let curBlock: HTMLElement = t;
     let acc = 0;
     for (const row of rows) {
       const rh = row.offsetHeight;
       if (acc > 0 && acc + rh > limit - EPS) {
-        const frag = t.cloneNode(false) as HTMLTableElement; // <table> shell only (attrs + style)
+        const frag = t.cloneNode(false) as HTMLElement; // shell only (attrs + style)
         frag.setAttribute(TSPLIT_ATTR, gid);
         let fragRc: HTMLElement = frag;
-        if (hasTbody) {
-          const tb = document.createElement("tbody");
-          frag.appendChild(tb);
-          fragRc = tb;
+        if (isTable) {
+          const cg = t.querySelector(`:scope > colgroup[${SPLITCOL_ATTR}]`);
+          if (cg) frag.appendChild(cg.cloneNode(true)); // keep the fixed column widths on the fragment
+          if (hasTbody) { const tb = document.createElement("tbody"); frag.appendChild(tb); fragRc = tb; }
         }
-        curTable.after(frag);
-        curTable = frag;
+        curBlock.after(frag);
+        curBlock = frag;
         curRc = fragRc;
         acc = 0;
         limit = contentHeight; // fragments after the first get a whole page
@@ -92,6 +110,19 @@ function splitTallTables(parent: HTMLElement, contentHeight: number, firstBudget
       acc += rh;
     }
   }
+}
+// Freeze a table's rendered column widths so its row heights survive being split across fragments.
+function lockTableColumns(t: HTMLTableElement, rows: HTMLElement[]): void {
+  const bodyRow = rows.find((r) => r.children.length) ?? rows[0];
+  if (!bodyRow) return;
+  const widths = Array.from(bodyRow.children).map((c) => (c as HTMLElement).getBoundingClientRect().width);
+  if (t.dataset.rdocSplitw === undefined) t.dataset.rdocSplitw = t.style.width;
+  t.style.width = `${t.getBoundingClientRect().width}px`;
+  t.style.tableLayout = "fixed";
+  const cg = document.createElement("colgroup");
+  cg.setAttribute(SPLITCOL_ATTR, "1");
+  for (const w of widths) { const col = document.createElement("col"); col.style.width = `${w}px`; cg.appendChild(col); }
+  t.insertBefore(cg, t.firstChild);
 }
 
 export function createRichEditor(container: HTMLElement, adapter: Adapter, options: EditorOptions = {}): RichEditor {
@@ -1471,15 +1502,15 @@ export function createRichEditor(container: HTMLElement, adapter: Adapter, optio
     // Tables taller than a page are split at row boundaries so a break lands between rows. A
     // positioning pass (tables whole) tells us how much room is left on the page each tall
     // table starts on, so its first fragment fills that space before continuing on the next.
-    const tallTables = kids.filter((k) => k.tagName === "TABLE" && k.offsetHeight > contentHeight + 2);
-    if (tallTables.length) {
-      // Position the tall tables as if they were zero-height, so paginate reports where each
+    const tallBlocks = kids.filter((k) => (k.tagName === "TABLE" || k.classList.contains("docx-field-toc")) && k.offsetHeight > contentHeight + 2);
+    if (tallBlocks.length) {
+      // Position the tall blocks as if they were zero-height, so paginate reports where each
       // one's top naturally lands (an oversized whole block would otherwise be bumped to the
       // next page top, reporting offset 0 and losing the room left on its starting page).
-      const posHeights = heights.map((h, i) => (tallTables.includes(kids[i]!) ? 0 : h));
+      const posHeights = heights.map((h, i) => (tallBlocks.includes(kids[i]!) ? 0 : h));
       const pre = paginate(posHeights, { pageStep, contentHeight }, forceBreaksOf(kids));
       const firstBudget = new Map<HTMLElement, number>();
-      kids.forEach((k, i) => { if (tallTables.includes(k)) firstBudget.set(k, contentHeight - pre.offsetInPage[i]!); });
+      kids.forEach((k, i) => { if (tallBlocks.includes(k)) firstBudget.set(k, contentHeight - pre.offsetInPage[i]!); });
       splitTallTables(doc, contentHeight, firstBudget);
       ({ ks: kids, hs: heights } = measureKids());
     }
@@ -1537,9 +1568,9 @@ export function createRichEditor(container: HTMLElement, adapter: Adapter, optio
   // Body HTML for saving: the live doc minus pagination artifacts (inert spacers and the
   // transient page-top class the engine adds for alignment).
   const cleanBody = (): string => {
-    if (!doc.querySelector(`.docxedit-pagespacer, .docxedit-pagetop, .docxedit-colpage, .docxedit-secpage, .docxedit-vband, .docx-float, table[${TSPLIT_ATTR}]`)) return doc.innerHTML;
+    if (!doc.querySelector(`.docxedit-pagespacer, .docxedit-pagetop, .docxedit-colpage, .docxedit-secpage, .docxedit-vband, .docx-float, [${TSPLIT_ATTR}]`)) return doc.innerHTML;
     const tmp = doc.cloneNode(true) as HTMLElement;
-    mergeSplitTables(tmp); // rejoin any split table so the saved HTML has one whole table
+    mergeSplitTables(tmp); // rejoin any split table or TOC so the saved HTML has one whole block
     for (const s of Array.from(tmp.querySelectorAll(".docxedit-pagespacer"))) s.remove();
     for (const el of Array.from(tmp.querySelectorAll(".docxedit-pagetop"))) el.classList.remove("docxedit-pagetop");
     // Floating images ride along to the adapter (the .doc writer re-emits them as anchored

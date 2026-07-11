@@ -74,13 +74,24 @@ export function setupFields(deps: FieldsDeps) {
       if (text && x.textContent !== text) x.textContent = text;
     }
     let needReflow = false;
-    for (const toc of Array.from(doc.querySelectorAll<HTMLElement>(".docx-field-toc"))) {
+    // The paginator may split a tall TOC into sibling fragments (data-rdoc-tsplit); treat a group
+    // as one, keyed by its first fragment. When the entries change we merge the fragments back and
+    // rebuild the whole TOC (the next reflow re-splits it); when unchanged we leave the split in place.
+    const seenToc = new Set<Element>();
+    for (const first of Array.from(doc.querySelectorAll<HTMLElement>(".docx-field-toc"))) {
+      if (seenToc.has(first)) continue;
+      const gid = first.getAttribute("data-rdoc-tsplit");
+      const frags = gid ? Array.from(doc.querySelectorAll<HTMLElement>(`.docx-field-toc[data-rdoc-tsplit="${gid}"]`)) : [first];
+      frags.forEach((f) => seenToc.add(f));
+      const toc = frags[0]!;
       const headings = Array.from(doc.querySelectorAll<HTMLElement>("h1,h2,h3")).filter((h) => !h.closest(".docx-field-toc"));
       const pageOf = (el: HTMLElement) => (vertical ? "" : String(pageAt(el)));
       const sig = `${cardCount}|` + headings.map((h) => `${h.tagName}:${h.textContent}:${pageOf(h)}`).join("|");
-      if (tocSig.get(toc) === sig) continue; // unchanged: don't rebuild (and don't loop reflow)
+      if (tocSig.get(toc) === sig) continue; // unchanged: don't rebuild (and keep any page split)
       tocSig.set(toc, sig);
       needReflow = true;
+      for (let k = 1; k < frags.length; k++) frags[k]!.remove(); // discard split fragments; rebuild whole
+      toc.removeAttribute("data-rdoc-tsplit");
       toc.replaceChildren();
       if (!headings.length) {
         const e = document.createElement("div");
