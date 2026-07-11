@@ -42,6 +42,9 @@ interface Run {
   rmAuthor?: string;
   rmDate?: string;
 }
+// Word field-type ids for the docx-field spans the editor emits. AUTHOR/FILENAME/DATE/TIME let
+// Word/LibreOffice recognise the field type; PAGE/NUMPAGES are also recomputed by the engine.
+const FIELD_TYPE: Record<string, number> = { PAGE: 33, NUMPAGES: 26, DATE: 31, TIME: 32, AUTHOR: 17, FILENAME: 29 };
 interface Para {
   align: number; // 0 left, 1 center, 2 right, 3 justify
   runs: Run[];
@@ -251,13 +254,17 @@ function collectRuns(node: Node, f: Fmt, runs: Run[]): void {
         continue;
       }
       if (tag === "span" && el.classList.contains("docx-field")) {
-        // A live field (PAGE / NUMPAGES): 0x13 <instr> 0x14 <result> 0x15, field chars special.
+        // A document field: 0x13 <instr> 0x14 <result> 0x15, field chars special. PAGE/NUMPAGES
+        // are recomputed; DATE/TIME/AUTHOR/FILENAME keep their cached snapshot. fldFlt is the
+        // Word field-type id so Word/LibreOffice recognise the field type without the instruction.
         const field = (el.getAttribute("data-field") || "").toUpperCase();
-        if (field === "PAGE" || field === "NUMPAGES") {
-          runs.push({ ...mkRun("\x13", f), special: true, fldFlt: field === "PAGE" ? 33 : 26 });
+        const flt = FIELD_TYPE[field];
+        if (flt !== undefined) {
+          const fallback = field === "PAGE" || field === "NUMPAGES" ? "1" : "";
+          runs.push({ ...mkRun("\x13", f), special: true, fldFlt: flt });
           runs.push(mkRun(` ${field} `, f));
           runs.push({ ...mkRun("\x14", f), special: true });
-          runs.push(mkRun(el.textContent || "1", f));
+          runs.push(mkRun(el.textContent || fallback, f));
           runs.push({ ...mkRun("\x15", f), special: true });
           continue;
         }

@@ -480,6 +480,7 @@ function renderNoteBody(
   let suppressResult = false; // drop a live field's cached result (a docx-field span replaces it)
   let skipLeadField = false; // drop a framed page-number field that leads the story (out of flow)
   let swallowTab = false; // drop the tab right after that framed field
+  let fieldClose = ""; // close tag for an open info-field span (DATE/TIME/AUTHOR/FILENAME)
   for (let cp = start; cp < end && cp < full.length; cp++) {
     const c = full.charCodeAt(cp);
     if (!leadStripped) {
@@ -503,9 +504,10 @@ function renderNoteBody(
       const k = fieldKind(instr);
       if (skipLeadField) suppressResult = true; // the framed lead field: drop its result outright
       else if (k === "PAGE" || k === "NUMPAGES") { flushRun(); runHtml += `<span class="docx-field" data-field="${k}" contenteditable="false"></span>`; suppressResult = true; }
+      else if (isInfoField(k)) { flushRun(); runHtml += `<span class="docx-field" data-field="${k}" contenteditable="false">`; fieldClose = "</span>"; } // keep the cached snapshot inside the span
       continue;
     }
-    if (c === 0x15) { suppressResult = false; if (skipLeadField) { skipLeadField = false; swallowTab = true; } continue; }
+    if (c === 0x15) { flushRun(); runHtml += fieldClose; fieldClose = ""; suppressResult = false; if (skipLeadField) { skipLeadField = false; swallowTab = true; } continue; }
     if (inFieldInstr) { instr += full[cp]; continue; }
     if (suppressResult) continue;
     if (c === 0x01) {
@@ -950,12 +952,16 @@ function rubyFromEq(instr: string): { base: string; reading: string } | null {
 
 // The kind of a field from its instruction: a live field the engine fills (PAGE / NUMPAGES),
 // a table of contents, or null (its result text is shown as-is).
-function fieldKind(instr: string): "PAGE" | "NUMPAGES" | "TOC" | null {
+function fieldKind(instr: string): "PAGE" | "NUMPAGES" | "TOC" | "DATE" | "TIME" | "AUTHOR" | "FILENAME" | null {
   const t = instr.trim().toUpperCase();
-  if (/^PAGE(\s|$|\\)/.test(t)) return "PAGE";
-  if (/^NUMPAGES(\s|$|\\)/.test(t)) return "NUMPAGES";
-  if (/^TOC(\s|$|\\)/.test(t)) return "TOC";
+  for (const k of ["PAGE", "NUMPAGES", "TOC", "DATE", "TIME", "AUTHOR", "FILENAME"] as const)
+    if (new RegExp(`^${k}(\\s|$|\\\\)`).test(t)) return k;
   return null;
+}
+// True for the information fields whose cached snapshot is kept inside a live docx-field span
+// (matching the docx/odt readers), vs PAGE/NUMPAGES/TOC whose value the engine recomputes.
+function isInfoField(k: string | null): k is "DATE" | "TIME" | "AUTHOR" | "FILENAME" {
+  return k === "DATE" || k === "TIME" || k === "AUTHOR" || k === "FILENAME";
 }
 
 function runStyle(p: CharProps | undefined, isHeading = false): string {
@@ -1132,6 +1138,10 @@ function buildHtml(
         runHtml += `<span class="docx-field" data-field="${kind}" contenteditable="false">`;
         fieldClose = "</span>";
         suppressResult = true;
+      } else if (isInfoField(kind)) {
+        // An information field: keep the cached snapshot inside the span (not recomputed).
+        runHtml += `<span class="docx-field" data-field="${kind}" contenteditable="false">`;
+        fieldClose = "</span>";
       } else if (kind === "TOC") {
         // The engine's decorateFields rebuilds a TOC's rows live from the document's headings,
         // so we emit an empty toc div and drop the cached entries (and their para marks).

@@ -277,6 +277,23 @@ describe("doc write -> read round trip", () => {
     expect(html).toMatch(/data-field="NUMPAGES"/);
   });
 
+  it("round-trips DATE / TIME / AUTHOR / FILENAME info fields, keeping the cached value", () => {
+    const body =
+      '<p>Built <span class="docx-field" data-field="DATE" contenteditable="false">2026-01-02</span>' +
+      ' at <span class="docx-field" data-field="TIME" contenteditable="false">09:30</span>' +
+      ' by <span class="docx-field" data-field="AUTHOR" contenteditable="false">Jane</span>' +
+      ' in <span class="docx-field" data-field="FILENAME" contenteditable="false">report.doc</span></p>';
+    const html = docToHtml(htmlToDoc(body));
+    expect(html).toContain('data-field="DATE"');
+    expect(html).toContain('data-field="TIME"');
+    expect(html).toContain('data-field="AUTHOR"');
+    expect(html).toContain('data-field="FILENAME"');
+    // The cached snapshot is preserved inside each span (info fields are not recomputed).
+    expect(html).toMatch(/data-field="DATE"[^>]*>2026-01-02</);
+    expect(html).toMatch(/data-field="AUTHOR"[^>]*>Jane</);
+    expect(html).toMatch(/data-field="FILENAME"[^>]*>report\.doc</);
+  });
+
   it("round-trips ruby (furigana) as an EQ field", () => {
     const html = docToHtml(htmlToDoc("<p>x<ruby>漢字<rt>かんじ</rt></ruby>y</p>"));
     expect(html).toMatch(/<ruby>漢字<rt>かんじ<\/rt><\/ruby>/);

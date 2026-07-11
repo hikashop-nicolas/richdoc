@@ -65,8 +65,10 @@ tategaki/furigana, multi-page FKP for large docs), the known gaps are:
 - **Intra-row table splitting**: a table row taller than a whole page cannot be
   broken across the page boundary (would need to split a cell's content mid-row).
   Multi-row tables split cleanly at row boundaries.
-- **Static read-side fields**: a pre-existing Word PAGE/DATE field shows its cached
-  value (same read-side gap as docx/odt, tracked in the family audit).
+
+PAGE / NUMPAGES / TOC and the information fields (DATE / TIME / AUTHOR / FILENAME)
+all read as live docx-field spans and round-trip as real .doc fields (field-type
+ids validated against LibreOffice), matching the docx/odt adapters.
 
 ## Notes
 
