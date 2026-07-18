@@ -167,8 +167,13 @@ export function setupAssist(deps: AssistDeps) {
       }
       fromSel!.value = TRANSLATE_LANGS.some((l) => l.code === deps.locale) ? deps.locale : "en";
       toSel!.value = fromSel!.value === "en" ? "fr" : "en";
-    } catch {
+    } catch (e) {
+      // Usually a stale service-worker cache serving a mismatched build; log the real cause
+      // (the message alone is unhelpful) and disable Generate so an empty-language run can't
+      // fail a second time. Reopening the popover retries the load.
+      console.error("[richdoc assist] could not load localml/translate", e);
       progress.textContent = t("assistUnavailable");
+      genBtn.disabled = true;
     }
   }
 
@@ -222,6 +227,7 @@ export function setupAssist(deps: AssistDeps) {
       progress.textContent = t("assistDone");
       acceptBtn.disabled = !result.trim();
     } catch (e) {
+      console.error("[richdoc assist] run failed", e);
       progress.textContent = t("assistError", { msg: (e as Error).message });
     } finally {
       running = null;
