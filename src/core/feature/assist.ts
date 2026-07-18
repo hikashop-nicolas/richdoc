@@ -31,17 +31,20 @@ export function setupAssist(deps: AssistDeps) {
   const button = document.createElement("button");
   button.type = "button";
   button.className = "docxedit-assist-btn";
-  button.innerHTML = `${SPARKLE}<span>${t("assist")}</span>`;
+  button.innerHTML = SPARKLE; // icon only; the label shows as the native title tooltip on hover
   button.title = t("assist");
   button.setAttribute("aria-label", t("assist"));
   button.setAttribute("aria-haspopup", "menu");
   button.addEventListener("mousedown", (e) => e.preventDefault()); // keep the document selection
 
   // --- dropdown menu ---------------------------------------------------------
+  // The menu lives in `wrap`, NOT inside the toolbar: the toolbar has overflow:hidden, which
+  // would clip a dropdown that drops below its edge. It is positioned under the button on open.
   const menu = document.createElement("div");
   menu.className = "docxedit-assist-menu";
   menu.setAttribute("role", "menu");
   menu.hidden = true;
+  wrap.appendChild(menu);
   const TASK_LABEL: Record<Task, string> = {
     translate: "assistTranslate",
     elaborate: "assistElaborate",
@@ -73,6 +76,11 @@ export function setupAssist(deps: AssistDeps) {
     const sel = selectionText();
     for (const task of SELECTION_TASKS) items[task].disabled = !sel;
     menu.hidden = false;
+    // Position under the button, right-aligned, in wrap coordinates.
+    const br = button.getBoundingClientRect();
+    const wr = wrap.getBoundingClientRect();
+    menu.style.top = `${br.bottom - wr.top + 4}px`;
+    menu.style.left = `${Math.max(4, br.right - wr.left - menu.offsetWidth)}px`;
     button.setAttribute("aria-expanded", "true");
   };
   button.addEventListener("click", () => (menu.hidden ? openMenu() : closeMenu()));
@@ -248,11 +256,6 @@ export function setupAssist(deps: AssistDeps) {
     else if (!menu.hidden) closeMenu();
   });
 
-  // Button + its dropdown share a positioned container so the menu drops under the button.
-  const control = document.createElement("span");
-  control.className = "docxedit-assist";
-  control.append(button, menu);
-
   // --- helpers ---------------------------------------------------------------
   // The selection Range if it sits inside an editable region, else null.
   function currentRange(): Range | null {
@@ -266,7 +269,7 @@ export function setupAssist(deps: AssistDeps) {
     return r ? r.toString() : "";
   }
 
-  return { control };
+  return { control: button };
 }
 
 function mkBtn(label: string, fn: () => void): HTMLButtonElement {

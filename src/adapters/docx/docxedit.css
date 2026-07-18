@@ -552,9 +552,9 @@
 .docxedit-cmt-editbtn:hover { opacity: 1; }
 
 /* On-device writing assist (feature/assist.ts) */
-.docxedit-assist { position: relative; display: inline-flex; }
-.docxedit-assist-btn { display: inline-flex; align-items: center; gap: 5px; }
-.docxedit-assist-menu { position: absolute; top: 100%; right: 0; margin-top: 4px; z-index: 40; min-width: 180px;
+.docxedit-assist-btn { display: inline-flex; align-items: center; justify-content: center; }
+/* Positioned by JS in `wrap` (not inside the overflow:hidden toolbar, which would clip it). */
+.docxedit-assist-menu { position: absolute; z-index: 40; min-width: 180px;
   background: var(--rdoc-chrome, #2b2f36); border: 1px solid var(--rdoc-btn-border, #4a4f57); border-radius: 8px;
   padding: 4px; box-shadow: 0 8px 28px rgba(0,0,0,.5); display: flex; flex-direction: column; gap: 1px; }
 .docxedit-assist-menu[hidden] { display: none; }
