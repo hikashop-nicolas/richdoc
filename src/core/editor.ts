@@ -3,7 +3,7 @@
 // serialize and comment markers come from an Adapter (see core/types.ts). docx is the
 // reference adapter; odt reuses this same engine.
 
-import { t } from "./i18n";
+import { t, getLocale } from "./i18n";
 import { formatPageNumber } from "./util";
 import { defaultPageGeometry, paginate } from "./page";
 import type { Adapter, EditorOptions, RichEditor, RichDoc, SecGeom, Note } from "./types";
@@ -15,6 +15,7 @@ import { setupToolbar } from "./feature/toolbar";
 import { setupTableEdit } from "./feature/table-edit";
 import { setupOutline } from "./feature/outline";
 import { setupFindReplace } from "./feature/find-replace";
+import { setupAssist } from "./feature/assist";
 import { setupFields } from "./feature/fields";
 import { setupHistory } from "./feature/history";
 import { setupPaste } from "./feature/paste";
@@ -1824,6 +1825,13 @@ export function createRichEditor(container: HTMLElement, adapter: Adapter, optio
   findReplace.toggleBtn.className = "";
   findReplace.toggleBtn.style.marginLeft = "auto";
   toolbar.appendChild(findReplace.toggleBtn);
+
+  // On-device writing assist (translate / elaborate / shorten / write), default on. localml is
+  // loaded lazily the first time an action runs, so this stays free until used.
+  if (options.assist !== false) {
+    const assist = setupAssist({ doc, wrap, regions, locale: getLocale() });
+    toolbar.appendChild(assist.control);
+  }
 
   afterReflow = () => { updateChangeButtons(); outline.refresh(); };
   updateChangeButtons();

@@ -266,6 +266,9 @@ export interface EditorOptions {
   paginated?: boolean;
   /** Initial zoom factor (1 = 100%); omit for fit-to-width. */
   zoom?: number;
+  /** On-device writing assist (translate / elaborate / shorten / write) via localml. Default
+      on; set false to hide the toolbar control (and never load the models). */
+  assist?: boolean;
 }
 
 export interface RichEditor {

@@ -550,3 +550,40 @@
 }
 .docxedit-cmt-item:hover .docxedit-cmt-editbtn { opacity: 0.7; }
 .docxedit-cmt-editbtn:hover { opacity: 1; }
+
+/* On-device writing assist (feature/assist.ts) */
+.docxedit-assist { position: relative; display: inline-flex; }
+.docxedit-assist-btn { display: inline-flex; align-items: center; gap: 5px; }
+.docxedit-assist-menu { position: absolute; top: 100%; right: 0; margin-top: 4px; z-index: 40; min-width: 180px;
+  background: var(--rdoc-chrome, #2b2f36); border: 1px solid var(--rdoc-btn-border, #4a4f57); border-radius: 8px;
+  padding: 4px; box-shadow: 0 8px 28px rgba(0,0,0,.5); display: flex; flex-direction: column; gap: 1px; }
+.docxedit-assist-menu[hidden] { display: none; }
+.docxedit-assist-item { text-align: left; padding: 7px 10px; border: 0; border-radius: 6px; background: transparent;
+  color: var(--rdoc-canvas, #e6e8ec); font: 13px/1.2 system-ui, sans-serif; cursor: pointer; }
+.docxedit-assist-item:hover:not(:disabled) { background: var(--rdoc-accent, #6e7bff); color: #fff; }
+.docxedit-assist-item:disabled { opacity: .4; cursor: default; }
+.docxedit-assist-pop { position: absolute; top: 46px; left: 50%; transform: translateX(-50%); z-index: 40;
+  width: min(460px, 92%); box-sizing: border-box; background: var(--rdoc-chrome, #2b2f36); color: var(--rdoc-canvas, #e6e8ec);
+  border: 1px solid var(--rdoc-btn-border, #4a4f57); border-radius: 10px; box-shadow: 0 10px 34px rgba(0,0,0,.55);
+  padding: 12px; display: flex; flex-direction: column; gap: 8px; font: 13px/1.4 system-ui, sans-serif; }
+.docxedit-assist-pop[hidden] { display: none; }
+.docxedit-assist-title { font-weight: 600; font-size: 14px; }
+.docxedit-assist-controls { display: flex; flex-wrap: wrap; gap: 8px; }
+.docxedit-assist-field { display: inline-flex; align-items: center; gap: 5px; color: var(--rdoc-muted, #aeb4bd); }
+.docxedit-assist-field select { padding: 4px 6px; border: 1px solid var(--rdoc-btn-border, #4a4f57); border-radius: 6px;
+  background: var(--rdoc-chrome2, #1f2329); color: var(--rdoc-canvas, #e6e8ec); font: inherit; }
+.docxedit-assist-instr { width: 100%; box-sizing: border-box; min-height: 54px; resize: vertical; padding: 7px;
+  border: 1px solid var(--rdoc-btn-border, #4a4f57); border-radius: 6px; background: var(--rdoc-chrome2, #1f2329);
+  color: var(--rdoc-canvas, #e6e8ec); font: inherit; }
+.docxedit-assist-src { max-height: 72px; overflow: auto; padding: 6px 8px; border-radius: 6px;
+  background: var(--rdoc-chrome2, #1f2329); color: var(--rdoc-muted, #aeb4bd); white-space: pre-wrap; }
+.docxedit-assist-progress { color: var(--rdoc-muted, #aeb4bd); font-size: 12px; min-height: 15px; }
+.docxedit-assist-output { min-height: 40px; max-height: 40vh; overflow: auto; padding: 8px 10px; border-radius: 7px;
+  background: var(--rdoc-chrome2, #1f2329); white-space: pre-wrap; }
+.docxedit-assist-output:empty { display: none; }
+.docxedit-assist-actions { display: flex; gap: 8px; justify-content: flex-end; }
+.docxedit-assist-action { padding: 6px 14px; border: 1px solid var(--rdoc-btn-border, #4a4f57); border-radius: 7px;
+  background: var(--rdoc-chrome2, #1f2329); color: var(--rdoc-canvas, #e6e8ec); font: inherit; cursor: pointer; }
+.docxedit-assist-action:hover:not(:disabled) { border-color: var(--rdoc-accent, #6e7bff); }
+.docxedit-assist-action.is-primary { background: var(--rdoc-accent, #6e7bff); border-color: var(--rdoc-accent, #6e7bff); color: #fff; }
+.docxedit-assist-action:disabled { opacity: .45; cursor: default; }

@@ -35,6 +35,7 @@
   },
   "dependencies": {
     "fflate": "^0.8.2",
+    "localml": "github:hikashop-nicolas/localml",
     "temml": "^0.13.3"
   },
   "devDependencies": {
