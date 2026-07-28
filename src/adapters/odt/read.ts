@@ -716,7 +716,12 @@ function inlineToHtml(el: Element, ctx: RCtx): string {
         let bodyHtml = "";
         if (body) for (const b of Array.from(body.children)) bodyHtml += blockToHtml(b, ctx);
         ctx.notes?.push({ id, kind, html: bodyHtml || "<p><br></p>" });
-        html += `<sup class="docx-fnref" data-fn-id="${escapeAttr(id)}" data-fn-kind="${kind}" contenteditable="false"></sup>`;
+        // The stored citation mark. The engine renumbers for display, so the reference is
+        // rendered empty; carrying the original lets the writer put it back when nothing
+        // renumbered it, instead of saving a note with no mark at all.
+        const cite = Array.from(child.children).find((c) => c.tagName === "text:note-citation");
+        const citeAttr = cite?.textContent ? ` data-fn-cite="${escapeAttr(cite.textContent)}"` : "";
+        html += `<sup class="docx-fnref" data-fn-id="${escapeAttr(id)}" data-fn-kind="${kind}"${citeAttr} contenteditable="false"></sup>`;
         break;
       }
       case "text:ruby": {

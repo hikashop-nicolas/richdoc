@@ -450,7 +450,8 @@ function htmlInlineToOdf(node: Node, parent: Element, f: Fmt, ctx: OdfCtx, rprSt
       note.setAttributeNS(NS.text, "text:note-class", kind);
       note.setAttributeNS(NS.text, "text:id", id);
       const cite = ctx.doc.createElementNS(NS.text, "text:note-citation");
-      cite.appendChild(ctx.doc.createTextNode(el.textContent || ""));
+      // The rendered mark when the engine has renumbered, else the one the file came with.
+      cite.appendChild(ctx.doc.createTextNode(el.textContent || el.getAttribute("data-fn-cite") || ""));
       const body = ctx.doc.createElementNS(NS.text, "text:note-body");
       const noteHtml = ctx.notesById?.get(id)?.html || "<p><br></p>";
       const htmlDoc = new DOMParser().parseFromString(noteHtml, "text/html");

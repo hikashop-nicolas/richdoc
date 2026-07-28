@@ -103,8 +103,13 @@ export function graphicStyleFor(doc: Document, auto: Element, created: Map<strin
  *  and, for behind/front, setting the svg:x / svg:y absolute offset. */
 export function applyFrameLayout(doc: Document, frame: Element, layout: ImageLayout | null, auto: Element, created: Map<string, string>): void {
   if (!layout) {
+    // An image that was already inline keeps its own graphic style: it carries the picture
+    // adjustments (opacity, contrast, mirror, clip, colour mode), which have nothing to do
+    // with wrapping and were being thrown away on every save. A frame arriving here from a
+    // positioned layout does lose its style, because that style is what positioned it.
+    const wasInline = (frame.getAttribute("text:anchor-type") ?? "") === "as-char";
     frame.setAttributeNS(NS.text, "text:anchor-type", "as-char");
-    frame.removeAttributeNS(NS.draw, "style-name");
+    if (!wasInline) frame.removeAttributeNS(NS.draw, "style-name");
     frame.removeAttributeNS(NS.svg, "x");
     frame.removeAttributeNS(NS.svg, "y");
     return;

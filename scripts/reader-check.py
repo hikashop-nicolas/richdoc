@@ -113,11 +113,6 @@ KNOWN = {
         "cached value inside a w:fldSimple. richdoc rewrites the complex fldChar form as "
         "fldSimple, which is valid and does keep the value; the reader just does not look there."
     ),
-    ("notes.odt", "paragraphs"): (
-        "the footnote/endnote citation mark (text:note-citation) comes back empty: richdoc "
-        "renumbers notes on render and does not re-emit the stored mark. A real if small "
-        "loss for a reader that does not renumber; tracked in _plans/VERIFICATION_PLAN.md."
-    ),
     ("fields.odt", "paragraphs"): (
         "odfpy does not render <text:s/>, so a space encoded that way vanishes from its "
         "reading of the ORIGINAL. richdoc re-emits it as a literal space, which odfpy does "

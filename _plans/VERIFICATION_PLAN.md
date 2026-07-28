@@ -111,13 +111,21 @@ Five defects, none of which the 447 existing tests caught:
   reports nothing at all. Fixed, with a guard that refuses to run on a schema that does
   not compile.
 
-Still open, both small and both recorded as known differences in `scripts/reader-check.py`:
+Two more, found while closing out the small gaps:
 
-- **odt note citation marks are not re-emitted.** `text:note-citation` comes back empty
-  because richdoc renumbers notes on render. Harmless in LibreOffice, which renumbers too;
-  wrong for a reader that does not.
-- **An extra space next to an inline image frame in odt.** Cosmetic, and stable across
-  saves.
+- **odt note citation marks were not re-emitted.** The reader never captured
+  `text:note-citation`, so the writer had nothing to put back and every note saved with an
+  empty mark. The reference now carries the original, used when nothing renumbered it.
+- **Inline images lost their graphic style.** An as-char frame had its `draw:style-name`
+  removed on every save, which is right when an image is being converted from a positioned
+  layout but not when it was already inline: that style is where the picture adjustments
+  live (opacity, contrast, mirror, clip, colour mode), and they were being discarded.
+
+The remaining "extra space next to an inline image" turned out not to be a defect. odfpy
+does not render `<text:s/>`, so a space encoded that way disappears from its reading of the
+input while richdoc's literal space shows up in the output. The two are equivalent in ODF.
+It is recorded as a known difference, alongside python-docx not reading inside
+`w:fldSimple`.
 
 One thing that looked like a serious defect was not. A no-edit round trip appeared to empty
 every footnote body, until it turned out the harness was calling the two-argument
