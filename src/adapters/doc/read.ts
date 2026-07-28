@@ -504,7 +504,15 @@ function renderNoteBody(
       const k = fieldKind(instr);
       if (skipLeadField) suppressResult = true; // the framed lead field: drop its result outright
       else if (k === "PAGE" || k === "NUMPAGES") { flushRun(); runHtml += `<span class="docx-field" data-field="${k}" contenteditable="false"></span>`; suppressResult = true; }
-      else if (isInfoField(k)) { flushRun(); runHtml += `<span class="docx-field" data-field="${k}" contenteditable="false">`; fieldClose = "</span>"; } // keep the cached snapshot inside the span
+      else if (isInfoField(k)) {
+        flushRun();
+        // Carry the instruction's formatting switch. A bare " TIME " leaves the format to
+        // the reader, and at least one major one then renders it as a date.
+        const fmt = fieldSwitches(instr);
+        const fa = fmt ? ` data-field-fmt="${esc(fmt).replace(/"/g, "&quot;")}"` : "";
+        runHtml += `<span class="docx-field" data-field="${k}"${fa} contenteditable="false">`;
+        fieldClose = "</span>";
+      } // keep the cached snapshot inside the span
       continue;
     }
     if (c === 0x15) { flushRun(); runHtml += fieldClose; fieldClose = ""; suppressResult = false; if (skipLeadField) { skipLeadField = false; swallowTab = true; } continue; }
@@ -950,8 +958,15 @@ function rubyFromEq(instr: string): { base: string; reading: string } | null {
   return m ? { reading: m[1]!, base: m[2]! } : null;
 }
 
+/** The part of a field instruction after its name: the format switches, if any. */
+function fieldSwitches(instr: string): string {
+  const rest = instr.trim().replace(/^\S+\s*/, "").trim();
+  return rest.startsWith("\\") ? rest : "";
+}
+
 // The kind of a field from its instruction: a live field the engine fills (PAGE / NUMPAGES),
 // a table of contents, or null (its result text is shown as-is).
+
 function fieldKind(instr: string): "PAGE" | "NUMPAGES" | "TOC" | "DATE" | "TIME" | "AUTHOR" | "FILENAME" | null {
   const t = instr.trim().toUpperCase();
   for (const k of ["PAGE", "NUMPAGES", "TOC", "DATE", "TIME", "AUTHOR", "FILENAME"] as const)

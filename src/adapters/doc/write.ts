@@ -262,7 +262,11 @@ function collectRuns(node: Node, f: Fmt, runs: Run[]): void {
         if (flt !== undefined) {
           const fallback = field === "PAGE" || field === "NUMPAGES" ? "1" : "";
           runs.push({ ...mkRun("\x13", f), special: true, fldFlt: flt });
-          runs.push(mkRun(` ${field} `, f));
+          // The document's own switches when it had them, else a time format for TIME:
+          // a bare " TIME " instruction leaves the format to the reader, which renders it
+          // as a date.
+          const fmt = el.getAttribute("data-field-fmt") || (field === "TIME" ? '\\@"HH:mm:ss"' : "");
+          runs.push(mkRun(` ${field} ${fmt ? `${fmt} ` : ""}`, f));
           runs.push({ ...mkRun("\x14", f), special: true });
           runs.push(mkRun(el.textContent || fallback, f));
           runs.push({ ...mkRun("\x15", f), special: true });
@@ -1209,6 +1213,12 @@ export function htmlToDoc(bodyHtml: string, page?: PageGeometry, notes?: Note[],
   // Field boundaries in the main document, so Word recognises PAGE/NUMPAGES/HYPERLINK/EQ fields
   // (the inline 0x13/0x14/0x15 chars alone are not enough).
   const mainFields = fieldChars.filter((fc) => fc.cp < ccpText);
+  // Each subdocument keeps its own field table. Without the header/footer one, a reader sees
+  // the 0x13/0x14/0x15 characters in a band as ordinary text and shows the field's
+  // instruction next to its value: a page number in a footer rendered as "Page PAGE 1".
+  const hddFields = ccpHdd
+    ? fieldChars.filter((fc) => fc.cp >= hddBaseCp && fc.cp < hddBaseCp + ccpHdd).map((fc) => ({ ...fc, cp: fc.cp - hddBaseCp }))
+    : [];
   const relTo = (base: number, cps: number[]) => cps.map((c) => c - base);
   const ftnRefCps = refCps.footnote, ednRefCps = refCps.endnote, atnRefCps = refCps.comment;
   const ftnTxtCps = relTo(ftnBase, txtCps.footnote), ednTxtCps = relTo(ednBase, txtCps.endnote), atnTxtCps = relTo(cmtBase, txtCps.comment);
@@ -1312,7 +1322,10 @@ export function htmlToDoc(bodyHtml: string, page?: PageGeometry, notes?: Note[],
     const fc = tbl.length;
     if (!cps.length) return { fc: 0, lcb: 0 };
     for (const cp of cps) tbl.u32(cp);
-    for (let k = 0; k < cps.length - 1; k++) tbl.u16(0); // FRD per reference
+    // One FRD per reference. nAuto = 1 means the note is automatically numbered; 0 means it
+    // carries a custom mark, and a reader that believes that shows the mark it finds, which
+    // came out as '?'.
+    for (let k = 0; k < cps.length - 1; k++) tbl.u16(1);
     return { fc, lcb: tbl.length - fc };
   };
   const writeTxtPlc = (cps: number[]): { fc: number; lcb: number } => {
@@ -1342,14 +1355,16 @@ export function htmlToDoc(bodyHtml: string, page?: PageGeometry, notes?: Note[],
   const andTxt = writeTxtPlc(plcfandTxt);
   const hddPlc = writeTxtPlc(plcfHdd); // PlcfHdd is just a CP array (story boundaries)
   // Plcffld: (n+1) CPs of the field chars (terminated at ccpText) + an FLD(ch, flt) per char.
-  const fldPlc = ((): { fc: number; lcb: number } => {
-    if (!mainFields.length) return { fc: 0, lcb: 0 };
+  const writeFldPlc = (fields: { cp: number; ch: number; flt: number }[], end: number): { fc: number; lcb: number } => {
+    if (!fields.length) return { fc: 0, lcb: 0 };
     const fc = tbl.length;
-    for (const f of mainFields) tbl.u32(f.cp);
-    tbl.u32(ccpText); // terminating CP
-    for (const f of mainFields) { tbl.u8(f.ch); tbl.u8(f.flt); }
+    for (const f of fields) tbl.u32(f.cp);
+    tbl.u32(end); // terminating CP
+    for (const f of fields) { tbl.u8(f.ch); tbl.u8(f.flt); }
     return { fc, lcb: tbl.length - fc };
-  })();
+  };
+  const fldPlc = writeFldPlc(mainFields, ccpText);
+  const fldHdrPlc = writeFldPlc(hddFields, ccpHdd);
   // SttbfRMark: revision author names as an extended Sttbf (double-byte, no extra data).
   const rmSttb = ((): { fc: number; lcb: number } => {
     if (!rmAuthorList.length) return { fc: 0, lcb: 0 };
@@ -1424,6 +1439,7 @@ export function htmlToDoc(bodyHtml: string, page?: PageGeometry, notes?: Note[],
       [FC.plcfandTxt, andTxt.fc, andTxt.lcb],
       [FC.plcfHdd, hddPlc.fc, hddPlc.lcb],
       [FC.plcffldMom, fldPlc.fc, fldPlc.lcb],
+      [FC.plcffldHdr, fldHdrPlc.fc, fldHdrPlc.lcb],
       [FC.sttbfRMark, rmSttb.fc, rmSttb.lcb],
       [FC.plcfSed, fcSed, lcbSed],
       [FC.plcfBteChpx, fcChpxBte, lcbChpxBte],

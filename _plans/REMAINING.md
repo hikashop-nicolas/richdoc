@@ -70,31 +70,53 @@ PAGE / NUMPAGES / TOC and the information fields (DATE / TIME / AUTHOR / FILENAM
 all read as live docx-field spans and round-trip as real .doc fields, matching the
 docx/odt adapters.
 
-### Found by the LibreOffice oracle (2026-07-28), not yet fixed
+### Found by the LibreOffice oracle (2026-07-28)
 
-`npm run check:lo` converts each fixture and richdoc's rewrite of it with LibreOffice
-and compares the two readings. It is the only judge `.doc` can have, and the first
-time the legacy writer has been checked automatically. Each of these is recorded as a
-known difference in `scripts/lo-check.py`, so fixing one turns that entry into a
-failure until the entry is removed:
+`npm run check:lo` converts each fixture and richdoc's rewrite of it with LibreOffice and
+compares the two readings. It is the only judge `.doc` can have, and the first time the
+legacy writer has been checked automatically. It found six defects.
 
-- **Lists are flattened.** A list becomes ordinary paragraphs with a literal bullet
-  character, so a numbered list loses its numbering as well as its structure. The
-  most visible of these.
-- **A field code leaks into text.** A page-number field in a footer renders as
-  "Page PAGE 1": the instruction text is emitted next to the value.
-- **A TIME field is written as a DATE field.**
-- **Footnote and endnote citation marks are written as `?`.**
-- **A comment's date is written as zeroes**, and a comment anchored over a range moves
-  to the end of the range rather than staying at its start.
-- **A table's header-row designation is lost.**
+**Fixed:**
 
-Two earlier readings of these results were wrong and are worth recording so they are
-not repeated: headers and footers looked like they were dropped entirely, and odt
-footnote bodies looked like they were emptied, in both cases because the check called
-the adapter without handing back what the reader had returned. The editor passes every
-band and every note on every save. When a check says the product loses data, suspect
-the check first.
+- **Note reference marks came out as `?`.** The FRD's `nAuto` was written as 0, which means
+  the note carries a custom mark; 1 means automatically numbered. A reader believed the 0
+  and showed the mark it found.
+- **A field code leaked into footer text**, rendering a page number as "Page PAGE 1". Each
+  subdocument keeps its own field table and only the main document's was written, so a
+  reader saw the field characters in a band as ordinary text. The header/footer table
+  (`plcffldHdr`) is now written too.
+- **A TIME field rendered as a date.** The instruction was written bare, leaving the format
+  to the reader. The document's own formatting switches are now carried through, with a time
+  format as the fallback when there are none.
+
+**Still open:**
+
+- **Lists are not real lists.** The writer emits ordinary paragraphs with a literal bullet
+  character, and the reader does not resolve the LST/LFO numbering tables either, so a
+  numbered list also comes back bulleted. Fixing it means implementing the numbering tables
+  on both sides. The largest of these by far, and the only one that needs real work rather
+  than a fix.
+- **A table's header-row designation is lost**, on both sides. An attempt using sprm 0x3404
+  changed nothing in either direction, so the opcode is unconfirmed; it was reverted rather
+  than shipped on a guess into a binary format. Needs the spec to hand.
+- **A comment's date is written as zeroes**, and a range comment's anchor moves to the end
+  of the range. Word 97's ATRD has no date field, so wherever LibreOffice keeps it has to be
+  established first.
+- **Endnotes number 1, 2, 3 where the original used i, ii, iii.** The endnote number format
+  lives in the document properties table, which this writer does not emit at all, so a
+  reader falls back to its own default. Note numbering itself is correct.
+- **Hyperlink text is written in the browser's default link blue** (#0000ee) rather than the
+  colour the document used. The writer hardcodes it because a link in the editor's HTML
+  carries no colour of its own.
+
+Each open item is recorded as a known difference in `scripts/lo-check.py`, so fixing one
+turns that entry into a failure until the entry is removed.
+
+Two earlier readings of these results were wrong and are worth recording so they are not
+repeated: headers and footers looked like they were dropped entirely, and odt footnote
+bodies looked like they were emptied, in both cases because the check called the adapter
+without handing back what the reader had returned. The editor passes every band and every
+note on every save. When a check says the product loses data, suspect the check first.
 
 ## Notes
 

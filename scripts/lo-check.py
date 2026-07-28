@@ -248,22 +248,35 @@ def summarise(path: Path, content_only: bool = False) -> dict:
 # file from the edited body and does not yet carry these across. They are listed in
 # _plans/REMAINING.md as work to do, and this check is what will confirm the fixes.
 KNOWN: dict = {
-    ("headerfooter.doc", "bands"): (
-        ".doc: a page-number field in a footer renders as 'Page PAGE 1': the field's "
-        "instruction text is emitted as literal text next to its value."
+    ("notes.doc", "notes"): (
+        ".doc: endnotes number 1, 2, 3 where the original used i, ii, iii. The endnote "
+        "number format lives in the document properties table, which this writer does not "
+        "emit at all, so a reader falls back to its own default. Footnote and endnote "
+        "numbering itself is correct."
+    ),
+    ("fields.doc", "paragraphs"): (
+        ".doc: hyperlink text is written in the browser's default link blue (#0000ee) "
+        "rather than the colour the document used (#000080 here). The writer hardcodes it "
+        "because a link in the editor's HTML carries no colour of its own; matching one "
+        "fixture's navy would just be a different hardcode."
+    ),
+    ("tables.doc", "tables"): (
+        ".doc: a table's header-row designation is lost. Neither side handles it: the reader "
+        "does not parse the flag and the writer does not emit it. An attempt using sprm "
+        "0x3404 changed nothing in either direction, so the opcode is unconfirmed and was "
+        "reverted rather than shipped on a guess into a binary format."
     ),
     ("lists.doc", "paragraphs"): (
-        ".doc: lists are flattened into ordinary paragraphs with a literal bullet character, "
-        "so a numbered list loses its numbering as well as its structure."
+        ".doc: lists are written as ordinary paragraphs with a literal bullet character "
+        "rather than real list formatting, and the reader does not resolve the LST/LFO "
+        "numbering tables either, so a numbered list also comes back bulleted. The one "
+        "remaining gap that needs real work rather than a fix."
     ),
     ("lists.doc", "listItems"): ".doc: see the note on lists.doc paragraphs.",
-    ("notes.doc", "notes"): ".doc: footnote and endnote citation marks are written as '?'.",
     ("comments.doc", "paragraphs"): (
         ".doc: a comment's date is written as zeroes, and a comment anchored over a range "
         "moves to the end of the range rather than staying at its start."
     ),
-    ("fields.doc", "paragraphs"): ".doc: a TIME field is written as a DATE field.",
-    ("tables.doc", "tables"): ".doc: a table's header-row designation is lost.",
 }
 
 

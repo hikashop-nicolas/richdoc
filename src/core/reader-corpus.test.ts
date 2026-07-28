@@ -20,5 +20,7 @@ describe.skipIf(!existsSync(CORPUS))("independent-reader corpus", async () => {
       writeFileSync(join(OUT, name), await roundTrip(name, new Uint8Array(readFileSync(join(CORPUS, name)))));
     }
     expect(readdirSync(OUT).length).toBe(names.length);
-  });
+    // 60s, not vitest's 5s default: these round-trip every fixture, and under the full
+    // suite's parallel load that runs past five seconds and fails as a timeout.
+  }, 60_000);
 });

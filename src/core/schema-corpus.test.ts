@@ -24,5 +24,7 @@ describe.skipIf(!existsSync(CORPUS))("schema-check corpus", async () => {
       writeFileSync(join(OUT, name), await roundTrip(name, bytes, (h) => editFirstParagraph(h, "schema check")));
     }
     expect(readdirSync(OUT).length).toBe(names.length);
-  });
+    // 60s, not vitest's 5s default: these round-trip every fixture, and under the full
+    // suite's parallel load that runs past five seconds and fails as a timeout.
+  }, 60_000);
 });
