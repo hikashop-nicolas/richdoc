@@ -16,6 +16,12 @@ export const FC = {
   sttbfffn: 15,
   plcffldMom: 16, // field boundaries in the main document (CPs + FLD per field char)
   plcffldHdr: 17, // the same for the header/footer subdocument
+  sttbfAtnBkmk: 37, // one entry per commented range
+  plcfAtnBkf: 42, // where each commented range opens
+  plcfAtnBkl: 43, // where each commented range closes
+  sttbfBkmk: 21, // bookmark names
+  plcfBkf: 22, // where each bookmark opens
+  plcfBkl: 23, // where each bookmark closes
   plfLst: 73, // list definitions (LSTF + LVL per level)
   plfLfo: 74, // list overrides: what a paragraph's sprmPIlfo indexes
   sttbfRMark: 51, // revision (tracked-change) author names

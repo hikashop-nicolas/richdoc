@@ -216,6 +216,11 @@ def summarise(path: Path, content_only: bool = False) -> dict:
         })
     for a in root.iter(Q["text"] + "a"):
         links.append(a.get(Q["xlink"] + "href"))
+    bookmarks = sorted(
+        (b.get(Q["text"] + "name") or "")
+        for tag in ("bookmark", "bookmark-start")
+        for b in root.iter(Q["text"] + tag)
+    )
     images = len(list(root.iter(Q["draw"] + "image")))
 
     header_footer = []
@@ -234,6 +239,7 @@ def summarise(path: Path, content_only: bool = False) -> dict:
         "notes": notes,
         "links": links,
         "images": images,
+        "bookmarks": bookmarks,
         "bands": header_footer,
     }
 
@@ -254,15 +260,17 @@ KNOWN: dict = {
         "emit at all, so a reader falls back to its own default. Footnote and endnote "
         "numbering itself is correct."
     ),
+    ("comments.doc", "paragraphs"): (
+        ".doc: a comment's date is written as zeroes. Word 97's ATRD has no date field; the "
+        "date lives in a separate per-comment record that FIB entry 112 (fcAtrdExtra) points "
+        "at, and our FIB declares only 108 entries. Reaching it means claiming a later Word "
+        "format version for every document we write, which is a decision of its own."
+    ),
     ("fields.doc", "paragraphs"): (
         ".doc: hyperlink text is written in the browser's default link blue (#0000ee) "
         "rather than the colour the document used (#000080 here). The writer hardcodes it "
         "because a link in the editor's HTML carries no colour of its own; matching one "
         "fixture's navy would just be a different hardcode."
-    ),
-    ("comments.doc", "paragraphs"): (
-        ".doc: a comment's date is written as zeroes, and a comment anchored over a range "
-        "moves to the end of the range rather than staying at its start."
     ),
 }
 

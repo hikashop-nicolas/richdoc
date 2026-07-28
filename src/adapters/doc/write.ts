@@ -34,6 +34,8 @@ interface Run {
   highlight?: number; // highlight palette index (1..16)
   special?: boolean; // sprmCFSpec: a special character (footnote/endnote ref auto-number)
   fnRef?: { id: string; kind: SubKind }; // an inline reference (note or comment) in the main text
+  bookmark?: { name: string; end: boolean }; // a bookmark boundary; contributes no text
+  cmtRange?: { id: string; end: boolean }; // where a commented range opens or closes
   image?: { bytes: Uint8Array; mime: string; wTwips: number; hTwips: number }; // an inline picture
   float?: { bytes: Uint8Array; mime: string; xTw: number; yTw: number; wTw: number; hTw: number; reserve: boolean }; // an anchored floating picture (0x08)
   picLoc?: number; // sprmCPicLocation: this picture's offset in the Data stream (set during assembly)
@@ -231,7 +233,15 @@ function collectRuns(node: Node, f: Fmt, runs: Run[]): void {
         runs.push({ ...mkRun("\x05", f), special: true, fnRef: { id, kind: "comment" } });
         continue; // the emoji glyph inside the ref is not part of the text
       }
-      if (el.classList.contains("docx-cmark")) continue; // bookmark markers carry no text
+      if (el.classList.contains("docx-bookmark") || el.classList.contains("docx-bookmark-end")) {
+        // A bookmark boundary. It carries no text, so it is recorded as an empty run whose
+        // position the assembler reads off as a character position.
+        const end = el.classList.contains("docx-bookmark-end");
+        const name = el.getAttribute(end ? "data-rdoc-bm-end" : "data-rdoc-bm") || el.getAttribute("data-rdoc-bm-id") || "";
+        if (name) runs.push({ ...mkRun("", f), bookmark: { name, end } });
+        continue;
+      }
+      if (el.classList.contains("docx-cmark")) continue; // docx comment markers carry no text
       if (el.classList.contains("docx-eq-raw")) continue; // an unrecoverable imported equation: drop the marker
       if (el.classList.contains("docx-eq")) {
         // We can't synthesise an equation OLE object; degrade to the math's text content.
@@ -241,7 +251,12 @@ function collectRuns(node: Node, f: Fmt, runs: Run[]): void {
         continue;
       }
       if (el.classList.contains("docx-comment")) {
-        collectRuns(el, f, runs); // a comment range wrapper: keep the text it spans
+        // A comment range wrapper: keep the text it spans, and record where the range opens
+        // and closes so the comment highlights that text rather than collapsing to its mark.
+        const id = el.getAttribute("data-comment-id") || "";
+        if (id) runs.push({ ...mkRun("", f), cmtRange: { id, end: false } });
+        collectRuns(el, f, runs);
+        if (id) runs.push({ ...mkRun("", f), cmtRange: { id, end: true } });
         continue;
       }
       if (tag === "img" && el.classList.contains("docx-float")) {
@@ -1253,6 +1268,8 @@ export function htmlToDoc(bodyHtml: string, page?: PageGeometry, notes?: Note[],
   const txtCps: Record<SubKind, number[]> = { footnote: [], comment: [], endnote: [] }; // text-span starts within each subdoc
   const regionBaseCp = new Map<SubKind, number>(); // CP where each subdocument starts
   const fieldChars: { cp: number; ch: number; flt: number }[] = []; // every field char (0x13/0x14/0x15)
+  const bookmarkCps: { name: string; end: boolean; cp: number }[] = []; // bookmark boundaries
+  const cmtRangeCps: { id: string; end: boolean; cp: number }[] = []; // commented-range bounds
   const floatAnchors: FloatAnchor[] = []; // floating pictures, keyed by their 0x08 anchor CP
   const sectionEnds: { endCp: number; geom: PageGeometry }[] = []; // section-boundary paragraphs
   let hddBaseCp = -1; // CP where the header/footer subdocument starts
@@ -1268,6 +1285,8 @@ export function htmlToDoc(bodyHtml: string, page?: PageGeometry, notes?: Note[],
     for (const r of runList) {
       const startCp = chars.length;
       if (r.fnRef) refCps[r.fnRef.kind].push(startCp);
+      if (r.bookmark) bookmarkCps.push({ name: r.bookmark.name, end: r.bookmark.end, cp: startCp });
+      if (r.cmtRange) cmtRangeCps.push({ id: r.cmtRange.id, end: r.cmtRange.end, cp: startCp });
       if (r.text === "\x13" || r.text === "\x14" || r.text === "\x15")
         fieldChars.push({ cp: startCp, ch: r.text.charCodeAt(0), flt: r.text === "\x13" ? (r.fldFlt ?? 0) : r.text === "\x14" ? 0xff : 0x80 });
       if (r.float) floatAnchors.push({ cp: startCp, float: r.float });
@@ -1432,15 +1451,63 @@ export function htmlToDoc(bodyHtml: string, page?: PageGeometry, notes?: Note[],
   const endTxt = writeTxtPlc(plcfendTxt);
   // Comment reference PLCF: CPs of the 0x05 marks + a 30-byte ATRD each (ibst = author index,
   // lTagBkmk = -1 for no bookmark range; all other fields zero).
+  // The text each comment covers, in the order the comments appear. A comment with no range
+  // is anchored at its mark alone, which is what lTagBkmk = -1 says.
+  const commentRanges = ((): (({ start: number; end: number }) | null)[] => {
+    const open = new Map<string, number>();
+    const byId = new Map<string, { start: number; end: number }>();
+    for (const r of cmtRangeCps) {
+      if (r.end) {
+        const start = open.get(r.id);
+        if (start !== undefined) { byId.set(r.id, { start, end: r.cp }); open.delete(r.id); }
+      } else open.set(r.id, r.cp);
+    }
+    return commentList.map((c) => (c ? byId.get(c.id) ?? null : null));
+  })();
+  const rangedComments = commentRanges.map((r, i) => ({ r, i })).filter((x) => x.r) as { r: { start: number; end: number }; i: number }[];
   const andRef = ((): { fc: number; lcb: number } => {
     const fc = tbl.length;
     if (!plcfandRef.length) return { fc: 0, lcb: 0 };
     for (const cp of plcfandRef) tbl.u32(cp);
     for (let k = 0; k < plcfandRef.length - 1; k++) {
       const atrd = new Uint8Array(30);
-      new DataView(atrd.buffer).setUint16(20, authorIbst[k] ?? 0, true); // ibst
-      atrd[26] = atrd[27] = atrd[28] = atrd[29] = 0xff; // lTagBkmk = -1
+      const dv = new DataView(atrd.buffer);
+      dv.setUint16(20, authorIbst[k] ?? 0, true); // ibst
+      // lTagBkmk: the index of this comment's range in the annotation bookmark tables, or
+      // -1 when it has none.
+      const ranged = rangedComments.findIndex((x) => x.i === k);
+      dv.setInt32(26, ranged >= 0 ? ranged : -1, true);
       tbl.bytes(atrd);
+    }
+    return { fc, lcb: tbl.length - fc };
+  })();
+  // The annotation bookmark tables: one entry per commented range, giving the text it covers.
+  const atnBkf = ((): { fc: number; lcb: number } => {
+    if (!rangedComments.length) return { fc: 0, lcb: 0 };
+    const fc = tbl.length;
+    for (const x of rangedComments) tbl.u32(x.r.start);
+    tbl.u32(ccpText);
+    rangedComments.forEach((_, i) => { tbl.u16(i); tbl.u16(0); });
+    return { fc, lcb: tbl.length - fc };
+  })();
+  const atnBkl = ((): { fc: number; lcb: number } => {
+    if (!rangedComments.length) return { fc: 0, lcb: 0 };
+    const fc = tbl.length;
+    for (const x of rangedComments) tbl.u32(x.r.end);
+    tbl.u32(ccpText); // CPs only, no data elements
+    return { fc, lcb: tbl.length - fc };
+  })();
+  const atnBkmkSttb = ((): { fc: number; lcb: number } => {
+    if (!rangedComments.length) return { fc: 0, lcb: 0 };
+    const fc = tbl.length;
+    tbl.u16(0xffff); // fExtend
+    tbl.u16(rangedComments.length); // cData
+    tbl.u16(10); // cbExtra: an ATNBE per entry
+    for (let i = 0; i < rangedComments.length; i++) {
+      tbl.u16(0); // an empty name
+      tbl.u16(1); // bmc
+      tbl.u32(0); // lTag
+      tbl.u32(0xffffffff); // lTagOld
     }
     return { fc, lcb: tbl.length - fc };
   })();
@@ -1468,6 +1535,48 @@ export function htmlToDoc(bodyHtml: string, page?: PageGeometry, notes?: Note[],
     if (!anyList) return { fc: 0, lcb: 0 };
     const fc = tbl.length;
     tbl.bytes(buildPlfLfo());
+    return { fc, lcb: tbl.length - fc };
+  })();
+  // Bookmarks: their names, where each opens and where each closes. A bookmark whose start
+  // has no matching end is dropped rather than written half-formed.
+  const bookmarks = ((): { name: string; start: number; end: number }[] => {
+    const open = new Map<string, number>();
+    const out: { name: string; start: number; end: number }[] = [];
+    for (const b of bookmarkCps) {
+      if (b.cp >= ccpText) continue; // only the main document has a bookmark table here
+      if (b.end) {
+        const start = open.get(b.name);
+        if (start !== undefined) { out.push({ name: b.name, start, end: b.cp }); open.delete(b.name); }
+      } else open.set(b.name, b.cp);
+    }
+    return out.sort((a, b) => a.start - b.start);
+  })();
+  const bkmkSttb = ((): { fc: number; lcb: number } => {
+    if (!bookmarks.length) return { fc: 0, lcb: 0 };
+    const fc = tbl.length;
+    tbl.u16(0xffff); // fExtend
+    tbl.u16(bookmarks.length); // cData
+    tbl.u16(0); // cbExtra
+    for (const b of bookmarks) {
+      tbl.u16(b.name.length);
+      for (const ch of b.name) tbl.u16(ch.charCodeAt(0));
+    }
+    return { fc, lcb: tbl.length - fc };
+  })();
+  const bkf = ((): { fc: number; lcb: number } => {
+    if (!bookmarks.length) return { fc: 0, lcb: 0 };
+    const fc = tbl.length;
+    for (const b of bookmarks) tbl.u32(b.start);
+    tbl.u32(ccpText); // terminating CP
+    // A 4-byte BKF each: the index of this bookmark's end in PlcfBkl, then flags.
+    bookmarks.forEach((_, i) => { tbl.u16(i); tbl.u16(0); });
+    return { fc, lcb: tbl.length - fc };
+  })();
+  const bkl = ((): { fc: number; lcb: number } => {
+    if (!bookmarks.length) return { fc: 0, lcb: 0 };
+    const fc = tbl.length;
+    for (const b of bookmarks) tbl.u32(b.end);
+    tbl.u32(ccpText); // terminating CP; PlcfBkl carries no data elements
     return { fc, lcb: tbl.length - fc };
   })();
   const fldPlc = writeFldPlc(mainFields, ccpText);
@@ -1547,6 +1656,12 @@ export function htmlToDoc(bodyHtml: string, page?: PageGeometry, notes?: Note[],
       [FC.plcfHdd, hddPlc.fc, hddPlc.lcb],
       [FC.plcffldMom, fldPlc.fc, fldPlc.lcb],
       [FC.plcffldHdr, fldHdrPlc.fc, fldHdrPlc.lcb],
+      [FC.sttbfAtnBkmk, atnBkmkSttb.fc, atnBkmkSttb.lcb],
+      [FC.plcfAtnBkf, atnBkf.fc, atnBkf.lcb],
+      [FC.plcfAtnBkl, atnBkl.fc, atnBkl.lcb],
+      [FC.sttbfBkmk, bkmkSttb.fc, bkmkSttb.lcb],
+      [FC.plcfBkf, bkf.fc, bkf.lcb],
+      [FC.plcfBkl, bkl.fc, bkl.lcb],
       [FC.plfLst, lstPlc.fc, lstPlc.lcb],
       [FC.plfLfo, lfoPlc.fc, lfoPlc.lcb],
       [FC.sttbfRMark, rmSttb.fc, rmSttb.lcb],

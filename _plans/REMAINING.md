@@ -94,19 +94,29 @@ legacy writer has been checked automatically. It found six defects.
   definitions (PlfLst / PlfLfo) and marks each paragraph with its list and level, and the
   reader resolves the tables to tell a numbered list from a bulleted one.
 
+**Also fixed:**
+
+- **Bookmarks were dropped entirely.** Neither side handled them. The reader now parses the
+  bookmark tables (`SttbfBkmk`, `PlcfBkf`, `PlcfBkl`) into the same markers the docx and odt
+  adapters use, and the writer emits them back. The oracle gained a bookmark comparison
+  first, since nothing had been guarding this.
+- **A commented range collapsed to its mark**, so the comment attached at the end of the
+  phrase instead of highlighting it. The range lives in the annotation bookmark tables and
+  each comment's ATRD names its entry; both sides now carry it. A range crossing a paragraph
+  break is skipped rather than emitted unbalanced.
+
 **Still open:**
 
-- **A comment's date is written as zeroes**, and a range comment's anchor moves to the end
-  of the range. Word 97's ATRD has no date field; the fixtures show LibreOffice also writes
-  `SttbfAtnBkmk`, `PlcfAtnBkf` and `PlcfAtnBkl`, which we do not, and that is where to look.
-- **Bookmarks are dropped.** The fixtures show the original carrying `SttbfBkmk`, `PlcfBkf`
-  and `PlcfBkl`; we write none of them. Found while comparing structure tables, not by a
-  check, so nothing guards it yet.
-- **Endnotes number 1, 2, 3 where the original used i, ii, iii.** The number format lives in
-  the document properties, which we do write, so this is a matter of finding the field.
+- **A comment's date is written as zeroes.** Word 97's ATRD has no date field. The date is a
+  separate 18-byte record per comment, starting with a packed DTTM, that FIB entry 112
+  (`fcAtrdExtra`) points at. Our FIB declares 108 entries, so reaching it means claiming a
+  later Word format version for every document the writer produces: a decision of its own
+  rather than a fix, and the reason this one is left alone.
+- **Endnotes number 1, 2, 3 where the original used i, ii, iii.** The number format is in the
+  document properties, which we do write, so this is a matter of finding the field.
 - **Hyperlink text is written in the browser's default link blue** (#0000ee) rather than the
-  colour the document used. The writer hardcodes it because a link in the editor's HTML
-  carries no colour of its own.
+  colour the document used. The writer hardcodes it because the reader does not resolve the
+  Hyperlink character style, so nothing in the editor's HTML carries a colour to preserve.
 - **A list nested deeper than two levels** falls back to numbering for its lower levels. Each
   list is written as a single level definition, because writing nine made a reader take the
   first list's first level for every list; the levels the fixtures actually use are correct.

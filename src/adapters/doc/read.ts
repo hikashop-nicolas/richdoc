@@ -120,6 +120,102 @@ function parseListTables(
   }
 }
 
+/**
+ * Bookmarks: their names (SttbfBkmk) and the character positions they open and close at
+ * (PlcfBkf / PlcfBkl). Returns start and end markers keyed by CP.
+ */
+function parseBookmarks(
+  table: Uint8Array,
+  names: { fc: number; lcb: number },
+  bkf: { fc: number; lcb: number },
+  bkl: { fc: number; lcb: number },
+): { starts: Map<number, string[]>; ends: Map<number, string[]> } {
+  const starts = new Map<number, string[]>();
+  const ends = new Map<number, string[]>();
+  if (!names.lcb || !bkf.lcb || !bkl.lcb) return { starts, ends };
+  try {
+    const dv = new DataView(table.buffer, table.byteOffset, table.byteLength);
+    // SttbfBkmk: an extended string table (0xffff marker, count, cbExtra, then cch + chars).
+    let at = names.fc;
+    if (dv.getUint16(at, true) !== 0xffff) return { starts, ends };
+    const cData = dv.getUint16(at + 2, true);
+    const cbExtra = dv.getUint16(at + 4, true);
+    at += 6;
+    const list: string[] = [];
+    for (let i = 0; i < cData; i++) {
+      const cch = dv.getUint16(at, true);
+      at += 2;
+      let name = "";
+      for (let k = 0; k < cch; k++) name += String.fromCharCode(dv.getUint16(at + k * 2, true));
+      at += cch * 2 + cbExtra;
+      list.push(name);
+    }
+    // PlcfBkf: one CP per bookmark plus a terminator, then a 4-byte BKF each whose first
+    // field indexes PlcfBkl. PlcfBkl is CPs only, with no data elements at all.
+    const n = Math.min(list.length, Math.max(0, Math.floor((bkf.lcb - 4) / 8)));
+    const endCps: number[] = [];
+    for (let i = 0; i < n; i++) endCps.push(dv.getInt32(bkl.fc + i * 4, true));
+    for (let i = 0; i < n; i++) {
+      const start = dv.getInt32(bkf.fc + i * 4, true);
+      const ibkl = dv.getInt16(bkf.fc + (n + 1) * 4 + i * 4, true);
+      const end = endCps[ibkl >= 0 && ibkl < endCps.length ? ibkl : i];
+      const name = list[i]!;
+      if (!starts.has(start)) starts.set(start, []);
+      starts.get(start)!.push(name);
+      if (end !== undefined) {
+        if (!ends.has(end)) ends.set(end, []);
+        ends.get(end)!.push(name);
+      }
+    }
+  } catch {
+    return { starts: new Map(), ends: new Map() };
+  }
+  return { starts, ends };
+}
+
+/**
+ * The text each comment covers. A comment's ATRD names an entry in the annotation bookmark
+ * tables (lTagBkmk, or -1 for a comment anchored at its mark alone); those tables give the
+ * range. Ranges spanning a paragraph break are skipped rather than emitted unbalanced.
+ */
+function parseCommentRanges(
+  table: Uint8Array,
+  text: string,
+  ref: { fc: number; lcb: number },
+  bkf: { fc: number; lcb: number },
+  bkl: { fc: number; lcb: number },
+  ids: string[],
+): { open: Map<number, string>; close: Map<number, string> } {
+  const open = new Map<number, string>();
+  const close = new Map<number, string>();
+  if (!ref.lcb || !bkf.lcb || !bkl.lcb) return { open, close };
+  try {
+    const dv = new DataView(table.buffer, table.byteOffset, table.byteLength);
+    const n = Math.max(0, Math.floor((bkf.lcb - 4) / 8));
+    const starts: number[] = [];
+    const ends: number[] = [];
+    for (let i = 0; i < n; i++) {
+      starts.push(dv.getInt32(bkf.fc + i * 4, true));
+      ends.push(dv.getInt32(bkl.fc + i * 4, true));
+    }
+    // The ATRDs sit after the reference CPs, 30 bytes each; lTagBkmk is at offset 26.
+    const cRef = ids.length;
+    const atrdBase = ref.fc + (cRef + 1) * 4;
+    for (let i = 0; i < cRef; i++) {
+      const tag = dv.getInt32(atrdBase + i * 30 + 26, true);
+      if (tag < 0 || tag >= n) continue;
+      const [from, to] = [starts[tag]!, ends[tag]!];
+      if (to <= from) continue;
+      if (text.slice(from, to).includes("\r")) continue; // crosses a paragraph
+      open.set(from, ids[i]!);
+      close.set(to, ids[i]!);
+    }
+  } catch {
+    return { open: new Map(), close: new Map() };
+  }
+  return { open, close };
+}
+
 function parseFontTable(table: Uint8Array, fc: number, lcb: number): string[] {
   const names: string[] = [];
   if (lcb < 6) return names;
@@ -678,6 +774,8 @@ function parseComments(
   cpToFc: (cp: number) => number,
   charSpans: Span<CharProps>[],
   refMap: Map<number, string>,
+  /** Filled with each comment's id, in order, for the range tables. */
+  idsOut: string[] = [],
 ): CommentThread[] {
   if (fib.ccpAtn <= 0) return [];
   const ref = fib.fc(FC.plcfandRef);
@@ -691,6 +789,7 @@ function parseComments(
   const out: CommentThread[] = [];
   for (let i = 0; i < cAtn; i++) {
     const id = `dc${i + 1}`;
+    idsOut.push(id);
     const ibst = dv.getUint16(atrdBase + i * 30 + 20, true);
     refMap.set(refCps[i], id);
     const raw = renderNoteBody(full, subStart + txtCps[i], subStart + txtCps[i + 1], cpToFc, charSpans);
@@ -903,6 +1002,7 @@ export function docToParts(bytes: Uint8Array): DocParts {
   const sttb = fib.fc(FC.sttbfffn);
   const fonts = parseFontTable(table, sttb.fc, sttb.lcb);
   const listFmt = parseListTables(table, fib.fc(FC.plfLst), fib.fc(FC.plfLfo));
+  const bookmarks = parseBookmarks(table, fib.fc(FC.sttbfBkmk), fib.fc(FC.plcfBkf), fib.fc(FC.plcfBkl));
   const chpxPlc = fib.fc(FC.plcfBteChpx);
   const papxPlc = fib.fc(FC.plcfBtePapx);
   const charSpans = readFkpSpans(wd, table, chpxPlc.fc, chpxPlc.lcb, false, (g) => decodeCharSprms(g, fonts));
@@ -974,7 +1074,9 @@ export function docToParts(bytes: Uint8Array): DocParts {
     ...parseNotes(full, fib, table, "footnote", ftnStart, fib.ccpFtn, FC.plcffndRef, FC.plcffndTxt, cpToFc, charSpans, refMap, imageAt),
     ...parseNotes(full, fib, table, "endnote", ednStart, fib.ccpEdn, FC.plcfendRef, FC.plcfendTxt, cpToFc, charSpans, refMap, imageAt),
   ];
-  const comments = parseComments(full, fib, table, atnStart, cpToFc, charSpans, cmtRefMap);
+  const commentIds: string[] = [];
+  const comments = parseComments(full, fib, table, atnStart, cpToFc, charSpans, cmtRefMap, commentIds);
+  const cmtRanges = parseCommentRanges(table, text, fib.fc(FC.plcfandRef), fib.fc(FC.plcfAtnBkf), fib.fc(FC.plcfAtnBkl), commentIds);
   const { header, footer } = parseHeaderFooter(full, fib, table, cpToFc, charSpans, imageAt, styleChpAt);
   const textboxes = parseTextboxes(full, fib, table, cpToFc, charSpans, imageAt);
   // An MS Equation 3.0 object stores its formula as MTEF in the "Equation Native" stream. We
@@ -986,7 +1088,7 @@ export function docToParts(bytes: Uint8Array): DocParts {
   const rmAuthors = parseSttbStrings(table, rmFc.fc, rmFc.lcb);
   const floats = parseFloats(wd, table, fib);
   return {
-    body: buildHtml(text, cpToFc, charSpans, paraSpans, refMap, cmtRefMap, imageAt, rmAuthors, sectionBreaks, textboxes, { mathml: equationMathml, present: !!eqNative }, floats, listFmt),
+    body: buildHtml(text, cpToFc, charSpans, paraSpans, refMap, cmtRefMap, imageAt, rmAuthors, sectionBreaks, textboxes, { mathml: equationMathml, present: !!eqNative }, floats, listFmt, bookmarks, cmtRanges),
     page,
     notes: notes.length ? notes : undefined,
     comments: comments.length ? comments : undefined,
@@ -1065,6 +1167,8 @@ function buildHtml(
   floats: DocFloat[] = [],
   /** Whether a given list and level is numbered rather than bulleted. */
   listFmt: (ilfo: number, ilvl: number) => boolean = () => false,
+  bookmarks: { starts: Map<number, string[]>; ends: Map<number, string[]> } = { starts: new Map(), ends: new Map() },
+  cmtRanges: { open: Map<number, string>; close: Map<number, string> } = { open: new Map(), close: new Map() },
 ): string {
   const blocks: { tag: string; attr: string; inner: string }[] = [];
   // Floating drawings by their anchor CP; the first image already shown inline (a shape that is also
@@ -1212,6 +1316,26 @@ function buildHtml(
   };
 
   for (let cp = 0; cp < text.length; cp++) {
+    // Bookmarks sit between characters rather than on one, so their markers go in before
+    // the character at their position is dealt with.
+    const bkOpen = bookmarks.starts.get(cp);
+    const bkClose = bookmarks.ends.get(cp);
+    if (bkClose) {
+      flushRun();
+      for (const name of bkClose)
+        runHtml += `<a class="docx-bookmark-end" data-rdoc-bm-id="${esc(name)}" data-rdoc-bm-end="${esc(name)}" contenteditable="false"></a>`;
+    }
+    if (bkOpen) {
+      flushRun();
+      for (const name of bkOpen)
+        runHtml += `<a class="docx-bookmark" data-rdoc-bm="${esc(name)}" data-rdoc-bm-id="${esc(name)}" contenteditable="false"></a>`;
+    }
+    // The text a comment covers, wrapped so the comment highlights it rather than collapsing
+    // to its reference mark. Ranges crossing a paragraph are not emitted (see the parser).
+    const cmtClose = cmtRanges.close.get(cp);
+    if (cmtClose) { flushRun(); runHtml += "</span>"; }
+    const cmtOpen = cmtRanges.open.get(cp);
+    if (cmtOpen) { flushRun(); runHtml += `<span class="docx-comment" data-comment-id="${esc(cmtOpen)}">`; }
     const c = text.charCodeAt(cp);
     if (c === FIELD_BEGIN) {
       flushRun();
