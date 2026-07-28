@@ -53,7 +53,7 @@ interface Para {
   spaceBeforeTw?: number; // space above the paragraph (twips) -> sprmPDyaBefore
   spaceAfterTw?: number; // space below the paragraph (twips) -> sprmPDyaAfter
   endChar?: number; // paragraph terminator (0x0D normally, 0x07 for table cells/rows)
-  table?: { cell?: boolean; ttp?: boolean; cols?: number; shd?: (number | null)[] };
+  table?: { cell?: boolean; ttp?: boolean; cols?: number; shd?: (number | null)[]; header?: boolean };
   noteBoundary?: SubKind; // first para of a note/comment (or its subdoc's trailing mark)
   hddFooter?: boolean; // first paragraph of the footer story inside the header/footer subdoc
   secBreak?: PageGeometry; // this paragraph ends a section with this geometry
@@ -343,13 +343,14 @@ function parseHtml(bodyHtml: string): Para[] {
   const doc = new DOMParser().parseFromString(`<body>${bodyHtml}</body>`, "text/html");
   const paras: Para[] = [];
   const blockTags = new Set(["p", "h1", "h2", "h3", "h4", "h5", "h6", "li", "div", "blockquote", "pre"]);
-  const walk = (el: Element, list: { ordered: boolean; n: number } | null): void => {
+  const walk = (el: Element, list: { ordered: boolean; n: number } | null, inHead = false): void => {
     for (const child of Array.from(el.children)) {
       const tag = child.tagName.toLowerCase();
       if (child.classList.contains("docx-field-toc")) emitToc(child as HTMLElement, paras);
       else if (tag === "ul") walk(child, { ordered: false, n: 0 });
       else if (tag === "ol") walk(child, { ordered: true, n: 0 });
-      else if (tag === "table" || tag === "tbody" || tag === "thead") walk(child, list);
+      else if (tag === "table" || tag === "tbody") walk(child, list);
+      else if (tag === "thead") walk(child, list, true);
       else if (tag === "tr") {
         const cells = Array.from(child.children).filter((c) => /^t[dh]$/.test(c.tagName.toLowerCase()));
         const shd: (number | null)[] = [];
@@ -360,7 +361,7 @@ function parseHtml(bodyHtml: string): Para[] {
           const bg = (td as HTMLElement).style.backgroundColor || (td.getAttribute("style")?.match(/background(?:-color)?:\s*([^;]+)/i)?.[1] ?? "");
           shd.push(bg ? (parseColor(bg) ?? null) : null);
         }
-        paras.push({ align: 0, runs: [], istd: 0, endChar: 0x07, table: { ttp: true, cols: cells.length, shd: shd.some((c) => c != null) ? shd : undefined } });
+        paras.push({ align: 0, runs: [], istd: 0, endChar: 0x07, table: { ttp: true, cols: cells.length, shd: shd.some((c) => c != null) ? shd : undefined, header: inHead || undefined } });
       }
       else if (blockTags.has(tag)) {
         const hMatch = /^h([1-6])$/.exec(tag);
@@ -521,8 +522,12 @@ function papxGrpprl(p: Para): Uint8Array {
     b.u8(1);
     const operand = buildTDef(p.table.cols || 1);
     b.u16(0xd608); // sprmTDefTable (2-byte length prefix)
-    b.u16(operand.length);
+    b.u16(operand.length + 1); // Word counts one more than the operand it writes
     b.bytes(operand);
+    if (p.table.header) {
+      b.u16(0x3404); // sprmTFTableHeader: repeat this row as a header on each page
+      b.u8(1);
+    }
     if (p.table.shd) {
       const shd = buildTableShd(p.table.shd, p.table.cols || 1);
       b.u16(0xd612); // sprmTDefTableShd (1-byte length prefix): per-cell background

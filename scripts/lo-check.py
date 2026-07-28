@@ -260,12 +260,6 @@ KNOWN: dict = {
         "because a link in the editor's HTML carries no colour of its own; matching one "
         "fixture's navy would just be a different hardcode."
     ),
-    ("tables.doc", "tables"): (
-        ".doc: a table's header-row designation is lost. Neither side handles it: the reader "
-        "does not parse the flag and the writer does not emit it. An attempt using sprm "
-        "0x3404 changed nothing in either direction, so the opcode is unconfirmed and was "
-        "reverted rather than shipped on a guess into a binary format."
-    ),
     ("lists.doc", "paragraphs"): (
         ".doc: lists are written as ordinary paragraphs with a literal bullet character "
         "rather than real list formatting, and the reader does not resolve the LST/LFO "

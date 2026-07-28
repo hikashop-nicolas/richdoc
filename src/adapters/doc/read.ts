@@ -99,6 +99,7 @@ interface ParaProps {
   styleChp?: CharProps; // character formatting inherited from the paragraph's named style
   inTable?: boolean; // sprmPFInTable
   ttp?: boolean; // sprmPFTtp (table-terminating / row-end paragraph)
+  tableHeader?: boolean; // sprmTFTableHeader: this row repeats as a header on each page
   ilfo?: number; // sprmPIlfo: list-format index (>0 = a list item)
   ilvl?: number; // sprmPIlvl: list nesting level (0-based)
   pageBreakBefore?: boolean; // sprmPFPageBreakBefore: start this paragraph on a new page
@@ -202,8 +203,13 @@ function decodeParaSprms(g: Uint8Array): ParaProps {
     // sprmTDefTable is the one variable-length sprm with a 2-byte operand size; every other
     // spra-6 sprm uses a 1-byte size. Reading it correctly keeps later sprms (e.g. the table
     // shading 0xd612) in alignment.
+    //
+    // Its size counts one byte more than the operand that follows: for a 3-column table the
+    // operand is 1 + 8 + 60 = 69 bytes and the field reads 70. Consuming the full count put
+    // the walk one byte out for the rest of the row, so every table sprm after this one, the
+    // header-row flag and the cell shading included, was read from the wrong offset.
     let len: number;
-    if (op === 0xd608) { len = dv.getUint16(i, true); i += 2; }
+    if (op === 0xd608) { len = dv.getUint16(i, true) - 1; i += 2; }
     else if (spra === 6) len = g[i++]!;
     else len = [1, 1, 2, 4, 2, 2, 0, 3][spra]!;
     const v = g.subarray(i, i + len);
@@ -212,6 +218,7 @@ function decodeParaSprms(g: Uint8Array): ParaProps {
     else if (op === 0x840f) p.indentTwips = dv.getInt16(i - len, true);
     else if (op === 0x2416) p.inTable = v[0] !== 0;
     else if (op === 0x2417) p.ttp = v[0] !== 0;
+    else if (op === 0x3404) p.tableHeader = v[0] !== 0; // sprmTFTableHeader: repeats on each page
     else if (op === 0x460b) p.ilfo = dv.getInt16(i - len, true); // sprmPIlfo: list index
     else if (op === 0x260a) p.ilvl = v[0]; // sprmPIlvl: list level
     else if (op === 0x2407) p.pageBreakBefore = v[0] !== 0; // sprmPFPageBreakBefore
@@ -1048,20 +1055,30 @@ function buildHtml(
   const headingAt = (cp: number): number => lookup(paraSpans, cpToFc(cp))?.headingLevel ?? 0;
   let curHeading = headingAt(0);
   let tableRows: string[][] = [];
+  let tableRowHdr: boolean[] = [];
   let tableRowShd: (string | null)[][] = []; // per-row, per-cell background colour (parallel to tableRows)
   let rowCells: string[] = [];
   const flushTable = (): void => {
     if (!tableRows.length) return;
-    const rows = tableRows
-      .map((cells, r) => `<tr>${cells.map((c, i) => {
-        const bg = tableRowShd[r]?.[i];
-        const style = `border:1px solid #999;padding:2px 6px${bg ? `;background-color:${bg}` : ""}`;
-        return `<td style="${style}">${c || "<br>"}</td>`;
-      }).join("")}</tr>`)
-      .join("");
-    blocks.push({ tag: "table", attr: ' style="border-collapse:collapse"', inner: rows });
+    const row = (cells: string[], r: number): string => `<tr>${cells.map((c, i) => {
+      const bg = tableRowShd[r]?.[i];
+      const style = `border:1px solid #999;padding:2px 6px${bg ? `;background-color:${bg}` : ""}`;
+      return `<td style="${style}">${c || "<br>"}</td>`;
+    }).join("")}</tr>`;
+    // Leading rows flagged to repeat on each page become a <thead>, so the designation
+    // survives instead of the table coming back as all-body rows.
+    let head = 0;
+    while (head < tableRows.length && tableRowHdr[head]) head++;
+    const headRows = tableRows.slice(0, head).map(row).join("");
+    const bodyRows = tableRows.slice(head).map((c, i) => row(c, i + head)).join("");
+    blocks.push({
+      tag: "table",
+      attr: ' style="border-collapse:collapse"',
+      inner: headRows ? `<thead>${headRows}</thead><tbody>${bodyRows}</tbody>` : bodyRows,
+    });
     tableRows = [];
     tableRowShd = [];
+    tableRowHdr = [];
   };
 
   const flushRun = (): void => {
@@ -1089,6 +1106,7 @@ function buildHtml(
         // own writer emits an empty ttp paragraph, which contributes no extra cell.
         if (runHtml) rowCells.push(runHtml);
         tableRows.push(rowCells);
+        tableRowHdr.push(!!pp.tableHeader);
         tableRowShd.push(pp.cellShd ?? []);
         rowCells = [];
       } else {
