@@ -1,6 +1,6 @@
 # richdoc verification plan
 
-Started 2026-07-28. Phases 1 to 4 are done and running in CI; phase 5 is not started.
+Started 2026-07-28. All five phases are done and running in CI.
 
 richdoc has around 5,600 lines of its own tests, and no independent judge of any kind.
 Its one real-file corpus test asserts only that *text* survives a round-trip, and it
@@ -135,13 +135,33 @@ check says the product loses data, suspect the check first.
 
 ## Phase 5: LibreOffice oracle
 
-Heaviest in CI, so last. For each fixture, convert both the input and our output with
-LibreOffice and compare the results, which proves an independent *implementation*
-understands the file rather than merely that it parses.
+Both the original fixture and richdoc's rewrite of it are converted to flat ODF by
+LibreOffice, and the two conversions are compared. Whatever LibreOffice resolved (named
+styles, inherited formatting, list numbering, note bodies) is resolved the same way for
+both, so a difference is something a real word processor notices.
 
-Two known cautions carry over from sheetedit: LibreOffice silently drops things it does
-not model (so a same-format pass, docx to docx, is what proves the file is understood),
-and it is the only judge available for `.doc`.
+Converting to the same kind of document rather than to text or PDF is deliberate: it is
+what proves the file was understood rather than merely opened. A text export would pass a
+document whose formatting had been destroyed.
+
+`npm run check:lo`, and its own CI job because installing a word processor takes longer
+than every other check put together. The corpus gained `.doc` fixtures for it: the legacy
+writer regenerates the whole file rather than preserving it, so the preservation and schema
+checks cannot apply to it and this is the only judge it can have.
+
+Two details that make the comparison honest rather than merely green:
+
+- **Lengths compare with a tolerance** of a hundredth of an inch, and a property that is
+  absent counts as an explicit zero. The reader converts lengths to whole pixels and the
+  writer converts back, so an untouched 1cm indent returns as 1.005cm. Rather than
+  allowlisting whole fields for that, which would have hidden real regressions in the same
+  place, the tolerance keeps everything else strict. Verified: removing bold, or changing
+  an indent fivefold, both still fail.
+- **Date and time fields are masked.** LibreOffice recalculates them on every open, so two
+  conversions a few seconds apart disagree about something richdoc does not control.
+
+It found six defects in the `.doc` writer, all listed in `REMAINING.md`. `.doc` had no
+external judge of any kind before this.
 
 ## Order and cost
 

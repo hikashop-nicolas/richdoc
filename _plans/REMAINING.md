@@ -67,8 +67,34 @@ tategaki/furigana, multi-page FKP for large docs), the known gaps are:
   Multi-row tables split cleanly at row boundaries.
 
 PAGE / NUMPAGES / TOC and the information fields (DATE / TIME / AUTHOR / FILENAME)
-all read as live docx-field spans and round-trip as real .doc fields (field-type
-ids validated against LibreOffice), matching the docx/odt adapters.
+all read as live docx-field spans and round-trip as real .doc fields, matching the
+docx/odt adapters.
+
+### Found by the LibreOffice oracle (2026-07-28), not yet fixed
+
+`npm run check:lo` converts each fixture and richdoc's rewrite of it with LibreOffice
+and compares the two readings. It is the only judge `.doc` can have, and the first
+time the legacy writer has been checked automatically. Each of these is recorded as a
+known difference in `scripts/lo-check.py`, so fixing one turns that entry into a
+failure until the entry is removed:
+
+- **Lists are flattened.** A list becomes ordinary paragraphs with a literal bullet
+  character, so a numbered list loses its numbering as well as its structure. The
+  most visible of these.
+- **A field code leaks into text.** A page-number field in a footer renders as
+  "Page PAGE 1": the instruction text is emitted next to the value.
+- **A TIME field is written as a DATE field.**
+- **Footnote and endnote citation marks are written as `?`.**
+- **A comment's date is written as zeroes**, and a comment anchored over a range moves
+  to the end of the range rather than staying at its start.
+- **A table's header-row designation is lost.**
+
+Two earlier readings of these results were wrong and are worth recording so they are
+not repeated: headers and footers looked like they were dropped entirely, and odt
+footnote bodies looked like they were emptied, in both cases because the check called
+the adapter without handing back what the reader had returned. The editor passes every
+band and every note on every save. When a check says the product loses data, suspect
+the check first.
 
 ## Notes
 

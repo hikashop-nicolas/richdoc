@@ -45,20 +45,22 @@ function changedParts(before: Uint8Array, after: Uint8Array): string[] {
 // reader hands the note bodies back and the writer rebuilds them; and, for odt, styles.xml,
 // where the named styles and master pages that carry headers and footers live.
 //
-// Everything else must come back untouched: numbering, fonts, themes, images, comments,
-// header and footer parts, the manifest, and every relationship part. Keeping this set
+// The header and footer parts are on the list for the same reason as the notes: the editor
+// hands every band back on every save, whether or not it changed, so the writer rebuilds
+// them. Everything else must come back untouched: numbering, fonts, themes, images,
+// comments, the manifest, and every relationship part. Keeping this set
 // tight is the whole point; widening it to make a failure go away would hollow out the
 // check. (word/_rels/document.xml.rels staying out of it is what caught the duplicate
 // hyperlink relationships.)
-const DOCX_ALLOWED = new Set(["word/document.xml", "word/settings.xml", "word/footnotes.xml", "word/endnotes.xml"]);
-const ODT_ALLOWED = new Set(["content.xml", "styles.xml"]);
+const DOCX_ALLOWED = /^word\/(document|settings|footnotes|endnotes|header\d*|footer\d*)\.xml$/;
+const ODT_ALLOWED = /^(content|styles)\.xml$/;
 
 describe.skipIf(!has)("docx no-edit identity", () => {
   for (const name of fixtures(".docx")) {
     it(`rewrites only the body of ${name}`, async () => {
       const original = read(name);
       const out = await roundTrip(name, original);
-      const unexpected = changedParts(original, out).filter((p) => !DOCX_ALLOWED.has(p));
+      const unexpected = changedParts(original, out).filter((p) => !DOCX_ALLOWED.test(p));
       expect(unexpected).toEqual([]);
     });
   }
@@ -69,7 +71,7 @@ describe.skipIf(!has)("odt no-edit identity", () => {
     it(`rewrites only the body of ${name}`, async () => {
       const original = read(name);
       const out = await roundTrip(name, original);
-      const unexpected = changedParts(original, out).filter((p) => !ODT_ALLOWED.has(p));
+      const unexpected = changedParts(original, out).filter((p) => !ODT_ALLOWED.test(p));
       expect(unexpected).toEqual([]);
     });
   }
@@ -109,7 +111,7 @@ describe.skipIf(!has)("docx edit blast radius", () => {
     it(`confines a one-paragraph edit in ${name} to the body`, async () => {
       const original = read(name);
       const out = await roundTrip(name, original, (h) => editFirstParagraph(h, "EDITED PARAGRAPH TEXT"));
-      const unexpected = changedParts(original, out).filter((p) => !DOCX_ALLOWED.has(p));
+      const unexpected = changedParts(original, out).filter((p) => !DOCX_ALLOWED.test(p));
       expect(unexpected).toEqual([]);
       // And the edit really happened, so an inert writer cannot pass this by doing nothing.
       expect(adapterFor(name, out).read().body).toContain("EDITED PARAGRAPH TEXT");
@@ -122,7 +124,7 @@ describe.skipIf(!has)("odt edit blast radius", () => {
     it(`confines a one-paragraph edit in ${name} to the body`, async () => {
       const original = read(name);
       const out = await roundTrip(name, original, (h) => editFirstParagraph(h, "EDITED PARAGRAPH TEXT"));
-      const unexpected = changedParts(original, out).filter((p) => !ODT_ALLOWED.has(p));
+      const unexpected = changedParts(original, out).filter((p) => !ODT_ALLOWED.test(p));
       expect(unexpected).toEqual([]);
       expect(adapterFor(name, out).read().body).toContain("EDITED PARAGRAPH TEXT");
     });

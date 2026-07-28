@@ -24,3 +24,19 @@ jobs:
       # And judged by separate implementations that share no code with this one.
       - run: pip install --quiet python-docx odfpy
       - run: npm run check:reader
+
+  # LibreOffice as the oracle: it reads both the original fixture and richdoc's rewrite,
+  # and the two readings are compared. Its own job because installing a word processor
+  # takes longer than everything above put together, and there is no reason to make the
+  # fast checks wait for it.
+  oracle:
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@v4
+      - uses: actions/setup-node@v4
+        with:
+          node-version: "24"
+          cache: npm
+      - run: npm ci
+      - run: sudo apt-get update && sudo apt-get install -y libreoffice-writer
+      - run: npm run check:lo

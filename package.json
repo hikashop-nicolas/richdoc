@@ -35,7 +35,8 @@
     "check:schema": "vitest run src/core/schema-corpus.test.ts && node scripts/schema-check.mjs",
     "corpus": "node scripts/gen-corpus.mjs",
     "check:reader": "vitest run src/core/reader-corpus.test.ts && node scripts/run-reader-check.mjs",
-    "check:reader:setup": "python3 -m venv .cache/py && .cache/py/bin/pip install --quiet python-docx odfpy"
+    "check:reader:setup": "python3 -m venv .cache/py && .cache/py/bin/pip install --quiet python-docx odfpy",
+    "check:lo": "vitest run src/core/lo-corpus.test.ts && node scripts/run-lo-check.mjs"
   },
   "dependencies": {
     "fflate": "^0.8.2",

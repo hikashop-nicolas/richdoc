@@ -113,6 +113,11 @@ KNOWN = {
         "cached value inside a w:fldSimple. richdoc rewrites the complex fldChar form as "
         "fldSimple, which is valid and does keep the value; the reader just does not look there."
     ),
+    ("headerfooter.docx", "sections"): (
+        "the same python-docx blind spot as fields.docx, in a footer: the PAGE field's "
+        "cached value sits inside a w:fldSimple, which the reader does not look into. The "
+        "written footer does carry it."
+    ),
     ("fields.odt", "paragraphs"): (
         "odfpy does not render <text:s/>, so a space encoded that way vanishes from its "
         "reading of the ORIGINAL. richdoc re-emits it as a literal space, which odfpy does "

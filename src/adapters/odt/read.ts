@@ -235,8 +235,11 @@ function seqFieldHtml(name: string, cached: string): string {
 }
 // A live document field (PAGE / NUMPAGES / DATE / TIME / AUTHOR / FILENAME); the same span the
 // engine recomputes and the odt writer serializes back to the matching ODF field element.
-function infoFieldHtml(kind: string, cached: string): string {
-  return `<span class="docx-field" data-field="${kind}" contenteditable="false">${escapeHtml(cached)}</span>`;
+function infoFieldHtml(kind: string, cached: string, display?: string | null): string {
+  // A file-name field chooses what it shows (name, name-and-extension, path, full); carrying
+  // it means the writer can put back what the document asked for instead of guessing.
+  const d = display ? ` data-field-display="${escapeAttr(display)}"` : "";
+  return `<span class="docx-field" data-field="${kind}"${d} contenteditable="false">${escapeHtml(cached)}</span>`;
 }
 
 /** A draw:frame holding a draw:image -> an <img> with a data URL; otherwise passthrough. The
@@ -780,7 +783,7 @@ function inlineToHtml(el: Element, ctx: RCtx): string {
         html += infoFieldHtml("AUTHOR", child.textContent ?? "");
         break;
       case "text:file-name":
-        html += infoFieldHtml("FILENAME", child.textContent ?? "");
+        html += infoFieldHtml("FILENAME", child.textContent ?? "", child.getAttribute("text:display"));
         break;
       default:
         // Unmodelled inline content (bookmarks, notes, change marks, ...) preserved verbatim.

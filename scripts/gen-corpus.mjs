@@ -320,8 +320,11 @@ mkdirSync(OUT, { recursive: true });
 for (const name of names) {
   const src = join(work, `${name}.fodt`);
   writeFileSync(src, fodt(FIXTURES[name]));
-  for (const ext of ["docx", "odt"]) {
-    execFileSync(soffice, ["--headless", "--convert-to", ext, "--outdir", work, src], { stdio: "ignore" });
+  // .doc as well: the legacy writer rebuilds the whole file rather than preserving it, so
+  // LibreOffice is the only judge it can have, and it needs fixtures to judge.
+  for (const ext of ["docx", "odt", "doc"]) {
+    const target = ext === "doc" ? "doc:MS Word 97" : ext;
+    execFileSync(soffice, ["--headless", "--convert-to", target, "--outdir", work, src], { stdio: "ignore" });
     const made = join(work, `${name}.${ext}`);
     if (!existsSync(made)) {
       console.error(`${name}: LibreOffice produced no .${ext}`);

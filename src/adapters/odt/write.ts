@@ -502,7 +502,9 @@ function htmlInlineToOdf(node: Node, parent: Element, f: Fmt, ctx: OdfCtx, rprSt
         // Information fields: the cached snapshot is the element's text content.
         const tag = k === "DATE" ? "text:date" : k === "TIME" ? "text:time" : k === "AUTHOR" ? "text:author-name" : "text:file-name";
         const e = ctx.doc.createElementNS(NS.text, tag);
-        if (k === "FILENAME") e.setAttributeNS(NS.text, "text:display", "name-and-extension");
+        // What the document asked for; a field inserted in-editor carries nothing and gets
+        // the full name, which is what the insert action means.
+        if (k === "FILENAME") e.setAttributeNS(NS.text, "text:display", el.getAttribute("data-field-display") || "name-and-extension");
         e.appendChild(ctx.doc.createTextNode(el.textContent || ""));
         parent.appendChild(e);
       }
