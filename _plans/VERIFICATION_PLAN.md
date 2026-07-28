@@ -1,6 +1,6 @@
 # richdoc verification plan
 
-Started 2026-07-28.
+Started 2026-07-28. Phases 1 to 4 are done and running in CI; phase 5 is not started.
 
 richdoc has around 5,600 lines of its own tests, and no independent judge of any kind.
 Its one real-file corpus test asserts only that *text* survives a round-trip, and it
