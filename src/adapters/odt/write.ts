@@ -569,6 +569,9 @@ function htmlInlineToOdf(node: Node, parent: Element, f: Fmt, ctx: OdfCtx, rprSt
     }
     if (tag === "a") {
       const a = ctx.doc.createElementNS(NS.text, "text:a");
+      // ODF requires xlink:type on text:a; without it the element does not match the
+      // schema's anchor pattern at all and the whole paragraph fails to validate.
+      a.setAttributeNS(NS.xlink, "xlink:type", "simple");
       a.setAttributeNS(NS.xlink, "xlink:href", el.getAttribute("href") ?? "");
       htmlInlineToOdf(el, a, f, ctx, stash4);
       parent.appendChild(a);

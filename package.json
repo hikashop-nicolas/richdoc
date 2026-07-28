@@ -31,7 +31,9 @@
     "typecheck": "tsc -p tsconfig.json --noEmit",
     "test": "vitest run",
     "dev:demo": "vite --config vite.demo.config.ts",
-    "build:demo": "vite build --config vite.demo.config.ts"
+    "build:demo": "vite build --config vite.demo.config.ts",
+    "check:schema": "vitest run src/core/schema-corpus.test.ts && node scripts/schema-check.mjs",
+    "corpus": "node scripts/gen-corpus.mjs"
   },
   "dependencies": {
     "fflate": "^0.8.2",
