@@ -254,17 +254,19 @@ def summarise(path: Path, content_only: bool = False) -> dict:
 # file from the edited body and does not yet carry these across. They are listed in
 # _plans/REMAINING.md as work to do, and this check is what will confirm the fixes.
 KNOWN: dict = {
-    ("notes.doc", "notes"): (
-        ".doc: endnotes number 1, 2, 3 where the original used i, ii, iii. The endnote "
-        "number format lives in the document properties table, which this writer does not "
-        "emit at all, so a reader falls back to its own default. Footnote and endnote "
-        "numbering itself is correct."
-    ),
     ("comments.doc", "paragraphs"): (
         ".doc: a comment's date is written as zeroes. Word 97's ATRD has no date field; the "
         "date lives in a separate per-comment record that FIB entry 112 (fcAtrdExtra) points "
         "at, and our FIB declares only 108 entries. Reaching it means claiming a later Word "
         "format version for every document we write, which is a decision of its own."
+    ),
+    ("notes.doc", "notes"): (
+        ".doc: endnotes number 1, 2, 3 where the original used i, ii, iii. Not a section "
+        "property: both fixtures carry the same section sprms whether or not they have "
+        "endnotes, and adding the pair that looked like the note formats (0x5040 / 0x5042) "
+        "changed nothing. It is in the document properties, whose field offset is not "
+        "established, and the two files' property blocks differ wholesale so a byte diff "
+        "does not isolate it."
     ),
     ("fields.doc", "paragraphs"): (
         ".doc: hyperlink text is written in the browser's default link blue (#0000ee) "

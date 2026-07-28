@@ -112,14 +112,19 @@ legacy writer has been checked automatically. It found six defects.
   (`fcAtrdExtra`) points at. Our FIB declares 108 entries, so reaching it means claiming a
   later Word format version for every document the writer produces: a decision of its own
   rather than a fix, and the reason this one is left alone.
-- **Endnotes number 1, 2, 3 where the original used i, ii, iii.** The number format is in the
-  document properties, which we do write, so this is a matter of finding the field.
+- **Endnotes number 1, 2, 3 where the original used i, ii, iii.** Not a section property:
+  both fixtures carry identical section sprms whether or not they have endnotes, and adding
+  the pair that looked like the note formats changed nothing. It is in the document
+  properties, whose field offset is not established, and the two files' property blocks
+  differ wholesale so a byte diff does not isolate it.
 - **Hyperlink text is written in the browser's default link blue** (#0000ee) rather than the
   colour the document used. The writer hardcodes it because the reader does not resolve the
   Hyperlink character style, so nothing in the editor's HTML carries a colour to preserve.
 - **A list nested deeper than two levels** falls back to numbering for its lower levels. Each
-  list is written as a single level definition, because writing nine made a reader take the
-  first list's first level for every list; the levels the fixtures actually use are correct.
+  list is written as a single level definition. Written with nine, a reader finds the first
+  list's levels but not the second's, which points at the per-level stride: one level parses
+  correctly, so the size of a level as we write it must differ from what a reader expects
+  somewhere after the first. The levels the fixtures actually use are correct.
 
 Each open item is recorded as a known difference in `scripts/lo-check.py`, so fixing one
 turns that entry into a failure until the entry is removed.
