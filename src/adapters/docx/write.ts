@@ -1717,9 +1717,11 @@ function applyDeletedComments(files: Record<string, Uint8Array>, ids: string[]):
     both the body-level section (Page setup) and an in-paragraph section break (per-section setup). */
 function setSectPrGeom(doc: Document, sectPr: Element, g: { w: number; h: number; mt: number; mr: number; mb: number; ml: number; cols?: number; colGap?: number; vertical?: boolean; rtl?: boolean; pageBorder?: PageBorder; pageNumStart?: number; pageNumFormat?: string; lineNumbers?: boolean; lineNumberInterval?: number; lineNumberRestart?: string; lineNumberStart?: number; pageVAlign?: string }): void {
   const tw = (px: number): string => String(Math.round(px * 15));
+  // CT_SectPr is a sequence, so a new child has to go in its schema position. Appending
+  // instead put w:cols after w:docGrid and friends, which no document validates with.
   const child = (tag: string): Element => {
     let e = sectPr.getElementsByTagName(tag)[0];
-    if (!e) { e = doc.createElementNS(W, tag); sectPr.appendChild(e); }
+    if (!e) { e = doc.createElementNS(W, tag); insertOrdered(e); }
     return e;
   };
   // Insert a new child in its CT_SectPr schema position (header/footer refs always lead).

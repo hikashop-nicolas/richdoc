@@ -2,8 +2,7 @@ import { readFileSync, existsSync, readdirSync } from "node:fs";
 import { join } from "node:path";
 import { describe, expect, it } from "vitest";
 import { unzipSync } from "fflate";
-import { docxToHtml, htmlToDocx } from "../adapters/docx/index";
-import { odtToHtml, htmlToOdt } from "../adapters/odt/index";
+import { adapterFor, editFirstParagraph, roundTrip } from "./corpus-roundtrip";
 
 // The passthrough guarantee, tested directly.
 //
@@ -40,18 +39,25 @@ function changedParts(before: Uint8Array, after: Uint8Array): string[] {
   return [...names].filter((n) => !same(a[n], b[n])).sort();
 }
 
-// Parts a no-edit save is allowed to rewrite. The body is re-serialised from the parsed
-// DOM whether or not anything changed, and the two settings parts carry state the editor
-// normalises on load. Everything else must come back untouched: styles, numbering, fonts,
-// themes, images, headers, footers, comments, notes, and every relationship part.
-const DOCX_ALLOWED = new Set(["word/document.xml", "word/settings.xml", "[Content_Types].xml"]);
-const ODT_ALLOWED = new Set(["content.xml", "settings.xml", "mimetype", "META-INF/manifest.xml", "meta.xml"]);
+// Parts a no-edit save is allowed to rewrite: the ones the writer re-emits by design. The
+// body always, because it is re-serialised from the parsed DOM whether or not anything
+// changed; settings, which the editor normalises on load; the note parts, because the
+// reader hands the note bodies back and the writer rebuilds them; and, for odt, styles.xml,
+// where the named styles and master pages that carry headers and footers live.
+//
+// Everything else must come back untouched: numbering, fonts, themes, images, comments,
+// header and footer parts, the manifest, and every relationship part. Keeping this set
+// tight is the whole point; widening it to make a failure go away would hollow out the
+// check. (word/_rels/document.xml.rels staying out of it is what caught the duplicate
+// hyperlink relationships.)
+const DOCX_ALLOWED = new Set(["word/document.xml", "word/settings.xml", "word/footnotes.xml", "word/endnotes.xml"]);
+const ODT_ALLOWED = new Set(["content.xml", "styles.xml"]);
 
 describe.skipIf(!has)("docx no-edit identity", () => {
   for (const name of fixtures(".docx")) {
-    it(`rewrites only the body of ${name}`, () => {
+    it(`rewrites only the body of ${name}`, async () => {
       const original = read(name);
-      const out = htmlToDocx(docxToHtml(original), original);
+      const out = await roundTrip(name, original);
       const unexpected = changedParts(original, out).filter((p) => !DOCX_ALLOWED.has(p));
       expect(unexpected).toEqual([]);
     });
@@ -60,9 +66,9 @@ describe.skipIf(!has)("docx no-edit identity", () => {
 
 describe.skipIf(!has)("odt no-edit identity", () => {
   for (const name of fixtures(".odt")) {
-    it(`rewrites only the body of ${name}`, () => {
+    it(`rewrites only the body of ${name}`, async () => {
       const original = read(name);
-      const out = htmlToOdt(odtToHtml(original), original);
+      const out = await roundTrip(name, original);
       const unexpected = changedParts(original, out).filter((p) => !ODT_ALLOWED.has(p));
       expect(unexpected).toEqual([]);
     });
@@ -76,10 +82,10 @@ describe.skipIf(!has)("odt no-edit identity", () => {
 // and saved again.
 describe.skipIf(!has)("docx repeated saves reach a fixed point", () => {
   for (const name of fixtures(".docx")) {
-    it(`stops changing ${name} after the first save`, () => {
-      const once = htmlToDocx(docxToHtml(read(name)), read(name));
-      const twice = htmlToDocx(docxToHtml(once), once);
-      const thrice = htmlToDocx(docxToHtml(twice), twice);
+    it(`stops changing ${name} after the first save`, async () => {
+      const once = await roundTrip(name, read(name));
+      const twice = await roundTrip(name, once);
+      const thrice = await roundTrip(name, twice);
       expect(changedParts(once, twice)).toEqual([]);
       expect(changedParts(twice, thrice)).toEqual([]);
     });
@@ -88,51 +94,37 @@ describe.skipIf(!has)("docx repeated saves reach a fixed point", () => {
 
 describe.skipIf(!has)("odt repeated saves reach a fixed point", () => {
   for (const name of fixtures(".odt")) {
-    it(`stops changing ${name} after the first save`, () => {
-      const once = htmlToOdt(odtToHtml(read(name)), read(name));
-      const twice = htmlToOdt(odtToHtml(once), once);
-      const thrice = htmlToOdt(odtToHtml(twice), twice);
+    it(`stops changing ${name} after the first save`, async () => {
+      const once = await roundTrip(name, read(name));
+      const twice = await roundTrip(name, once);
+      const thrice = await roundTrip(name, twice);
       expect(changedParts(once, twice)).toEqual([]);
       expect(changedParts(twice, thrice)).toEqual([]);
     });
   }
 });
 
-/** Replace the text of the first paragraph in the editable HTML, leaving the rest alone. */
-function editFirstParagraph(html: string): string {
-  const doc = new DOMParser().parseFromString(`<div>${html}</div>`, "text/html");
-  const root = doc.body.firstElementChild!;
-  for (const p of Array.from(root.querySelectorAll("p"))) {
-    if ((p.textContent ?? "").trim().length < 3) continue;
-    p.textContent = "EDITED PARAGRAPH TEXT";
-    return root.innerHTML;
-  }
-  throw new Error("no paragraph with text to edit");
-}
-
 describe.skipIf(!has)("docx edit blast radius", () => {
   for (const name of fixtures(".docx")) {
-    it(`confines a one-paragraph edit in ${name} to the body`, () => {
+    it(`confines a one-paragraph edit in ${name} to the body`, async () => {
       const original = read(name);
-      const html = docxToHtml(original);
-      const out = htmlToDocx(editFirstParagraph(html), original);
+      const out = await roundTrip(name, original, (h) => editFirstParagraph(h, "EDITED PARAGRAPH TEXT"));
       const unexpected = changedParts(original, out).filter((p) => !DOCX_ALLOWED.has(p));
       expect(unexpected).toEqual([]);
       // And the edit really happened, so an inert writer cannot pass this by doing nothing.
-      expect(docxToHtml(out)).toContain("EDITED PARAGRAPH TEXT");
+      expect(adapterFor(name, out).read().body).toContain("EDITED PARAGRAPH TEXT");
     });
   }
 });
 
 describe.skipIf(!has)("odt edit blast radius", () => {
   for (const name of fixtures(".odt")) {
-    it(`confines a one-paragraph edit in ${name} to the body`, () => {
+    it(`confines a one-paragraph edit in ${name} to the body`, async () => {
       const original = read(name);
-      const html = odtToHtml(original);
-      const out = htmlToOdt(editFirstParagraph(html), original);
+      const out = await roundTrip(name, original, (h) => editFirstParagraph(h, "EDITED PARAGRAPH TEXT"));
       const unexpected = changedParts(original, out).filter((p) => !ODT_ALLOWED.has(p));
       expect(unexpected).toEqual([]);
-      expect(odtToHtml(out)).toContain("EDITED PARAGRAPH TEXT");
+      expect(adapterFor(name, out).read().body).toContain("EDITED PARAGRAPH TEXT");
     });
   }
 });

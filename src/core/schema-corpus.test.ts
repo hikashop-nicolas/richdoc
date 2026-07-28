@@ -1,8 +1,7 @@
 import { existsSync, mkdirSync, readFileSync, readdirSync, writeFileSync } from "node:fs";
 import { join } from "node:path";
 import { describe, expect, it } from "vitest";
-import { docxToHtml, htmlToDocx } from "../adapters/docx/index";
-import { odtToHtml, htmlToOdt } from "../adapters/odt/index";
+import { editFirstParagraph, roundTrip } from "./corpus-roundtrip";
 
 // Not a test of behaviour: this writes the corpus that `npm run check:schema` validates
 // against the official schemas. It lives here because only the project's own toolchain can
@@ -15,29 +14,14 @@ import { odtToHtml, htmlToOdt } from "../adapters/odt/index";
 const CORPUS = join(__dirname, "../../test-corpus");
 const OUT = join(process.cwd(), ".cache", "schema-corpus");
 
-/** Change the first paragraph with text, leaving everything else alone. */
-function edit(html: string): string {
-  const doc = new DOMParser().parseFromString(`<div>${html}</div>`, "text/html");
-  const root = doc.body.firstElementChild!;
-  for (const p of Array.from(root.querySelectorAll("p"))) {
-    if ((p.textContent ?? "").trim().length < 3) continue;
-    p.textContent = "schema check";
-    return root.innerHTML;
-  }
-  return html;
-}
-
-describe.skipIf(!existsSync(CORPUS))("schema-check corpus", () => {
-  it("writes every fixture back for validation", () => {
+describe.skipIf(!existsSync(CORPUS))("schema-check corpus", async () => {
+  it("writes every fixture back for validation", async () => {
     mkdirSync(OUT, { recursive: true });
     const names = readdirSync(CORPUS).filter((n) => n.endsWith(".docx") || n.endsWith(".odt")).sort();
     expect(names.length).toBeGreaterThan(0);
     for (const name of names) {
       const bytes = new Uint8Array(readFileSync(join(CORPUS, name)));
-      const out = name.endsWith(".docx")
-        ? htmlToDocx(edit(docxToHtml(bytes)), bytes)
-        : htmlToOdt(edit(odtToHtml(bytes)), bytes);
-      writeFileSync(join(OUT, name), out);
+      writeFileSync(join(OUT, name), await roundTrip(name, bytes, (h) => editFirstParagraph(h, "schema check")));
     }
     expect(readdirSync(OUT).length).toBe(names.length);
   });

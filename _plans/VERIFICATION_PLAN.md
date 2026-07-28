@@ -92,6 +92,39 @@ Same shape as sheetedit: a vitest file authors the corpus and an `expected.json`
 Python script asserts agreement. Reuse `run-openpyxl.mjs`'s interpreter selection so it
 works with a local virtual environment as well as CI's system Python.
 
+### What phases 2 to 4 found
+
+Five defects, none of which the 447 existing tests caught:
+
+- **docx: a duplicate hyperlink relationship per save.** The writer minted a fresh
+  relationship for every anchor instead of reusing the existing one, so a document saved
+  N times carried N identical relationships. Fixed.
+- **odt: a duplicate set of automatic styles per save**, for runs, paragraphs, lists and
+  image frames, on the same pattern. Fixed by reusing an equivalent existing style.
+- **odt: hyperlinks written without `xlink:type`**, which ODF requires on `text:a`, so any
+  paragraph containing a link failed to validate. Fixed.
+- **docx: `w:cols` written outside its schema position** in `w:sectPr`. `CT_SectPr` is a
+  sequence and a new child has to go in its place; the helper for that existed and was
+  never called from the one path that needed it. Fixed.
+- **The docx schema check was a no-op.** `wml.xsd` and `shared-math.xsd` reference
+  `xml:space` without importing the xml namespace, so xmllint cannot compile them and
+  reports nothing at all. Fixed, with a guard that refuses to run on a schema that does
+  not compile.
+
+Still open, both small and both recorded as known differences in `scripts/reader-check.py`:
+
+- **odt note citation marks are not re-emitted.** `text:note-citation` comes back empty
+  because richdoc renumbers notes on render. Harmless in LibreOffice, which renumbers too;
+  wrong for a reader that does not.
+- **An extra space next to an inline image frame in odt.** Cosmetic, and stable across
+  saves.
+
+One thing that looked like a serious defect was not. A no-edit round trip appeared to empty
+every footnote body, until it turned out the harness was calling the two-argument
+`htmlToOdt` while note bodies travel on their own channel that the editor passes back. The
+corpus now goes through the adapter, which is what the app does. Worth remembering: when a
+check says the product loses data, suspect the check first.
+
 ## Phase 5: LibreOffice oracle
 
 Heaviest in CI, so last. For each fixture, convert both the input and our output with

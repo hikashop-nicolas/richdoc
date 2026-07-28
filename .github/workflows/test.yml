@@ -21,3 +21,6 @@ jobs:
       # What richdoc writes, judged by the official schemas rather than by itself.
       - run: sudo apt-get update && sudo apt-get install -y libxml2-utils
       - run: npm run check:schema
+      # And judged by separate implementations that share no code with this one.
+      - run: pip install --quiet python-docx odfpy
+      - run: npm run check:reader
