@@ -100,3 +100,28 @@ export function importPassthrough(doc: Document, xml: string): Element | null {
   }
 }
 
+
+/** A style's identity ignoring its name: sorted attributes plus the same for its children,
+    so two styles built by different paths still compare equal when they mean the same.
+    Namespace declarations are excluded: a style rebuilt from a stashed fragment carries
+    its own xmlns attributes, while the same style already in the document inherits them
+    from the root, and that difference is scaffolding rather than meaning. */
+export function styleSignature(el: Element): string {
+  const attrs = Array.from(el.attributes)
+    .filter((a) => a.name !== "style:name" && a.name !== "xmlns" && !a.name.startsWith("xmlns:"))
+    .map((a) => `${a.name}=${a.value}`)
+    .sort()
+    .join(" ");
+  return `${el.tagName}[${attrs}]{${Array.from(el.children).map(styleSignature).join("")}}`;
+}
+
+/** The name of an existing automatic style equivalent to `st`, if the document has one.
+    Without this the writers minted a fresh style on every save, so opening and saving a
+    document repeatedly grew content.xml without bound with duplicate automatic styles. */
+export function equivalentStyleName(auto: Element, st: Element): string | null {
+  const sig = styleSignature(st);
+  for (const existing of Array.from(auto.children)) {
+    if (existing !== st && styleSignature(existing) === sig) return existing.getAttribute("style:name");
+  }
+  return null;
+}

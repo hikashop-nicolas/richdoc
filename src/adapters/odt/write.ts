@@ -6,7 +6,7 @@ import { zipAsync } from "../../core/zip";
 import { firstFontFamily, fontSizeToHalfPt, toHex6, imageLayoutFromEl, blockBorders, parseCssBorder } from "../../core/util";
 import type { BlockBorderSide } from "../../core/util";
 import type { NewStyle, Note, PageBorder, PageGeometry } from "../../core/types";
-import { NS, fmtKey, FMT0, ODF_ALIGN, importPassthrough, IMG_MIME } from "./shared";
+import { NS, fmtKey, FMT0, ODF_ALIGN, importPassthrough, IMG_MIME, equivalentStyleName } from "./shared";
 import type { Fmt } from "./shared";
 import { applyFrameLayout } from "./image-layout";
 
@@ -116,6 +116,11 @@ function styleFor(doc: Document, auto: Element, created: Map<string, string>, f:
       tp.setAttributeNS(NS.style, "style:font-size-complex", `${f.sizePt}pt`);
     }
   }
+  const reused = equivalentStyleName(auto, st);
+  if (reused) {
+    created.set(ckey, reused);
+    return reused;
+  }
   auto.appendChild(st);
   created.set(ckey, name);
   return name;
@@ -201,6 +206,11 @@ function paraStyleFor(doc: Document, auto: Element, created: Map<string, string>
   for (const b of borders ?? []) pp.setAttributeNS(NS.fo, `fo:border-${b.side}`, `${pxToCm(b.px)} ${b.style} #${b.hex.toLowerCase()}`);
   const ts = buildOdtTabStops(doc, tabStops);
   if (ts) pp.appendChild(ts);
+  const reused = equivalentStyleName(auto, st);
+  if (reused) {
+    created.set(key, reused);
+    return reused;
+  }
   auto.appendChild(st);
   created.set(key, name);
   return name;
@@ -609,6 +619,11 @@ function listStyleFor(ctx: OdfCtx, ordered: boolean, start = 1): string {
     lp.appendChild(la);
     lvl.appendChild(lp);
     ls.appendChild(lvl);
+  }
+  const reused = equivalentStyleName(ctx.auto, ls);
+  if (reused) {
+    ctx.created.set(key, reused);
+    return reused;
   }
   ctx.auto.appendChild(ls);
   ctx.created.set(key, name);

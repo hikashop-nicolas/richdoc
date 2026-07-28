@@ -2,7 +2,7 @@
 // graphic style) and the format-agnostic ImageLayout the editor records on an <img>. The reader
 // calls readOdtLayout to set the data attrs; the writer calls applyFrameLayout to anchor a frame
 // and reference the matching graphic style. The shared ImageLayout type lives in core.
-import { NS } from "./shared";
+import { NS, equivalentStyleName } from "./shared";
 import type { ImageLayout, ImageWrap } from "../../core/types";
 
 const pxToCm = (px: number): string => `${Math.round((px / (96 / 2.54)) * 1000) / 1000}cm`;
@@ -89,6 +89,11 @@ export function graphicStyleFor(doc: Document, auto: Element, created: Map<strin
     gp.setAttributeNS(NS.fo, "fo:margin-left", pxToCm(d.l));
   }
   st.appendChild(gp);
+  const reused = equivalentStyleName(auto, st);
+  if (reused) {
+    created.set(key, reused);
+    return reused;
+  }
   auto.appendChild(st);
   created.set(key, name);
   return name;

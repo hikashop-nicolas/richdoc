@@ -28,6 +28,20 @@ interface DocxCtx {
 
 function addHyperlinkRel(ctx: DocxCtx, target: string): string | null {
   if (!ctx.rels) return null;
+  // Reuse an existing relationship for the same target. The reader turns w:hyperlink into
+  // a plain anchor, so minting unconditionally added a duplicate rel on every save and a
+  // document saved N times ended up carrying N identical relationships. Word writes one
+  // relationship shared by every link to the same target, which is what this matches.
+  for (const rel of Array.from(ctx.rels.documentElement.children)) {
+    if (
+      rel.getAttribute("Type") === REL_HYPERLINK &&
+      rel.getAttribute("Target") === target &&
+      rel.getAttribute("TargetMode") === "External"
+    ) {
+      const existing = rel.getAttribute("Id");
+      if (existing) return existing;
+    }
+  }
   const id = `rId${ctx.nextRid++}`;
   const rel = ctx.rels.createElementNS(PKG, "Relationship");
   rel.setAttribute("Id", id);
