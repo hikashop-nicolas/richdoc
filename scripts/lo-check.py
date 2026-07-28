@@ -260,13 +260,6 @@ KNOWN: dict = {
         "because a link in the editor's HTML carries no colour of its own; matching one "
         "fixture's navy would just be a different hardcode."
     ),
-    ("lists.doc", "paragraphs"): (
-        ".doc: lists are written as ordinary paragraphs with a literal bullet character "
-        "rather than real list formatting, and the reader does not resolve the LST/LFO "
-        "numbering tables either, so a numbered list also comes back bulleted. The one "
-        "remaining gap that needs real work rather than a fix."
-    ),
-    ("lists.doc", "listItems"): ".doc: see the note on lists.doc paragraphs.",
     ("comments.doc", "paragraphs"): (
         ".doc: a comment's date is written as zeroes, and a comment anchored over a range "
         "moves to the end of the range rather than staying at its start."

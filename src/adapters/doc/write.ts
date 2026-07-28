@@ -49,6 +49,7 @@ interface Para {
   align: number; // 0 left, 1 center, 2 right, 3 justify
   runs: Run[];
   istd: number; // paragraph style index (0 = Normal, 1..6 = Heading 1..6)
+  list?: { ordered: boolean; ilvl: number }; // sprmPIlfo / sprmPIlvl: real list formatting
   indentTwips?: number; // left indent in twips
   spaceBeforeTw?: number; // space above the paragraph (twips) -> sprmPDyaBefore
   spaceAfterTw?: number; // space below the paragraph (twips) -> sprmPDyaAfter
@@ -343,12 +344,12 @@ function parseHtml(bodyHtml: string): Para[] {
   const doc = new DOMParser().parseFromString(`<body>${bodyHtml}</body>`, "text/html");
   const paras: Para[] = [];
   const blockTags = new Set(["p", "h1", "h2", "h3", "h4", "h5", "h6", "li", "div", "blockquote", "pre"]);
-  const walk = (el: Element, list: { ordered: boolean; n: number } | null, inHead = false): void => {
+  const walk = (el: Element, list: { ordered: boolean; depth: number } | null, inHead = false): void => {
     for (const child of Array.from(el.children)) {
       const tag = child.tagName.toLowerCase();
       if (child.classList.contains("docx-field-toc")) emitToc(child as HTMLElement, paras);
-      else if (tag === "ul") walk(child, { ordered: false, n: 0 });
-      else if (tag === "ol") walk(child, { ordered: true, n: 0 });
+      else if (tag === "ul") walk(child, { ordered: false, depth: list ? list.depth + 1 : 0 });
+      else if (tag === "ol") walk(child, { ordered: true, depth: list ? list.depth + 1 : 0 });
       else if (tag === "table" || tag === "tbody") walk(child, list);
       else if (tag === "thead") walk(child, list, true);
       else if (tag === "tr") {
@@ -370,20 +371,17 @@ function parseHtml(bodyHtml: string): Para[] {
         if (level > 0) base.sizeHalf = HEADING_SIZE[level - 1];
         const runs: Run[] = [];
         collectRuns(child, base, runs);
-        let prefix: Run[] = [];
-        let indent = 0;
-        if (tag === "li") {
-          const marker = list?.ordered ? `\t${++list.n}.\t` : "\t•\t";
-          prefix = [{ text: marker, b: false, i: false, u: false, strike: false }];
-          indent = 360; // 0.25" hanging indent, like textutil
-        }
+        // A list item is marked as one, not prefixed with a bullet character: the marker
+        // comes from the list definition, which is what makes it a real list to a reader.
+        const listInfo = tag === "li" && list ? { ordered: list.ordered, ilvl: list.depth } : undefined;
+        const indent = tag === "li" ? 360 * ((list?.depth ?? 0) + 1) : 0;
         // A section-boundary paragraph: its mark is a section break (0x0C) and it carries the
         // ending section's geometry.
         const secAttr = child.getAttribute("data-rdoc-secbreak");
         const secBreak = secAttr ? secGeomToPage(secAttr) : undefined;
         const px2tw = (v: string) => { const n = parseFloat(v); return n > 0 ? Math.round(n * 15) : undefined; };
         const st = (child as HTMLElement).style;
-        paras.push({ align: blockAlign(child), runs: [...prefix, ...runs], istd: level, indentTwips: indent, spaceBeforeTw: px2tw(st.marginTop), spaceAfterTw: px2tw(st.marginBottom), secBreak, endChar: secBreak ? 0x0c : undefined });
+        paras.push({ align: blockAlign(child), runs, istd: level, list: listInfo, indentTwips: indent, spaceBeforeTw: px2tw(st.marginTop), spaceAfterTw: px2tw(st.marginBottom), secBreak, endChar: secBreak ? 0x0c : undefined });
       }
     }
   };
@@ -494,46 +492,40 @@ function chpxGrpprl(r: Run, fontFtc: (name: string) => number, rmIbst: (author: 
   return b.done();
 }
 
-// Paragraph sprms for alignment.
+// Paragraph sprms. A grpprl lists its sprms in ascending opcode order, which is how Word
+// and LibreOffice write them and what a reader applying them in order expects, so each one
+// is collected with its opcode and the group is sorted before it is written out.
 function papxGrpprl(p: Para): Uint8Array {
-  const b = new Buf();
-  if (p.align) {
-    b.u16(0x2403);
-    b.u8(p.align);
+  const sprms: { op: number; write: (b: Buf) => void }[] = [];
+  const add = (op: number, write: (b: Buf) => void): void => { sprms.push({ op, write }); };
+
+  if (p.align) add(0x2403, (b) => b.u8(p.align));
+  if (p.list) {
+    add(0x260a, (b) => b.u8(Math.min(p.list!.ilvl, LIST_LEVELS - 1))); // sprmPIlvl: which level
+    add(0x460b, (b) => b.u16(p.list!.ordered ? 2 : 1)); // sprmPIlfo: which list (1-based)
   }
-  if (p.indentTwips) {
-    b.u16(0x840f); // sprmPDxaLeft
-    b.u16(p.indentTwips);
-  }
-  if (p.spaceBeforeTw) {
-    b.u16(0xa413); // sprmPDyaBefore
-    b.u16(p.spaceBeforeTw);
-  }
-  if (p.spaceAfterTw) {
-    b.u16(0xa414); // sprmPDyaAfter
-    b.u16(p.spaceAfterTw);
-  }
-  if (p.table?.cell || p.table?.ttp) {
-    b.u16(0x2416); // sprmPFInTable
-    b.u8(1);
-  }
+  if (p.indentTwips) add(0x840f, (b) => b.u16(p.indentTwips!)); // sprmPDxaLeft
+  if (p.spaceBeforeTw) add(0xa413, (b) => b.u16(p.spaceBeforeTw!)); // sprmPDyaBefore
+  if (p.spaceAfterTw) add(0xa414, (b) => b.u16(p.spaceAfterTw!)); // sprmPDyaAfter
+  if (p.table?.cell || p.table?.ttp) add(0x2416, (b) => b.u8(1)); // sprmPFInTable
   if (p.table?.ttp) {
-    b.u16(0x2417); // sprmPFTtp
-    b.u8(1);
+    add(0x2417, (b) => b.u8(1)); // sprmPFTtp
+    if (p.table.header) add(0x3404, (b) => b.u8(1)); // sprmTFTableHeader: repeats each page
     const operand = buildTDef(p.table.cols || 1);
-    b.u16(0xd608); // sprmTDefTable (2-byte length prefix)
-    b.u16(operand.length + 1); // Word counts one more than the operand it writes
-    b.bytes(operand);
-    if (p.table.header) {
-      b.u16(0x3404); // sprmTFTableHeader: repeat this row as a header on each page
-      b.u8(1);
-    }
+    add(0xd608, (b) => { // sprmTDefTable (2-byte length prefix)
+      b.u16(operand.length + 1); // Word counts one more than the operand it writes
+      b.bytes(operand);
+    });
     if (p.table.shd) {
       const shd = buildTableShd(p.table.shd, p.table.cols || 1);
-      b.u16(0xd612); // sprmTDefTableShd (1-byte length prefix): per-cell background
-      b.u8(shd.length);
-      b.bytes(shd);
+      add(0xd612, (b) => { b.u8(shd.length); b.bytes(shd); }); // per-cell background
     }
+  }
+
+  const b = new Buf();
+  for (const s of sprms.sort((x, y) => x.op - y.op)) {
+    b.u16(s.op);
+    s.write(b);
   }
   return b.done();
 }
@@ -574,6 +566,101 @@ function buildTDef(cols: number): Uint8Array {
 }
 
 // Build a Sttbfffn (font table) from font names, with a name->ftc resolver.
+// ---------------------------------------------------------------------------
+// List tables. A .doc gets its bullets and numbers from a list definition, not from
+// characters in the text: a paragraph carries sprmPIlfo (which list) and sprmPIlvl (which
+// level), and the marker itself is described here. Two definitions are written, one
+// bulleted and one numbered, each with the nine levels Word expects.
+// ---------------------------------------------------------------------------
+
+const LIST_LEVELS = 9; // the deepest nesting a paragraph's sprmPIlvl may name
+const LSID_BULLET = 1;
+const LSID_NUMBER = 2;
+
+/** One LVL: its 28-byte LVLF, the level's indents, then the number text as an Xst. */
+function buildLvl(ordered: boolean): Uint8Array {
+  const b = new Buf();
+  b.u32(1); // iStartAt
+  b.u8(ordered ? 0 : 23); // nfc: 0 = arabic, 23 = bullet
+  b.u8(0); // jc = left, no legal/no-restart flags
+  // rgbxchNums: for each level, the 1-based offset in the number text of that level's
+  // placeholder. A bullet has none.
+  const nums = new Uint8Array(LIST_LEVELS);
+  if (ordered) nums[0] = 1; // the placeholder sits at the start of the number text
+  b.bytes(nums);
+  b.u8(0); // ixchFollow: a tab after the number
+  b.u32(0); // dxaIndentSav
+  b.u32(0); // unused
+  // The level's own indents, in the shape Word writes them: a left indent, a hanging
+  // indent for the marker, and a tab stop at the text position.
+  const left = 567;
+  const papx = new Buf();
+  papx.u16(0x845e); // sprmPDxaLeft
+  papx.u16(left);
+  papx.u16(0x8460); // sprmPDxaLeft1: hanging indent
+  papx.u16(0xfee5);
+  papx.u16(0xc615); // sprmPChgTabsPapx
+  papx.u8(5);
+  papx.u8(0); // cTabsDel
+  papx.u8(1); // cTabsAdd
+  papx.u16(left);
+  papx.u8(6);
+  const papxBytes = papx.done();
+  b.u8(0); // cbGrpprlChpx
+  b.u8(papxBytes.length); // cbGrpprlPapx
+  b.u8(0); // ilvlRestartLim
+  b.u8(0); // grfhic
+  b.bytes(papxBytes);
+  // The number text. A numbered level is a placeholder character holding the level index,
+  // then the separator; a bulleted one is the bullet glyph itself.
+  const xst = ordered ? `${String.fromCharCode(0)}.` : "\u2022";
+  b.u16(xst.length);
+  for (const ch of xst) b.u16(ch.charCodeAt(0));
+  return b.done();
+}
+
+/**
+ * PlfLst: the list definitions, each a 28-byte LSTF, followed by every list's nine LVLs.
+ *
+ * The declared length covers only the count and the LSTF array; the levels sit immediately
+ * after it, outside it. That is what Word and LibreOffice write, and a reader finds the
+ * levels by walking on from the end of the declared region, so declaring the full length
+ * sends it past them into whatever follows and every level falls back to a plain bullet.
+ */
+function buildPlfLst(): { bytes: Uint8Array; declaredLen: number } {
+  const b = new Buf();
+  b.u16(2); // cLst
+  for (const lsid of [LSID_BULLET, LSID_NUMBER]) {
+    b.u32(lsid);
+    b.u32(lsid); // tplc
+    for (let i = 0; i < LIST_LEVELS; i++) b.u16(0x0fff); // rgistdPara: no style per level
+    // fSimpleList: one level definition rather than nine. Written with nine, a reader takes
+    // the first level of the FIRST list for every list, so a numbered list came out bulleted.
+    b.u8(1);
+    b.u8(0); // grfhic
+  }
+  const declaredLen = 2 + 2 * 28;
+  for (const ordered of [false, true]) b.bytes(buildLvl(ordered));
+  return { bytes: b.done(), declaredLen };
+}
+
+/** PlfLfo: the list overrides a paragraph's sprmPIlfo actually points at (1-based). */
+function buildPlfLfo(): Uint8Array {
+  const b = new Buf();
+  b.u32(2); // lfoMac
+  for (const lsid of [LSID_BULLET, LSID_NUMBER]) {
+    b.u32(lsid);
+    b.u32(0); // unused
+    b.u32(0); // unused
+    b.u8(0); // clfolvl: no level overrides
+    b.u8(0); b.u8(0); b.u8(0); // unused
+  }
+  // An LFOData per override. It is empty of levels here, but the four bytes still have to be
+  // present: without them a reader's walk runs short and it falls back to plain bullets.
+  for (let i = 0; i < 2; i++) b.u32(0);
+  return b.done();
+}
+
 function buildFontTable(names: string[]): { bytes: Uint8Array; ftc: (name: string) => number } {
   const lower = names.map((n) => n.toLowerCase());
   const b = new Buf();
@@ -1368,6 +1455,21 @@ export function htmlToDoc(bodyHtml: string, page?: PageGeometry, notes?: Note[],
     for (const f of fields) { tbl.u8(f.ch); tbl.u8(f.flt); }
     return { fc, lcb: tbl.length - fc };
   };
+  // The list tables, written only when the document actually has a list.
+  const anyList = paras.some((p) => p.list);
+  const lstPlc = ((): { fc: number; lcb: number } => {
+    if (!anyList) return { fc: 0, lcb: 0 };
+    const fc = tbl.length;
+    const lst = buildPlfLst();
+    tbl.bytes(lst.bytes);
+    return { fc, lcb: lst.declaredLen };
+  })();
+  const lfoPlc = ((): { fc: number; lcb: number } => {
+    if (!anyList) return { fc: 0, lcb: 0 };
+    const fc = tbl.length;
+    tbl.bytes(buildPlfLfo());
+    return { fc, lcb: tbl.length - fc };
+  })();
   const fldPlc = writeFldPlc(mainFields, ccpText);
   const fldHdrPlc = writeFldPlc(hddFields, ccpHdd);
   // SttbfRMark: revision author names as an extended Sttbf (double-byte, no extra data).
@@ -1445,6 +1547,8 @@ export function htmlToDoc(bodyHtml: string, page?: PageGeometry, notes?: Note[],
       [FC.plcfHdd, hddPlc.fc, hddPlc.lcb],
       [FC.plcffldMom, fldPlc.fc, fldPlc.lcb],
       [FC.plcffldHdr, fldHdrPlc.fc, fldHdrPlc.lcb],
+      [FC.plfLst, lstPlc.fc, lstPlc.lcb],
+      [FC.plfLfo, lfoPlc.fc, lfoPlc.lcb],
       [FC.sttbfRMark, rmSttb.fc, rmSttb.lcb],
       [FC.plcfSed, fcSed, lcbSed],
       [FC.plcfBteChpx, fcChpxBte, lcbChpxBte],

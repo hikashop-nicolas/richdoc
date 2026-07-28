@@ -71,6 +71,55 @@ const HIGHLIGHT: Record<number, string> = {
 
 // Parse the font table (Sttbfffn) into a name-by-index array. Each entry is an FFN whose
 // name (UTF-16, null-terminated) sits at offset 40 after the 1-byte cbFfnM1.
+/**
+ * Which numbering each list uses, so an ordered list is not read back as a bulleted one.
+ * A .doc paragraph says only "list N, level L" (sprmPIlfo / sprmPIlvl); what the marker
+ * looks like lives in these two tables. Returns a lookup from ilfo (1-based) and level to
+ * true when that level is numbered rather than bulleted.
+ */
+function parseListTables(
+  table: Uint8Array,
+  lst: { fc: number; lcb: number },
+  lfo: { fc: number; lcb: number },
+): (ilfo: number, ilvl: number) => boolean {
+  const bullet = () => false;
+  if (!lst.lcb || !lfo.lcb) return bullet;
+  try {
+    const dv = new DataView(table.buffer, table.byteOffset, table.byteLength);
+    // PlfLst: cLst, then an LSTF each, then every list's levels back to back.
+    const cLst = dv.getInt16(lst.fc, true);
+    if (cLst <= 0) return bullet;
+    const lstf: { lsid: number; simple: boolean }[] = [];
+    for (let i = 0; i < cLst; i++) {
+      const at = lst.fc + 2 + i * 28;
+      lstf.push({ lsid: dv.getInt32(at, true), simple: (table[at + 26]! & 0x01) !== 0 });
+    }
+    // The LVLs follow, one per level: LVLF (28 bytes, nfc at offset 4, the two property-group
+    // sizes at 24 and 25), then those groups, then the number text as an Xst.
+    const numberedByLsid = new Map<number, boolean[]>();
+    let at = lst.fc + 2 + cLst * 28;
+    for (const l of lstf) {
+      const levels: boolean[] = [];
+      for (let k = 0; k < (l.simple ? 1 : 9); k++) {
+        const nfc = table[at + 4]!;
+        const cbChpx = table[at + 24]!;
+        const cbPapx = table[at + 25]!;
+        levels.push(nfc !== 23 && nfc !== 255); // 23 = bullet, 255 = no number
+        at += 28 + cbPapx + cbChpx;
+        at += 2 + dv.getUint16(at, true) * 2; // the Xst
+      }
+      numberedByLsid.set(l.lsid, levels);
+    }
+    // PlfLfo: lfoMac, then an LFO each; a paragraph's ilfo indexes this array.
+    const lfoMac = dv.getInt32(lfo.fc, true);
+    const byIlfo: (boolean[] | undefined)[] = [];
+    for (let i = 0; i < lfoMac; i++) byIlfo.push(numberedByLsid.get(dv.getInt32(lfo.fc + 4 + i * 16, true)));
+    return (ilfo, ilvl) => byIlfo[ilfo - 1]?.[Math.min(ilvl, 8)] ?? false;
+  } catch {
+    return bullet; // a table we cannot make sense of is not worth failing the whole read for
+  }
+}
+
 function parseFontTable(table: Uint8Array, fc: number, lcb: number): string[] {
   const names: string[] = [];
   if (lcb < 6) return names;
@@ -853,6 +902,7 @@ export function docToParts(bytes: Uint8Array): DocParts {
 
   const sttb = fib.fc(FC.sttbfffn);
   const fonts = parseFontTable(table, sttb.fc, sttb.lcb);
+  const listFmt = parseListTables(table, fib.fc(FC.plfLst), fib.fc(FC.plfLfo));
   const chpxPlc = fib.fc(FC.plcfBteChpx);
   const papxPlc = fib.fc(FC.plcfBtePapx);
   const charSpans = readFkpSpans(wd, table, chpxPlc.fc, chpxPlc.lcb, false, (g) => decodeCharSprms(g, fonts));
@@ -936,7 +986,7 @@ export function docToParts(bytes: Uint8Array): DocParts {
   const rmAuthors = parseSttbStrings(table, rmFc.fc, rmFc.lcb);
   const floats = parseFloats(wd, table, fib);
   return {
-    body: buildHtml(text, cpToFc, charSpans, paraSpans, refMap, cmtRefMap, imageAt, rmAuthors, sectionBreaks, textboxes, { mathml: equationMathml, present: !!eqNative }, floats),
+    body: buildHtml(text, cpToFc, charSpans, paraSpans, refMap, cmtRefMap, imageAt, rmAuthors, sectionBreaks, textboxes, { mathml: equationMathml, present: !!eqNative }, floats, listFmt),
     page,
     notes: notes.length ? notes : undefined,
     comments: comments.length ? comments : undefined,
@@ -1013,6 +1063,8 @@ function buildHtml(
   textboxes: string[] = [],
   equation: { mathml: string | null; present: boolean } = { mathml: null, present: false },
   floats: DocFloat[] = [],
+  /** Whether a given list and level is numbered rather than bulleted. */
+  listFmt: (ilfo: number, ilvl: number) => boolean = () => false,
 ): string {
   const blocks: { tag: string; attr: string; inner: string }[] = [];
   // Floating drawings by their anchor CP; the first image already shown inline (a shape that is also
@@ -1081,6 +1133,10 @@ function buildHtml(
     tableRowHdr = [];
   };
 
+  // Running number per list level, so an ordered list reads back as 1., 2., 3. A plain
+  // paragraph between two lists starts the next one over, which is what Word shows.
+  const listCounters = new Map<string, number>();
+
   const flushRun = (): void => {
     if (!curText) return;
     const body = esc(curText).replace(/\n/g, "<br>");
@@ -1118,13 +1174,21 @@ function buildHtml(
       return;
     }
     flushTable();
-    // A list-formatted paragraph (sprmPIlfo) renders as a bullet item: prepend the marker the
-    // list grouping recognises (a real Word list can be a number too, but bullet is the common
-    // run-in list and we do not resolve the LST/LFO tables). Deeper levels add an indent.
+    // A list-formatted paragraph (sprmPIlfo) gets the marker the list grouping recognises,
+    // numbered or bulleted according to the document's own list definition. Deeper levels
+    // add an indent.
     if (pp?.ilfo && pp.ilfo > 0 && curHeading < 1 && !pp.inTable) {
-      runHtml = `•\t${runHtml}`;
+      const key = `${pp.ilfo}:${pp.ilvl ?? 0}`;
+      if (listFmt(pp.ilfo, pp.ilvl ?? 0)) {
+        const n = (listCounters.get(key) ?? 0) + 1;
+        listCounters.set(key, n);
+        runHtml = `${n}.\t${runHtml}`;
+      } else {
+        listCounters.delete(key);
+        runHtml = `•\t${runHtml}`;
+      }
       if (pp.ilvl) styles.push(`margin-left:${pp.ilvl * 24}px`);
-    }
+    } else if (listCounters.size) listCounters.clear(); // a non-list paragraph ends the run
     // A paragraph flagged "page break before" starts a new page: an inline manual-break marker the
     // paginator honours (it breaks before a block that contains one).
     if (pp?.pageBreakBefore) runHtml = `<span class="docx-pagebreak" contenteditable="false" data-docx-pagebreak="manual"></span>${runHtml}`;

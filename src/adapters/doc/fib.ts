@@ -16,6 +16,8 @@ export const FC = {
   sttbfffn: 15,
   plcffldMom: 16, // field boundaries in the main document (CPs + FLD per field char)
   plcffldHdr: 17, // the same for the header/footer subdocument
+  plfLst: 73, // list definitions (LSTF + LVL per level)
+  plfLfo: 74, // list overrides: what a paragraph's sprmPIlfo indexes
   sttbfRMark: 51, // revision (tracked-change) author names
   grpXstAtnOwners: 36, // comment author names (group of Xst), indexed by ATRD.ibst
   clx: 33,

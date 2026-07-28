@@ -79,35 +79,37 @@ legacy writer has been checked automatically. It found six defects.
 **Fixed:**
 
 - **Note reference marks came out as `?`.** The FRD's `nAuto` was written as 0, which means
-  the note carries a custom mark; 1 means automatically numbered. A reader believed the 0
-  and showed the mark it found.
+  the note carries a custom mark; 1 means automatically numbered.
 - **A field code leaked into footer text**, rendering a page number as "Page PAGE 1". Each
-  subdocument keeps its own field table and only the main document's was written, so a
-  reader saw the field characters in a band as ordinary text. The header/footer table
-  (`plcffldHdr`) is now written too.
-- **A TIME field rendered as a date.** The instruction was written bare, leaving the format
-  to the reader. The document's own formatting switches are now carried through, with a time
-  format as the fallback when there are none.
+  subdocument keeps its own field table and only the main document's was written.
+- **A TIME field rendered as a date**, because the instruction was written bare and the
+  format left to the reader. The document's own switches now travel with the field.
+- **Table header rows were lost.** `sprmTDefTable`'s size field counts one byte more than
+  the operand that follows, and the reader consumed the full count, so every table property
+  after it was read from the wrong offset. (The writer had the mirror of the same bug.) With
+  the walk aligned, the header-row flag reads and writes correctly.
+- **Lists were not lists.** They were written as ordinary paragraphs with a literal bullet
+  character, and the reader turned every list paragraph into a bullet without consulting the
+  numbering tables, so a numbered list came back bulleted. The writer now emits real list
+  definitions (PlfLst / PlfLfo) and marks each paragraph with its list and level, and the
+  reader resolves the tables to tell a numbered list from a bulleted one.
 
 **Still open:**
 
-- **Lists are not real lists.** The writer emits ordinary paragraphs with a literal bullet
-  character, and the reader does not resolve the LST/LFO numbering tables either, so a
-  numbered list also comes back bulleted. Fixing it means implementing the numbering tables
-  on both sides. The largest of these by far, and the only one that needs real work rather
-  than a fix.
-- **A table's header-row designation is lost**, on both sides. An attempt using sprm 0x3404
-  changed nothing in either direction, so the opcode is unconfirmed; it was reverted rather
-  than shipped on a guess into a binary format. Needs the spec to hand.
 - **A comment's date is written as zeroes**, and a range comment's anchor moves to the end
-  of the range. Word 97's ATRD has no date field, so wherever LibreOffice keeps it has to be
-  established first.
-- **Endnotes number 1, 2, 3 where the original used i, ii, iii.** The endnote number format
-  lives in the document properties table, which this writer does not emit at all, so a
-  reader falls back to its own default. Note numbering itself is correct.
+  of the range. Word 97's ATRD has no date field; the fixtures show LibreOffice also writes
+  `SttbfAtnBkmk`, `PlcfAtnBkf` and `PlcfAtnBkl`, which we do not, and that is where to look.
+- **Bookmarks are dropped.** The fixtures show the original carrying `SttbfBkmk`, `PlcfBkf`
+  and `PlcfBkl`; we write none of them. Found while comparing structure tables, not by a
+  check, so nothing guards it yet.
+- **Endnotes number 1, 2, 3 where the original used i, ii, iii.** The number format lives in
+  the document properties, which we do write, so this is a matter of finding the field.
 - **Hyperlink text is written in the browser's default link blue** (#0000ee) rather than the
   colour the document used. The writer hardcodes it because a link in the editor's HTML
   carries no colour of its own.
+- **A list nested deeper than two levels** falls back to numbering for its lower levels. Each
+  list is written as a single level definition, because writing nine made a reader take the
+  first list's first level for every list; the levels the fixtures actually use are correct.
 
 Each open item is recorded as a known difference in `scripts/lo-check.py`, so fixing one
 turns that entry into a failure until the entry is removed.
