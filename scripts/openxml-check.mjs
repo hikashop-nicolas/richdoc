@@ -31,8 +31,16 @@ function have(cmd) {
 function validate(files) {
   if (!files.length) return [];
   const rel = files.map((f) => relative(ROOT, f));
-  const run = (cmd, args) =>
-    execFileSync(cmd, args, { cwd: ROOT, encoding: "utf8", maxBuffer: 64 * 1024 * 1024, stdio: ["ignore", "pipe", "pipe"] });
+  // The validator exits non-zero when a document could not be opened at all, and its output
+  // still matters then: that is the worst finding there is, and it is reported as a line.
+  const run = (cmd, args) => {
+    try {
+      return execFileSync(cmd, args, { cwd: ROOT, encoding: "utf8", maxBuffer: 64 * 1024 * 1024, stdio: ["ignore", "pipe", "pipe"] });
+    } catch (e) {
+      if (typeof e.stdout === "string" && e.stdout.includes("\t")) return e.stdout;
+      throw e;
+    }
+  };
   const out = have("dotnet")
     ? run("dotnet", ["run", "--project", PROJECT, "-c", "Release", "--", ...rel])
     : run("docker", [
