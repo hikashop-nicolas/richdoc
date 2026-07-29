@@ -3,3 +3,5 @@ dist/
 demo-dist/
 demo/samples/
 .cache/
+scripts/openxml-validate/bin/
+scripts/openxml-validate/obj/

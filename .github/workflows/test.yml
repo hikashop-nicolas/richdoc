@@ -35,6 +35,12 @@ jobs:
       # And judged by separate implementations that share no code with this one.
       - run: pip install --quiet python-docx odfpy
       - run: npm run check:reader
+      # Microsoft's own validator, which unlike the schemas sees the whole package: part
+      # structure and the relationships between parts, not only the markup.
+      - uses: actions/setup-dotnet@v4
+        with:
+          dotnet-version: "8.0"
+      - run: npm run check:openxml
 
   # LibreOffice as the oracle: it reads both the original fixture and richdoc's rewrite,
   # and the two readings are compared. Its own job because installing a word processor
