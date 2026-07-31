@@ -278,9 +278,6 @@ export interface UndoHandler {
 
 export interface EditorOptions {
   onChange?: () => void;
-  /** Which blocks a local edit touched. Set only by a host that shares the document:
-      maintaining the answer costs a walk of the body on every change. */
-  onBlocksChanged?(changes: BlockChanges): void;
   /** Author name stamped on comments and tracked changes added in the editor. */
   author?: string;
   /** ISO date string for added comments (injected so the build stays deterministic). */
@@ -306,6 +303,15 @@ export interface RichEditor {
   redo(): void;
   canUndo(): boolean;
   canRedo(): boolean;
+  /**
+   * Be told which blocks each local edit touched, or pass null to stop.
+   *
+   * A subscription rather than an option because the answer is not free: it costs a walk
+   * of every block on every change, which is not a price to pay in the ordinary case where
+   * nobody is sharing the document. Subscribing also fixes the baseline at that moment, so
+   * the first report describes an edit rather than the whole document.
+   */
+  setBlockReporter(handler: ((changes: BlockChanges) => void) | null): void;
   /** Every block as it stands, in document order. A host seeds a session from this. */
   blockSnapshot(): BlockState[];
   /**

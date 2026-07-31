@@ -55,8 +55,8 @@ function mount(): Mounted {
   const reported: BlockChanges[] = [];
   const editor = createDocxEditor(host, THREE, {
     paginated: false, // pagination is a view concern and has its own tests
-    onBlocksChanged: (c) => reported.push(c),
   });
+  editor.setBlockReporter((c) => reported.push(c));
   const body = host.querySelector(".docxedit-doc") as HTMLElement;
   return { editor, host, body, reported };
 }
@@ -93,6 +93,28 @@ describe("the collaboration API", () => {
     expect(last.changed[0].html).toContain("Second, edited.");
     expect(last.removed).toEqual([]);
     expect(last.order).toHaveLength(3);
+  });
+
+  // Reporting is a subscription because it is not free: it walks every block on every
+  // change. A document nobody is sharing must not pay for it.
+  it("reports nothing until someone subscribes, and stops when they leave", () => {
+    const host = document.createElement("div");
+    document.body.appendChild(host);
+    const reported: BlockChanges[] = [];
+    const editor = createDocxEditor(host, THREE, { paginated: false });
+    const body = host.querySelector(".docxedit-doc") as HTMLElement;
+
+    edit(body, 0, "Edited before anyone asked.");
+    expect(reported, "nobody listening").toEqual([]);
+
+    editor.setBlockReporter((c) => reported.push(c));
+    edit(body, 1, "Edited while listening.");
+    expect(reported).toHaveLength(1);
+    expect(reported[0].changed, "an edit, not the whole document").toHaveLength(1);
+
+    editor.setBlockReporter(null);
+    edit(body, 2, "Edited after they left.");
+    expect(reported).toHaveLength(1);
   });
 
   it("reports a new block as added, leaving its neighbours alone", () => {

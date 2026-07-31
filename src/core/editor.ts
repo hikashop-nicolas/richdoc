@@ -347,16 +347,17 @@ export function createRichEditor(container: HTMLElement, adapter: Adapter, optio
   // that differ rather than as the whole body. Only maintained while someone is listening:
   // the diff walks every block's outerHTML, which is not a cost to pay on every keystroke
   // of a document nobody is sharing.
-  // Seeded from the document as loaded, not left empty: with no baseline the first edit
-  // would diff against nothing and report every block in the document as new.
-  let lastBlocks: Map<string, string> | null = options.onBlocksChanged ? blockSnapshot(doc) : null;
+  let blockReporter: ((changes: BlockChanges) => void) | null = null;
+  // Set when a reporter subscribes, not at load: with no baseline the first edit would
+  // diff against nothing and report every block in the document as new.
+  let lastBlocks: Map<string, string> | null = null;
   /** Set while a remote change is being applied, so it is not reported straight back. */
   let applyingRemote = false;
   /** Set while a session owns undo. Null means this editor's own snapshot history. */
   let undoHandler: UndoHandler | null = null;
 
   const reportBlocks = () => {
-    if (!options.onBlocksChanged) return;
+    if (!blockReporter) return;
     assignBlockIds(doc); // an edit may have created blocks; existing ones keep their ids
     const now = blockSnapshot(doc);
     const previous = lastBlocks ?? new Map<string, string>();
@@ -367,7 +368,7 @@ export function createRichEditor(container: HTMLElement, adapter: Adapter, optio
     lastBlocks = now;
     if (applyingRemote) return;
     if (!changed.length && !added.length && !removed.length) return;
-    options.onBlocksChanged({
+    blockReporter({
       changed: [...changed, ...added].map((id) => ({ id, html: now.get(id) ?? "" })),
       removed,
       order: [...now.keys()],
@@ -2018,6 +2019,12 @@ export function createRichEditor(container: HTMLElement, adapter: Adapter, optio
     },
     setUndoHandler(handler) {
       undoHandler = handler;
+    },
+    setBlockReporter(handler) {
+      blockReporter = handler;
+      // The baseline is what the document looks like now. Subscribing is not an edit, and
+      // the first report after it must describe one.
+      lastBlocks = handler ? blockSnapshot(doc) : null;
     },
     destroy() {
       for (const u of fontUrls) URL.revokeObjectURL(u);
