@@ -252,8 +252,35 @@ export interface Adapter {
   capabilities: Capabilities;
 }
 
+/** One block's identity and current markup. */
+export interface BlockState {
+  id: string;
+  html: string;
+}
+
+/** What changed in the body, described per block rather than as a new whole body. */
+export interface BlockChanges {
+  /** Blocks whose markup differs, and blocks that are new. Both need sending. */
+  changed: BlockState[];
+  /** Ids that are no longer in the body. */
+  removed: string[];
+  /** Every id in document order, so a peer can reproduce a move without diffing. */
+  order: string[];
+}
+
+/** Undo and redo owned by someone else. See RichEditor.setUndoHandler. */
+export interface UndoHandler {
+  undo(): void;
+  redo(): void;
+  canUndo(): boolean;
+  canRedo(): boolean;
+}
+
 export interface EditorOptions {
   onChange?: () => void;
+  /** Which blocks a local edit touched. Set only by a host that shares the document:
+      maintaining the answer costs a walk of the body on every change. */
+  onBlocksChanged?(changes: BlockChanges): void;
   /** Author name stamped on comments and tracked changes added in the editor. */
   author?: string;
   /** ISO date string for added comments (injected so the build stays deterministic). */
@@ -279,5 +306,20 @@ export interface RichEditor {
   redo(): void;
   canUndo(): boolean;
   canRedo(): boolean;
+  /** Every block as it stands, in document order. A host seeds a session from this. */
+  blockSnapshot(): BlockState[];
+  /**
+   * Put a peer's blocks into the body: replace the ones named, drop the ones removed, and
+   * put the body in `order`. Does not report back as a local change.
+   */
+  applyRemoteBlocks(changes: BlockChanges): void;
+  /**
+   * Hand undo and redo to the host, or pass null to take them back.
+   *
+   * A collaboration session must do this. This editor's undo restores a whole-body
+   * snapshot, so once a peer's edit has landed, undoing would revert THEIR work along with
+   * yours and the two documents would silently diverge.
+   */
+  setUndoHandler(handler: UndoHandler | null): void;
   destroy(): void;
 }

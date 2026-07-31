@@ -6,7 +6,7 @@
 import { t, getLocale } from "./i18n";
 import { formatPageNumber } from "./util";
 import { defaultPageGeometry, paginate } from "./page";
-import type { Adapter, EditorOptions, RichEditor, RichDoc, SecGeom, Note } from "./types";
+import type { Adapter, BlockChanges, EditorOptions, RichEditor, RichDoc, SecGeom, Note, UndoHandler } from "./types";
 import { setupComments } from "./feature/comments";
 import { setupImages } from "./feature/images";
 import { setupImageLayout } from "./feature/image-layout";
@@ -19,6 +19,7 @@ import { setupAssist } from "./feature/assist";
 import { setupFields } from "./feature/fields";
 import { setupHistory } from "./feature/history";
 import { setupPaste } from "./feature/paste";
+import { BID, assignBlockIds, blockSnapshot, changedBlocks, stripBlockIds, topLevelBlocks } from "./feature/block-ids";
 import "../adapters/docx/docxedit.css";
 
 // --- Table pagination across page boundaries ---------------------------------------------
@@ -160,6 +161,10 @@ export function createRichEditor(container: HTMLElement, adapter: Adapter, optio
     readFailed = true;
   }
   doc.innerHTML = parts.body || "<p><br></p>";
+  // Identity for every block, before anything can edit one. Assigned here rather than on
+  // demand so that an id is never newly minted for a block that already existed, which is
+  // what makes "these blocks changed" a smaller answer than "the document changed".
+  assignBlockIds(doc);
   if (readFailed) {
     doc.setAttribute("contenteditable", "false");
     doc.setAttribute("aria-readonly", "true");
@@ -335,9 +340,44 @@ export function createRichEditor(container: HTMLElement, adapter: Adapter, optio
   // without it the change is its own step. The history module is created later
   // (it needs cleanBody/reflow), hence the indirection.
   let commitHistory: (key: string | null) => void = () => {};
+
+  // Per-block change reporting, for a collaboration host.
+  //
+  // The last state every block was seen in, so a change can be described as the blocks
+  // that differ rather than as the whole body. Only maintained while someone is listening:
+  // the diff walks every block's outerHTML, which is not a cost to pay on every keystroke
+  // of a document nobody is sharing.
+  // Seeded from the document as loaded, not left empty: with no baseline the first edit
+  // would diff against nothing and report every block in the document as new.
+  let lastBlocks: Map<string, string> | null = options.onBlocksChanged ? blockSnapshot(doc) : null;
+  /** Set while a remote change is being applied, so it is not reported straight back. */
+  let applyingRemote = false;
+  /** Set while a session owns undo. Null means this editor's own snapshot history. */
+  let undoHandler: UndoHandler | null = null;
+
+  const reportBlocks = () => {
+    if (!options.onBlocksChanged) return;
+    assignBlockIds(doc); // an edit may have created blocks; existing ones keep their ids
+    const now = blockSnapshot(doc);
+    const previous = lastBlocks ?? new Map<string, string>();
+    const { changed, added, removed } = changedBlocks(previous, now);
+    // The baseline advances either way. A peer's change is now part of what we hold, so
+    // the next local edit must be described against it; what differs is only whether the
+    // change is ours to announce.
+    lastBlocks = now;
+    if (applyingRemote) return;
+    if (!changed.length && !added.length && !removed.length) return;
+    options.onBlocksChanged({
+      changed: [...changed, ...added].map((id) => ({ id, html: now.get(id) ?? "" })),
+      removed,
+      order: [...now.keys()],
+    });
+  };
+
   const mark = (coalesce?: string) => {
     dirty = true;
     options.onChange?.();
+    reportBlocks();
     scheduleReflow(); // content changed: re-paginate (debounced)
     commitHistory(coalesce ?? null);
   };
@@ -1568,9 +1608,21 @@ export function createRichEditor(container: HTMLElement, adapter: Adapter, optio
 
   // Body HTML for saving: the live doc minus pagination artifacts (inert spacers and the
   // transient page-top class the engine adds for alignment).
-  const cleanBody = (): string => {
-    if (!doc.querySelector(`.docxedit-pagespacer, .docxedit-pagetop, .docxedit-colpage, .docxedit-secpage, .docxedit-vband, .docx-float, [${TSPLIT_ATTR}]`)) return doc.innerHTML;
+  //
+  // `forSave` additionally strips the block ids. They must survive into a history snapshot,
+  // or restoring one would mint fresh ids for every block and report the whole document as
+  // changed; they must not survive into the file, or opening a document would add an
+  // attribute to it and break the byte-for-byte claim. Two callers, two answers.
+  //
+  // Both current adapters rebuild their XML from the HTML and drop attributes they do not
+  // know, so today they would swallow the id anyway. That is their incidental behaviour,
+  // not a promise: an adapter that passed markup through more literally would leak it into
+  // every saved file, and nothing else would notice. Cheap to keep, expensive to be wrong
+  // about, so it is stripped here rather than left to them.
+  const cleanBody = (forSave = false): string => {
+    if (!forSave && !doc.querySelector(`.docxedit-pagespacer, .docxedit-pagetop, .docxedit-colpage, .docxedit-secpage, .docxedit-vband, .docx-float, [${TSPLIT_ATTR}]`)) return doc.innerHTML;
     const tmp = doc.cloneNode(true) as HTMLElement;
+    if (forSave) stripBlockIds(tmp);
     mergeSplitTables(tmp); // rejoin any split table or TOC so the saved HTML has one whole block
     for (const s of Array.from(tmp.querySelectorAll(".docxedit-pagespacer"))) s.remove();
     for (const el of Array.from(tmp.querySelectorAll(".docxedit-pagetop"))) el.classList.remove("docxedit-pagetop");
@@ -1611,10 +1663,82 @@ export function createRichEditor(container: HTMLElement, adapter: Adapter, optio
     onRestore: () => {
       dirty = true;
       options.onChange?.();
+      reportBlocks(); // an undo changes blocks like any other edit, and must be published
       reflow();
     },
   });
   commitHistory = (key) => history.commit(key);
+
+  /**
+   * Put a peer's blocks into the body.
+   *
+   * Two paths, and the difference is the caret. When only the content of blocks that
+   * already exist has changed, each is replaced where it sits: someone typing in a
+   * different paragraph keeps their cursor, which is the ordinary case in a shared
+   * document and the one worth protecting. When blocks were added, removed or moved, the
+   * body is rebuilt from the logical order instead, and the caret does not survive it.
+   * Doing the in-place case properly is worth the branch; doing the reordering case
+   * properly means tracking a caret through a reflow, and is not attempted here.
+   */
+  const applyRemoteBlocks = (changes: BlockChanges): void => {
+    applyingRemote = true;
+    try {
+      const byId = new Map<string, HTMLElement>();
+      for (const block of topLevelBlocks(doc)) {
+        const id = block.getAttribute(BID);
+        if (id) byId.set(id, block);
+      }
+      const order = [...byId.keys()];
+      const inPlace =
+        !changes.removed.length &&
+        changes.changed.every((b) => byId.has(b.id)) &&
+        order.length === changes.order.length &&
+        order.every((id, i) => id === changes.order[i]);
+
+      if (inPlace) {
+        for (const block of changes.changed) {
+          const el = byId.get(block.id);
+          if (el) el.outerHTML = block.html;
+        }
+      } else {
+        // Rebuild from the logical body, so pagination wrappers are not in the way. The
+        // reflow at the end puts them back.
+        const source = document.createElement("div");
+        source.innerHTML = cleanBody();
+        const have = new Map<string, HTMLElement>();
+        for (const block of topLevelBlocks(source)) {
+          const id = block.getAttribute(BID);
+          if (id) have.set(id, block);
+        }
+        const incoming = new Map(changes.changed.map((b) => [b.id, b.html]));
+        const out = document.createElement("div");
+        for (const id of changes.order) {
+          const html = incoming.get(id);
+          if (html) {
+            const holder = document.createElement("div");
+            holder.innerHTML = html;
+            const el = holder.firstElementChild;
+            if (el) out.appendChild(el);
+          } else {
+            const el = have.get(id);
+            if (el) out.appendChild(el);
+          }
+        }
+        doc.innerHTML = out.innerHTML || "<p><br></p>";
+      }
+
+      dirty = true;
+      options.onChange?.();
+      // Through the same path a local edit takes, so the baseline advances by the same
+      // rule. The applyingRemote flag is what stops it being announced: without this call
+      // the next local edit would diff against what we held before the peer's change and
+      // report their blocks as ours.
+      reportBlocks();
+      reflow();
+    } finally {
+      applyingRemote = false;
+    }
+  };
 
   // Ctrl/Cmd+Z / Shift+Z / Y anywhere in the body use the snapshot history (and
   // suppress the native undo it replaces). Bands and notes are separate small
@@ -1627,6 +1751,9 @@ export function createRichEditor(container: HTMLElement, adapter: Adapter, optio
     if (!isUndo && !isRedo) return;
     if (!doc.contains(e.target as Node | null)) return;
     e.preventDefault();
+    // A session owns the stack while it runs: this editor's own undo restores a whole-body
+    // snapshot, which would take a peer's edits back along with this person's.
+    if (undoHandler) return void (isUndo ? undoHandler.undo() : undoHandler.redo());
     if (isUndo) history.undo();
     else history.redo();
   };
@@ -1814,7 +1941,10 @@ export function createRichEditor(container: HTMLElement, adapter: Adapter, optio
   // its own module; it returns the change-button toggle to hook into the reflow cycle.
   const { updateChangeButtons, teardown: teardownToolbar } = setupToolbar({
     toolbar, wrap, doc, regions, caps, options, parts, adapter, getActiveEl: () => activeEl, mark,
-    undo: () => history.undo(), redo: () => history.redo(),
+    // Through the handler when a session owns the stack, exactly as Ctrl+Z does: a toolbar
+    // button that went straight to the snapshot history would undo a peer's work.
+    undo: () => (undoHandler ? undoHandler.undo() : history.undo()),
+    redo: () => (undoHandler ? undoHandler.redo() : history.redo()),
     positionCards, addThreadCard, setActiveComment, allocId, freshParaId, insertImage, styleBar: bottomLeft,
     newStyles, newStyleCss, vertical: isVertical(),
     insertSectionBreak: sectionBreakBtn ? () => sectionBreakBtn.click() : null,
@@ -1863,19 +1993,31 @@ export function createRichEditor(container: HTMLElement, adapter: Adapter, optio
       const notes: Note[] = [];
       for (const [id, nb] of noteBands) if (refIds.has(id)) notes.push({ id, kind: nb.kind, html: nb.el.innerHTML });
 
-      return adapter.write(cleanBody(), editedParts, getEdits(), geometryDirty ? geometry : undefined, newStyles, notes);
+      return adapter.write(cleanBody(true), editedParts, getEdits(), geometryDirty ? geometry : undefined, newStyles, notes);
     },
     undo() {
+      if (undoHandler) return void undoHandler.undo();
       history.undo();
     },
     redo() {
+      if (undoHandler) return void undoHandler.redo();
       history.redo();
     },
     canUndo() {
-      return history.canUndo();
+      return undoHandler ? undoHandler.canUndo() : history.canUndo();
     },
     canRedo() {
-      return history.canRedo();
+      return undoHandler ? undoHandler.canRedo() : history.canRedo();
+    },
+    blockSnapshot() {
+      assignBlockIds(doc);
+      return [...blockSnapshot(doc)].map(([id, html]) => ({ id, html }));
+    },
+    applyRemoteBlocks(changes) {
+      applyRemoteBlocks(changes);
+    },
+    setUndoHandler(handler) {
+      undoHandler = handler;
     },
     destroy() {
       for (const u of fontUrls) URL.revokeObjectURL(u);
