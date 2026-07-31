@@ -234,6 +234,55 @@ describe("the collaboration API", () => {
     expect(after.getRangeAt(0).startOffset, "at the offset it was at").toBe(3);
   });
 
+  // A peer editing a paragraph ABOVE what you are reading changes the height of everything
+  // above you, so the same scrollTop is a different place in the document and the words in
+  // front of you slide away. A rebuild is worse still and resets the scroll outright.
+  //
+  // jsdom lays nothing out, so the geometry is stubbed: blocks are stacked in document
+  // order and the one the peer edits gets taller, which is the case the arithmetic has to
+  // solve. jsdom does not reproduce the reset-to-zero, so that half is a browser question
+  // and was checked there.
+  it("keeps the block you were looking at where it was when one above it grows", () => {
+    const { host, body, editor } = mount();
+    const ids = editor.blockSnapshot().map((b) => b.id);
+    const scroll = host.querySelector(".docxedit-scroll") as HTMLElement;
+
+    const realRect = Element.prototype.getBoundingClientRect;
+    const rect = (top: number, height: number) =>
+      ({ top, bottom: top + height, height, left: 0, right: 0, width: 0, x: 0, y: top, toJSON() {} }) as DOMRect;
+    // Height follows content, so the block gets taller exactly when the peer's edit lands,
+    // rather than before it: the anchor has to be taken against the old layout.
+    const heightOf = (el: Element): number => ((el.textContent ?? "").includes("much longer") ? 40 : 20);
+    Element.prototype.getBoundingClientRect = function (this: Element) {
+      if (this === scroll) return rect(0, 100);
+      const kids = [...body.children];
+      const index = kids.indexOf(this);
+      if (index < 0) return rect(0, 0);
+      const above = kids.slice(0, index).reduce((sum, k) => sum + heightOf(k), 0);
+      return rect(above - scroll.scrollTop, heightOf(this));
+    };
+
+    try {
+      scroll.scrollTop = 20; // the second block is at the very top of the viewport
+
+      // The peer rewrites the first block into something twice as tall.
+      editor.applyRemoteBlocks({
+        changed: [{ id: ids[0], html: `<p ${BID}="${ids[0]}">First, and much longer now.</p>` }],
+        removed: [],
+        order: ids,
+      });
+
+      const second = body.children[1] as HTMLElement;
+      expect(
+        second.getBoundingClientRect().top - scroll.getBoundingClientRect().top,
+        "the block being read is still at the top of the viewport",
+      ).toBe(0);
+      expect(scroll.scrollTop, "which took following the block, not keeping the number").toBe(40);
+    } finally {
+      Element.prototype.getBoundingClientRect = realRect;
+    }
+  });
+
   it("removes a block a peer deleted", () => {
     const { body, editor } = mount();
     const snapshot = editor.blockSnapshot();

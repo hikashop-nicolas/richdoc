@@ -1714,6 +1714,7 @@ export function createRichEditor(container: HTMLElement, adapter: Adapter, optio
     // different block entirely, so without this every edit a peer makes throws this
     // person's cursor to the top of the document.
     const caretWas = caretPosition();
+    const viewWas = viewAnchor();
     try {
       const byId = new Map<string, HTMLElement>();
       for (const block of topLevelBlocks(doc)) {
@@ -1767,9 +1768,41 @@ export function createRichEditor(container: HTMLElement, adapter: Adapter, optio
       // report their blocks as ours.
       reportBlocks();
       restoreCaret(caretWas);
-      reflow();
+      reflow(); // synchronous, so the page is laid out again before the view is restored
+      restoreView(viewWas);
     } finally {
       applyingRemote = false;
+    }
+  };
+
+  /**
+   * What the person is looking at: the topmost block still on screen, and how far its top
+   * sits below the top of the viewport.
+   *
+   * Not the raw scrollTop. A peer editing a paragraph above changes the height of what is
+   * above you, so the same scrollTop is a different place in the document; and a rebuild
+   * resets it to zero outright. Anchoring to a block keeps the words in front of you in
+   * front of you, which is the thing being preserved.
+   */
+  const viewAnchor = (): { blockId: string; delta: number } | null => {
+    const base = scroll.getBoundingClientRect();
+    for (const block of topLevelBlocks(doc)) {
+      const id = block.getAttribute(BID);
+      if (!id) continue;
+      const box = block.getBoundingClientRect();
+      if (box.bottom > base.top) return { blockId: id, delta: box.top - base.top };
+    }
+    return null;
+  };
+
+  /** Scroll so the anchored block sits where it did. Silent if it has since gone. */
+  const restoreView = (anchor: { blockId: string; delta: number } | null): void => {
+    if (!anchor) return;
+    for (const block of topLevelBlocks(doc)) {
+      if (block.getAttribute(BID) !== anchor.blockId) continue;
+      const base = scroll.getBoundingClientRect();
+      scroll.scrollTop += block.getBoundingClientRect().top - base.top - anchor.delta;
+      return;
     }
   };
 
