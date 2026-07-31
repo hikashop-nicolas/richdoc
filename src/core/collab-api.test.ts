@@ -202,6 +202,38 @@ describe("the collaboration API", () => {
     ]);
   });
 
+  // Found in a browser, not here.
+  //
+  // Replacing a block's element breaks any selection inside it, and Chrome additionally
+  // collapses the selection to the start of the whole body even when the caret was in a
+  // different block. jsdom reproduces the first and not the second, so this covers the case
+  // it can fail on: the caret sits in the very paragraph the peer edited. Without the
+  // restore, every edit a peer made threw this person's cursor to the top of the document.
+  it("leaves this person's caret in place when a peer edits the block it is in", () => {
+    const { body, editor } = mount();
+    const ids = editor.blockSnapshot().map((b) => b.id);
+
+    const second = body.children[1] as HTMLElement;
+    const range = document.createRange();
+    range.setStart(second.firstChild!, 3);
+    range.collapse(true);
+    const sel = window.getSelection()!;
+    sel.removeAllRanges();
+    sel.addRange(range);
+
+    editor.applyRemoteBlocks({
+      changed: [{ id: ids[1], html: `<p ${BID}="${ids[1]}">Second, rewritten by a peer.</p>` }],
+      removed: [],
+      order: ids,
+    });
+
+    const after = window.getSelection()!;
+    expect(after.rangeCount, "there is still a caret").toBe(1);
+    const block = after.getRangeAt(0).startContainer.parentElement?.closest(`[${BID}]`);
+    expect(block?.getAttribute(BID), "in the block it was in").toBe(ids[1]);
+    expect(after.getRangeAt(0).startOffset, "at the offset it was at").toBe(3);
+  });
+
   it("removes a block a peer deleted", () => {
     const { body, editor } = mount();
     const snapshot = editor.blockSnapshot();

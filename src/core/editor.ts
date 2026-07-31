@@ -1709,6 +1709,11 @@ export function createRichEditor(container: HTMLElement, adapter: Adapter, optio
    */
   const applyRemoteBlocks = (changes: BlockChanges): void => {
     applyingRemote = true;
+    // Where this person's caret is, so it can be put back. Replacing a block's element
+    // collapses the selection to the start of the whole body, even when the caret was in a
+    // different block entirely, so without this every edit a peer makes throws this
+    // person's cursor to the top of the document.
+    const caretWas = caretPosition();
     try {
       const byId = new Map<string, HTMLElement>();
       for (const block of topLevelBlocks(doc)) {
@@ -1761,9 +1766,26 @@ export function createRichEditor(container: HTMLElement, adapter: Adapter, optio
       // the next local edit would diff against what we held before the peer's change and
       // report their blocks as ours.
       reportBlocks();
+      restoreCaret(caretWas);
       reflow();
     } finally {
       applyingRemote = false;
+    }
+  };
+
+  /**
+   * Put the caret back where it was, if it was in the body at all.
+   *
+   * Only then: forcing a selection into the body when the person was typing in a header, a
+   * footnote or another document would drag them somewhere they did not ask to be. The
+   * offset is clamped, since the block it points into may be the one the peer just edited.
+   */
+  const restoreCaret = (at: BlockPosition | null): void => {
+    if (!at) return;
+    for (const block of topLevelBlocks(doc)) {
+      if (block.getAttribute(BID) !== at.blockId) continue;
+      placeCaret(block, Math.min(at.offset, (block.textContent ?? "").length));
+      return;
     }
   };
 
