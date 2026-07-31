@@ -6,7 +6,7 @@
 import { t, getLocale } from "./i18n";
 import { formatPageNumber } from "./util";
 import { defaultPageGeometry, paginate } from "./page";
-import type { Adapter, BlockChanges, EditorOptions, RichEditor, RichDoc, SecGeom, Note, UndoHandler } from "./types";
+import type { Adapter, BlockChanges, BlockPosition, EditorOptions, RichEditor, RichDoc, SecGeom, Note, UndoHandler } from "./types";
 import { setupComments } from "./feature/comments";
 import { setupImages } from "./feature/images";
 import { setupImageLayout } from "./feature/image-layout";
@@ -20,6 +20,7 @@ import { setupFields } from "./feature/fields";
 import { setupHistory } from "./feature/history";
 import { setupPaste } from "./feature/paste";
 import { BID, assignBlockIds, blockSnapshot, changedBlocks, stripBlockIds, topLevelBlocks } from "./feature/block-ids";
+import { setupPeerCarets, type PeerCaret } from "./feature/peer-carets";
 import "../adapters/docx/docxedit.css";
 
 // --- Table pagination across page boundaries ---------------------------------------------
@@ -348,6 +349,8 @@ export function createRichEditor(container: HTMLElement, adapter: Adapter, optio
   // the diff walks every block's outerHTML, which is not a cost to pay on every keystroke
   // of a document nobody is sharing.
   let blockReporter: ((changes: BlockChanges) => void) | null = null;
+  /** Told where this person's caret is, while a session wants to know. */
+  let selectionReporter: ((at: BlockPosition | null) => void) | null = null;
   // Set when a reporter subscribes, not at load: with no baseline the first edit would
   // diff against nothing and report every block in the document as new.
   let lastBlocks: Map<string, string> | null = null;
@@ -1638,6 +1641,28 @@ export function createRichEditor(container: HTMLElement, adapter: Adapter, optio
     return tmp.innerHTML;
   };
 
+  // Other people's cursors, drawn over the page rather than into it.
+  const peerCarets = setupPeerCarets({ scroll, doc });
+
+  /** Where this person's caret is, as a block id and an offset into that block. */
+  const caretPosition = (): BlockPosition | null => {
+    const sel = window.getSelection();
+    if (!sel || !sel.rangeCount) return null;
+    const range = sel.getRangeAt(0);
+    if (!doc.contains(range.startContainer)) return null; // in a header, a note, or elsewhere
+    let el: Node | null = range.startContainer;
+    while (el && el !== doc && !(el.nodeType === 1 && (el as HTMLElement).hasAttribute(BID))) el = el.parentNode;
+    if (!el || el === doc) return null;
+    const block = el as HTMLElement;
+    return { blockId: block.getAttribute(BID)!, offset: charOffsetIn(block, range.startContainer, range.startOffset) };
+  };
+
+  const onSelectionChange = (): void => {
+    if (!selectionReporter) return;
+    selectionReporter(caretPosition());
+  };
+  document.addEventListener("selectionchange", onSelectionChange);
+
   let afterReflow = () => {}; // assigned once the toolbar exists (toggles change buttons)
   const reflow = () => {
     if (editingBand) return; // don't yank the band currently being edited
@@ -1646,6 +1671,7 @@ export function createRichEditor(container: HTMLElement, adapter: Adapter, optio
     applyZoom();
     positionCards();
     afterReflow();
+    peerCarets.reposition(); // the text moved, so the carets drawn over it did too
   };
   let reflowTimer = 0;
   const scheduleReflow = () => {
@@ -2020,6 +2046,13 @@ export function createRichEditor(container: HTMLElement, adapter: Adapter, optio
     setUndoHandler(handler) {
       undoHandler = handler;
     },
+    setPeerCarets(carets) {
+      peerCarets.set(carets as PeerCaret[]);
+    },
+    setSelectionReporter(handler) {
+      selectionReporter = handler;
+      if (handler) handler(caretPosition()); // visible now, not once they next move
+    },
     setBlockReporter(handler) {
       blockReporter = handler;
       // The baseline is what the document looks like now. Subscribing is not an edit, and
@@ -2027,6 +2060,8 @@ export function createRichEditor(container: HTMLElement, adapter: Adapter, optio
       lastBlocks = handler ? blockSnapshot(doc) : null;
     },
     destroy() {
+      document.removeEventListener("selectionchange", onSelectionChange);
+      peerCarets.teardown();
       for (const u of fontUrls) URL.revokeObjectURL(u);
       window.clearTimeout(reflowTimer);
       repositionObserver.disconnect();

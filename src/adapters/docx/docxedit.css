@@ -182,7 +182,13 @@
 
 /* The middle row: an optional outline pane on the left, then the scrolling page area. */
 .docxedit-main { display: flex; flex: 1; min-height: 0; }
-.docxedit-scroll { flex: 1; min-height: 0; overflow: auto; display: flex; flex-direction: column; align-items: safe center; padding: 24px; }
+.docxedit-scroll { flex: 1; min-height: 0; overflow: auto; display: flex; flex-direction: column; align-items: safe center; padding: 24px; position: relative; }
+/* Other people's cursors. An overlay, so a peer's caret is never part of the document:
+   not in the undo history, not in the saved file, not in the next per-block diff. */
+.docxedit-carets { position: absolute; inset: 0; pointer-events: none; z-index: 6; }
+.docxedit-caret { position: absolute; width: 2px; border-radius: 1px; }
+.docxedit-caret-name { position: absolute; left: 0; top: -1.15em; padding: 0 4px; border-radius: 3px 3px 3px 0;
+  font: 10px/1.4 system-ui, sans-serif; color: #fff; white-space: nowrap; }
 /* Document outline (navigation) pane. */
 .docxedit-outline { flex: 0 0 240px; min-height: 0; overflow: auto; background: #3a3d42; color: var(--rdoc-canvas, #e6e8ec); border-right: 1px solid var(--rdoc-chrome, #2b2f36); display: flex; flex-direction: column; font: 13px/1.4 system-ui, sans-serif; }
 .docxedit-outline[hidden] { display: none; }

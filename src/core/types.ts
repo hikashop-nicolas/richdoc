@@ -268,6 +268,20 @@ export interface BlockChanges {
   order: string[];
 }
 
+/** Where a caret is: which block, and how many characters into it. */
+export interface BlockPosition {
+  blockId: string;
+  offset: number;
+}
+
+/** Another person's cursor, as presence delivers it. */
+export interface PeerCaret extends BlockPosition {
+  /** Stable for the life of that peer's session. */
+  id: string;
+  name: string;
+  colour: string;
+}
+
 /** Undo and redo owned by someone else. See RichEditor.setUndoHandler. */
 export interface UndoHandler {
   undo(): void;
@@ -312,6 +326,18 @@ export interface RichEditor {
    * the first report describes an edit rather than the whole document.
    */
   setBlockReporter(handler: ((changes: BlockChanges) => void) | null): void;
+  /**
+   * Be told where this person's caret is, or pass null to stop. Reports on every caret
+   * move while subscribed, so like block reporting it is a session's cost to opt into.
+   */
+  setSelectionReporter(handler: ((at: BlockPosition | null) => void) | null): void;
+  /**
+   * Draw the other people's cursors. Replaces the whole set each call.
+   *
+   * They are drawn over the page, never inserted into it: a peer's caret in the body would
+   * end up in the undo history, in the saved file, and in the next per-block diff.
+   */
+  setPeerCarets(carets: readonly PeerCaret[]): void;
   /** Every block as it stands, in document order. A host seeds a session from this. */
   blockSnapshot(): BlockState[];
   /**

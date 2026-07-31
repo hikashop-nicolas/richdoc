@@ -1,8 +1,8 @@
-import { beforeAll, describe, expect, it } from "vitest";
+import { afterEach, beforeAll, beforeEach, describe, expect, it } from "vitest";
 import { strToU8, unzipSync, zipSync } from "fflate";
 import { createDocxEditor } from "../adapters/docx/index";
 import { BID } from "./feature/block-ids";
-import type { BlockChanges, RichEditor } from "./types";
+import type { BlockChanges, BlockPosition, RichEditor } from "./types";
 
 // What a collaboration host needs from this editor, and nothing about how it is drawn.
 //
@@ -267,6 +267,124 @@ describe("the collaboration API", () => {
       expect(body.textContent).toContain("First, edited.");
       editor.undo();
       expect(body.textContent, "its own stack again").toContain("First.");
+    });
+  });
+
+  describe("presence", () => {
+    // jsdom lays nothing out, so every rect is zero and a caret has nowhere to go. These
+    // tests are about which carets are drawn, for whom and in what colour; where exactly
+    // they land on screen is layout, and jsdom cannot answer it either way.
+    let realRangeRect: typeof Range.prototype.getBoundingClientRect;
+    const fakeRect = (top: number) =>
+      ({ x: 10, y: top, top, left: 10, right: 12, bottom: top + 16, width: 2, height: 16, toJSON() {} }) as DOMRect;
+    beforeEach(() => {
+      realRangeRect = Range.prototype.getBoundingClientRect;
+      Range.prototype.getBoundingClientRect = function () {
+        return fakeRect(20);
+      };
+    });
+    afterEach(() => {
+      Range.prototype.getBoundingClientRect = realRangeRect;
+    });
+
+    /** Put this document's caret at `offset` characters into block `index`. */
+    function putCaret(body: HTMLElement, index: number, offset: number): void {
+      const block = body.children[index] as HTMLElement;
+      const text = block.firstChild ?? block;
+      const range = document.createRange();
+      if (text.nodeType === 3) range.setStart(text, offset);
+      else range.setStart(block, 0);
+      range.collapse(true);
+      const sel = window.getSelection()!;
+      sel.removeAllRanges();
+      sel.addRange(range);
+      document.dispatchEvent(new Event("selectionchange"));
+    }
+
+    it("reports the caret as a block and an offset, not a position in the document", () => {
+      const { body, editor } = mount();
+      const seen: (BlockPosition | null)[] = [];
+      editor.setSelectionReporter((at) => seen.push(at));
+
+      putCaret(body, 1, 4);
+
+      const last = seen[seen.length - 1];
+      expect(last?.blockId, "the block it is in").toBe(editor.blockSnapshot()[1].id);
+      expect(last?.offset, "and how far into it").toBe(4);
+    });
+
+    // The offset has to be relative to the block. A document-wide one would move every time
+    // anyone typed above it, so two peers would disagree about where each other are.
+    it("counts the offset from the start of its own block", () => {
+      const { body, editor } = mount();
+      const seen: (BlockPosition | null)[] = [];
+      editor.setSelectionReporter((at) => seen.push(at));
+
+      putCaret(body, 2, 3);
+      expect(seen[seen.length - 1]?.offset).toBe(3);
+      expect(seen[seen.length - 1]?.blockId).toBe(editor.blockSnapshot()[2].id);
+    });
+
+    it("stops reporting when the session lets go", () => {
+      const { body, editor } = mount();
+      const seen: (BlockPosition | null)[] = [];
+      editor.setSelectionReporter((at) => seen.push(at));
+      putCaret(body, 0, 1);
+      const count = seen.length;
+
+      editor.setSelectionReporter(null);
+      putCaret(body, 1, 1);
+      expect(seen.length).toBe(count);
+    });
+
+    it("draws a caret per peer, in that peer's colour", () => {
+      const { host, editor } = mount();
+      const ids = editor.blockSnapshot().map((b) => b.id);
+
+      editor.setPeerCarets([
+        { id: "p1", name: "Ada", colour: "rgb(255, 0, 0)", blockId: ids[0], offset: 2 },
+        { id: "p2", name: "Bo", colour: "rgb(0, 0, 255)", blockId: ids[2], offset: 1 },
+      ]);
+
+      const carets = host.querySelectorAll(".docxedit-caret");
+      expect(carets).toHaveLength(2);
+      expect([...host.querySelectorAll(".docxedit-caret-name")].map((n) => n.textContent)).toEqual([
+        "Ada",
+        "Bo",
+      ]);
+      expect((carets[0] as HTMLElement).style.background).toBe("rgb(255, 0, 0)");
+      expect((carets[1] as HTMLElement).style.background).toBe("rgb(0, 0, 255)");
+    });
+
+    it("replaces the whole set, so someone who left stops being drawn", () => {
+      const { host, editor } = mount();
+      const ids = editor.blockSnapshot().map((b) => b.id);
+      editor.setPeerCarets([{ id: "p1", name: "Ada", colour: "#f00", blockId: ids[0], offset: 0 }]);
+      expect(host.querySelectorAll(".docxedit-caret")).toHaveLength(1);
+
+      editor.setPeerCarets([]);
+      expect(host.querySelectorAll(".docxedit-caret")).toHaveLength(0);
+    });
+
+    it("draws nothing for a peer in a block this document does not have", () => {
+      const { host, editor } = mount();
+      editor.setPeerCarets([{ id: "p1", name: "Ada", colour: "#f00", blockId: "not-here", offset: 0 }]);
+      expect(host.querySelectorAll(".docxedit-caret")).toHaveLength(0);
+    });
+
+    // The whole reason for an overlay. A peer's caret in the body would be in the undo
+    // history, in the saved file, and in the next diff as a change nobody made.
+    it("keeps peer carets out of the document itself", async () => {
+      const { body, editor, reported } = mount();
+      const ids = editor.blockSnapshot().map((b) => b.id);
+      const before = reported.length;
+
+      editor.setPeerCarets([{ id: "p1", name: "Ada", colour: "#f00", blockId: ids[0], offset: 2 }]);
+
+      expect(body.innerHTML, "not in the body").not.toContain("docxedit-caret");
+      expect(reported.length, "and not a change").toBe(before);
+      const bytes = await editor.getBytes();
+      expect(new TextDecoder().decode(unzipSync(bytes)["word/document.xml"])).not.toContain("Ada");
     });
   });
 
