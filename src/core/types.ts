@@ -291,7 +291,12 @@ export interface PeerCaret extends BlockPosition {
  * does not have to guess from the id.
  */
 export interface DocExtra {
-  kind: "band" | "note" | "geometry" | "styles";
+  /**
+   * What this entry is. Comment edits use "comment:reply", "comment:reaction" and so on,
+   * each keyed by the thing itself rather than by a position, so two people adding
+   * different replies end up with both rather than one.
+   */
+  kind: "band" | "note" | "geometry" | "styles" | `comment:${string}`;
   /** The part path for a band, the note's id for a note, "" for the document-wide ones. */
   id: string;
   /** HTML for a band, JSON for everything else. */

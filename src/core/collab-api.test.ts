@@ -550,4 +550,41 @@ describe("the document beside its body", () => {
     edit(body, 0, "Changed.");
     expect(seen).toEqual([]);
   });
+
+  // Comment edits ride the same channel, keyed by the thing itself. Two people adding
+  // different replies must end up with both; a list would lose one.
+  describe("comment edits", () => {
+    const reply = (id: string, text: string): DocExtra => ({
+      kind: "comment:reply",
+      id,
+      value: JSON.stringify({ id, paraId: "p1", parentParaId: "p1", author: "A", date: "", text }),
+    });
+
+    it("keeps both replies when each side adds one", () => {
+      const { editor } = mount();
+      editor.applyRemoteDocExtras([reply("r-ada", "From Ada")]);
+      editor.applyRemoteDocExtras([reply("r-bo", "From Bo")]);
+
+      const ids = editor
+        .docExtras()
+        .filter((e) => e.kind === "comment:reply")
+        .map((e) => e.id)
+        .sort();
+      expect(ids, "two, not one").toEqual(["r-ada", "r-bo"]);
+    });
+
+    it("does not add the same reply twice", () => {
+      const { editor } = mount();
+      editor.applyRemoteDocExtras([reply("r-ada", "From Ada")]);
+      editor.applyRemoteDocExtras([reply("r-ada", "From Ada")]);
+      expect(editor.docExtras().filter((e) => e.kind === "comment:reply")).toHaveLength(1);
+    });
+
+    it("carries a thread being resolved", () => {
+      const { editor } = mount();
+      editor.applyRemoteDocExtras([{ kind: "comment:done", id: "p1", value: "true" }]);
+      const done = editor.docExtras().find((e) => e.kind === "comment:done" && e.id === "p1");
+      expect(done?.value).toBe("true");
+    });
+  });
 });

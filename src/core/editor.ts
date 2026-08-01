@@ -381,6 +381,7 @@ export function createRichEditor(container: HTMLElement, adapter: Adapter, optio
     for (const [id, nb] of noteBands) {
       out.push({ kind: "note", id, value: JSON.stringify({ kind: nb.kind, html: nb.el.innerHTML }) });
     }
+    for (const e of editEntries()) out.push({ kind: `comment:${e.kind}`, id: e.key, value: e.value });
     out.push({ kind: "geometry", id: "", value: JSON.stringify(geometry) });
     out.push({ kind: "styles", id: "", value: JSON.stringify(newStyles) });
     return out;
@@ -423,7 +424,7 @@ export function createRichEditor(container: HTMLElement, adapter: Adapter, optio
     scheduleReflow(); // content changed: re-paginate (debounced)
     commitHistory(coalesce ?? null);
   };
-  const { addThreadCard, positionCards, setActiveComment, allocId, freshParaId, getEdits } =
+  const { addThreadCard, positionCards, setActiveComment, allocId, freshParaId, getEdits, editEntries, mergeEdits } =
     setupComments({ wrap, cmtPanel, pagebox, options, caps, mark });
 
   // Page geometry write-back is gated on this flag (set when the document geometry is edited via
@@ -2157,6 +2158,10 @@ export function createRichEditor(container: HTMLElement, adapter: Adapter, optio
       applyingRemoteExtras = true;
       try {
         const bands = new Map(bandEntries().map((b) => [b.path, b.el]));
+        const commentEntries = extras
+          .filter((e) => e.kind.startsWith("comment:"))
+          .map((e) => ({ kind: e.kind.slice("comment:".length), key: e.id, value: e.value }));
+        if (commentEntries.length) mergeEdits(commentEntries);
         for (const extra of extras) {
           if (extra.kind === "band") {
             const el = bands.get(extra.id);

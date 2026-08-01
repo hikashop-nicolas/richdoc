@@ -382,5 +382,69 @@ export function setupComments(deps: CommentsDeps) {
     edited: pendingEdited,
   });
 
-  return { addThreadCard, positionCards, setActiveComment, allocId, freshParaId, getEdits };
+  /**
+   * The pending comment edits as keyed entries, so a session can merge them.
+   *
+   * Keyed by what each thing IS rather than by its position in a list: two people adding
+   * different replies must end up with both, and two people reacting must end up with both
+   * reactions. A list would make one of the two disappear.
+   */
+  const editEntries = (): { kind: string; key: string; value: string }[] => {
+    const out: { kind: string; key: string; value: string }[] = [];
+    for (const r of pendingReactions) {
+      out.push({ kind: "reaction", key: `${r.commentId}|${r.emoji}|${r.person}`, value: JSON.stringify(r) });
+    }
+    for (const r of pendingReplies) out.push({ kind: "reply", key: r.id, value: JSON.stringify(r) });
+    for (const [paraId, value] of pendingDone) out.push({ kind: "done", key: paraId, value: String(value) });
+    for (const id of deletedComments) out.push({ kind: "deleted", key: id, value: "1" });
+    for (const e of pendingEdited) out.push({ kind: "edited", key: e.id, value: e.text });
+    return out;
+  };
+
+  /**
+   * Merge a peer's comment edits into ours, so a save from either side carries both.
+   *
+   * The cards on screen are NOT rebuilt: they are drawn once at mount from the document's
+   * own comments, and there is no path here to add a peer's reply to the panel. So a reply
+   * from someone else reaches the file and is seen after a reload, not before. That is a
+   * real limit and is written down rather than left to be discovered.
+   */
+  const mergeEdits = (entries: { kind: string; key: string; value: string }[]): boolean => {
+    let touched = false;
+    for (const entry of entries) {
+      try {
+        if (entry.kind === "reaction") {
+          const r = JSON.parse(entry.value) as { commentId: string; emoji: string; person: string };
+          if (pendingReactions.some((x) => x.commentId === r.commentId && x.emoji === r.emoji && x.person === r.person)) continue;
+          pendingReactions.push(r);
+          touched = true;
+        } else if (entry.kind === "reply") {
+          const r = JSON.parse(entry.value) as (typeof pendingReplies)[number];
+          if (pendingReplies.some((x) => x.id === r.id)) continue;
+          pendingReplies.push(r);
+          touched = true;
+        } else if (entry.kind === "done") {
+          const want = entry.value === "true";
+          if (pendingDone.get(entry.key) === want) continue;
+          pendingDone.set(entry.key, want);
+          touched = true;
+        } else if (entry.kind === "deleted") {
+          if (deletedComments.includes(entry.key)) continue;
+          deletedComments.push(entry.key);
+          touched = true;
+        } else if (entry.kind === "edited") {
+          const prior = pendingEdited.find((x) => x.id === entry.key);
+          if (prior?.text === entry.value) continue;
+          if (prior) prior.text = entry.value;
+          else pendingEdited.push({ id: entry.key, text: entry.value });
+          touched = true;
+        }
+      } catch {
+        /* unreadable entry; skip it rather than lose the rest */
+      }
+    }
+    return touched;
+  };
+
+  return { addThreadCard, positionCards, setActiveComment, allocId, freshParaId, getEdits, editEntries, mergeEdits };
 }
