@@ -56,6 +56,14 @@ export function setupComments(deps: CommentsDeps) {
     }
   };
 
+  /**
+   * Every comment item on screen, by id: its entry, its element, and its reaction row.
+   *
+   * A peer names a comment; without this the name reaches the file and nothing on screen,
+   * which is exactly the gap that had a reply appear only after a reload.
+   */
+  const itemsById = new Map<string, { entry: CommentEntry; item: HTMLElement; row: HTMLElement | null; text: HTMLElement }>();
+
   const buildItem = (entry: CommentEntry, isReply: boolean): HTMLElement => {
     const item = document.createElement("div");
     item.className = "docxedit-cmt-item" + (isReply ? " docxedit-cmt-reply" : "");
@@ -130,6 +138,7 @@ export function setupComments(deps: CommentsDeps) {
       ta.focus();
     });
     item.append(meta, edit, text, more);
+    itemsById.set(entry.id, { entry, item, row: null, text });
     if (caps.commentReactions) {
       const row = document.createElement("div");
       row.className = "docxedit-cmt-react-row";
@@ -145,6 +154,8 @@ export function setupComments(deps: CommentsDeps) {
       row.appendChild(addBtn);
       renderReactions(row, entry);
       item.appendChild(row);
+      const rec = itemsById.get(entry.id);
+      if (rec) rec.row = row;
     }
     return item;
   };
@@ -409,6 +420,70 @@ export function setupComments(deps: CommentsDeps) {
    * from someone else reaches the file and is seen after a reload, not before. That is a
    * real limit and is written down rather than left to be discovered.
    */
+  /** The card for a thread, found by the paragraph id a peer names it with. */
+  const cardOfPara = (paraId: string): HTMLElement | null =>
+    (Array.from(cmtPanel.children) as HTMLElement[]).find((c) => c.dataset.paraId === paraId) ?? null;
+
+  /**
+   * Put a peer's comment edit on screen, mirroring what the local action does to the card.
+   *
+   * Each of these updates the pending state and the DOM together rather than rebuilding the
+   * panel: a rebuild would throw away a reply someone is halfway through typing, and an
+   * open reply box is the most likely thing to be on screen when a peer's edit arrives.
+   */
+  const showRemote = (kind: string, key: string, value: string): void => {
+    if (kind === "reply") {
+      const r = JSON.parse(value) as (typeof pendingReplies)[number];
+      const card = cardOfPara(r.parentParaId);
+      if (!card) return; // a thread this peer does not have; the file still gets the reply
+      const threadId = card.dataset.commentId ?? "";
+      const members = threadMembers.get(threadId) ?? [threadId];
+      if (!members.includes(r.id)) members.push(r.id);
+      registerThread(threadId, members);
+      const box = card.querySelector(".docxedit-cmt-replybox");
+      const item = buildItem(
+        { id: r.id, author: r.author, date: r.date, text: r.text, reactions: [], paraId: r.paraId },
+        true,
+      );
+      card.insertBefore(item, box);
+      return;
+    }
+    if (kind === "reaction") {
+      const r = JSON.parse(value) as { commentId: string; emoji: string; person: string };
+      const rec = itemsById.get(r.commentId);
+      if (!rec) return;
+      const existing = rec.entry.reactions.find((x) => x.emoji === r.emoji);
+      if (existing) {
+        if (!existing.people.includes(r.person)) existing.people.push(r.person);
+      } else rec.entry.reactions.push({ emoji: r.emoji, people: [r.person] });
+      if (rec.row) renderReactions(rec.row, rec.entry);
+      return;
+    }
+    if (kind === "done") {
+      cardOfPara(key)?.classList.toggle("resolved", value === "true");
+      return;
+    }
+    if (kind === "edited") {
+      const rec = itemsById.get(key);
+      if (!rec) return;
+      rec.entry.text = value;
+      rec.text.textContent = value;
+      return;
+    }
+    if (kind === "deleted") {
+      const rec = itemsById.get(key);
+      rec?.item.remove();
+      itemsById.delete(key);
+      // The highlight in the body goes with it, as the local delete does.
+      wrap.querySelectorAll(`.docx-comment[data-comment-id="${CSS.escape(key)}"]`).forEach((span) => {
+        while (span.firstChild) span.parentNode?.insertBefore(span.firstChild, span);
+        span.remove();
+      });
+      const card = (Array.from(cmtPanel.children) as HTMLElement[]).find((c) => c.dataset.commentId === key);
+      card?.remove();
+    }
+  };
+
   const mergeEdits = (entries: { kind: string; key: string; value: string }[]): boolean => {
     let touched = false;
     for (const entry of entries) {
@@ -438,11 +513,15 @@ export function setupComments(deps: CommentsDeps) {
           if (prior) prior.text = entry.value;
           else pendingEdited.push({ id: entry.key, text: entry.value });
           touched = true;
-        }
+        } else continue;
+        // Only for an entry that was new: the screen follows the state it just changed, so
+        // a duplicate delivery cannot append the same reply to the card twice.
+        showRemote(entry.kind, entry.key, entry.value);
       } catch {
         /* unreadable entry; skip it rather than lose the rest */
       }
     }
+    if (touched) positionCards();
     return touched;
   };
 

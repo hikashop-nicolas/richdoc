@@ -19,6 +19,14 @@ beforeAll(() => {
       disconnect() {}
     };
   }
+  // jsdom has no CSS.escape, and the comment panel calls it while laying out at load.
+  // Quoting is what actually makes these selectors safe (the ids go inside quotes), so a
+  // pass-through with the quote characters escaped behaves as the real one does here.
+  if (!(globalThis as unknown as { CSS?: unknown }).CSS) {
+    (globalThis as unknown as { CSS: unknown }).CSS = {
+      escape: (v: string) => String(v).replace(/["\\]/g, "\\$&"),
+    };
+  }
   const zeroRect = () =>
     ({ x: 0, y: 0, top: 0, left: 0, right: 0, bottom: 0, width: 0, height: 0, toJSON() {} }) as DOMRect;
   if (!Range.prototype.getBoundingClientRect) Range.prototype.getBoundingClientRect = zeroRect;
@@ -41,6 +49,40 @@ const THREE = zipSync({
     `<Relationships xmlns="http://schemas.openxmlformats.org/package/2006/relationships"></Relationships>`,
   ),
 });
+
+/** The same document with one comment on the first paragraph, so a thread card exists. */
+const COMMENTED = zipSync({
+  "[Content_Types].xml": strToU8("<Types/>"),
+  "_rels/.rels": strToU8("<Relationships/>"),
+  "word/document.xml": strToU8(
+    `<?xml version="1.0"?><w:document xmlns:w="http://schemas.openxmlformats.org/wordprocessingml/2006/main"><w:body>` +
+      `<w:p><w:commentRangeStart w:id="1"/><w:r><w:t>First.</w:t></w:r><w:commentRangeEnd w:id="1"/>` +
+      `<w:r><w:commentReference w:id="1"/></w:r></w:p>` +
+      `<w:p><w:r><w:t>Second.</w:t></w:r></w:p>` +
+      `</w:body></w:document>`,
+  ),
+  "word/comments.xml": strToU8(
+    `<?xml version="1.0"?><w:comments xmlns:w="http://schemas.openxmlformats.org/wordprocessingml/2006/main" ` +
+      `xmlns:w14="http://schemas.microsoft.com/office/word/2010/wordml">` +
+      `<w:comment w:id="1" w:author="Bo" w:date="2026-01-01T00:00:00Z">` +
+      `<w:p w14:paraId="0000A001"><w:r><w:t>Is this right?</w:t></w:r></w:p></w:comment></w:comments>`,
+  ),
+  "word/_rels/document.xml.rels": strToU8(
+    `<Relationships xmlns="http://schemas.openxmlformats.org/package/2006/relationships">` +
+      `<Relationship Id="rC" Type="http://schemas.openxmlformats.org/officeDocument/2006/relationships/comments" Target="comments.xml"/>` +
+      `</Relationships>`,
+  ),
+});
+
+/** Mount the commented fixture and hand back its one thread card. */
+function mountCommented(): { editor: RichEditor; host: HTMLElement; card: HTMLElement } {
+  const host = document.createElement("div");
+  document.body.appendChild(host);
+  const editor = createDocxEditor(host, COMMENTED, { paginated: false });
+  const card = host.querySelector(".docxedit-cmt-card") as HTMLElement | null;
+  if (!card) throw new Error("the commented fixture produced no thread card");
+  return { editor, host, card };
+}
 
 interface Mounted {
   editor: RichEditor;
@@ -606,6 +648,70 @@ describe("the document beside its body", () => {
       editor.applyRemoteDocExtras([reply("r-ada", "From Ada")]);
       editor.applyRemoteDocExtras([reply("r-ada", "From Ada")]);
       expect(editor.docExtras().filter((e) => e.kind === "comment:reply")).toHaveLength(1);
+    });
+
+    // A reply that reaches the file and not the screen is the shape of bug that looks like
+    // it works: the peer sees nothing, reloads for some other reason, and their answer is
+    // suddenly there. The card has to change as the reply arrives.
+    it("shows a peer's reply on the card, not only in the file", () => {
+      const { editor, card } = mountCommented();
+      const before = card.querySelectorAll(".docxedit-cmt-item").length;
+
+      editor.applyRemoteDocExtras([
+        {
+          kind: "comment:reply",
+          id: "r-ada",
+          value: JSON.stringify({
+            id: "r-ada",
+            paraId: "0000A002",
+            parentParaId: card.dataset.paraId,
+            author: "Ada",
+            date: "2026-01-01",
+            text: "Ada answers.",
+          }),
+        },
+      ]);
+
+      expect(card.querySelectorAll(".docxedit-cmt-item").length, "a new item").toBe(before + 1);
+      expect(card.textContent).toContain("Ada answers.");
+    });
+
+    it("does not add the same reply to the card twice", () => {
+      const { editor, card } = mountCommented();
+      const reply = {
+        kind: "comment:reply",
+        id: "r-ada",
+        value: JSON.stringify({
+          id: "r-ada",
+          paraId: "0000A002",
+          parentParaId: card.dataset.paraId,
+          author: "Ada",
+          date: "2026-01-01",
+          text: "Ada answers.",
+        }),
+      };
+      editor.applyRemoteDocExtras([reply]);
+      const after = card.querySelectorAll(".docxedit-cmt-item").length;
+      editor.applyRemoteDocExtras([reply]);
+      expect(card.querySelectorAll(".docxedit-cmt-item").length).toBe(after);
+    });
+
+    it("shows a peer resolving a thread", () => {
+      const { editor, card } = mountCommented();
+      expect(card.classList.contains("resolved")).toBe(false);
+
+      editor.applyRemoteDocExtras([
+        { kind: "comment:done", id: card.dataset.paraId ?? "", value: "true" },
+      ]);
+
+      expect(card.classList.contains("resolved"), "struck through on screen too").toBe(true);
+    });
+
+    it("shows a peer rewriting their comment", () => {
+      const { editor, card } = mountCommented();
+      editor.applyRemoteDocExtras([{ kind: "comment:edited", id: "1", value: "Rewritten." }]);
+      expect(card.textContent).toContain("Rewritten.");
+      expect(card.textContent).not.toContain("Is this right?");
     });
 
     it("carries a thread being resolved", () => {
