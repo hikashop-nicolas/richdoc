@@ -2,7 +2,7 @@ import { afterEach, beforeAll, beforeEach, describe, expect, it } from "vitest";
 import { strToU8, unzipSync, zipSync } from "fflate";
 import { createDocxEditor } from "../adapters/docx/index";
 import { BID } from "./feature/block-ids";
-import type { BlockChanges, BlockPosition, RichEditor } from "./types";
+import type { BlockChanges, BlockPosition, DocExtra, RichEditor } from "./types";
 
 // What a collaboration host needs from this editor, and nothing about how it is drawn.
 //
@@ -494,5 +494,60 @@ describe("the collaboration API", () => {
 
     expect(body.textContent).toContain("Second.");
     expect(editor.blockSnapshot().map((b) => b.id), "same blocks, not new ones").toEqual(ids);
+  });
+});
+
+// The document beside its body: headers and footers, note bodies, page geometry, styles.
+// One channel, because a session wants them together and each entry says what it is.
+describe("the document beside its body", () => {
+  it("reports the page geometry and the styles, always", () => {
+    const { editor } = mount();
+    const kinds = editor.docExtras().map((e) => e.kind);
+    expect(kinds, "geometry travels even when nothing changed it").to.include("geometry");
+    expect(kinds).to.include("styles");
+  });
+
+  it("takes a peer's page geometry", () => {
+    const { editor } = mount();
+    const before = JSON.parse(editor.docExtras().find((e) => e.kind === "geometry")!.value) as {
+      widthPx: number;
+    };
+    const wider = JSON.stringify({ ...before, widthPx: before.widthPx + 100 });
+
+    editor.applyRemoteDocExtras([{ kind: "geometry", id: "", value: wider }]);
+
+    const after = JSON.parse(editor.docExtras().find((e) => e.kind === "geometry")!.value) as {
+      widthPx: number;
+    };
+    expect(after.widthPx).toBe(before.widthPx + 100);
+  });
+
+  // A band this document does not have is left alone: creating one would give the page a
+  // header nobody on this side asked for.
+  it("ignores a band it does not have", () => {
+    const { editor } = mount();
+    const before = editor.docExtras().filter((e) => e.kind === "band").length;
+    editor.applyRemoteDocExtras([{ kind: "band", id: "header:nonesuch", value: "<p>Hello</p>" }]);
+    expect(editor.docExtras().filter((e) => e.kind === "band").length).toBe(before);
+  });
+
+  it("does not report a peer's change back to them", () => {
+    const { editor } = mount();
+    const seen: DocExtra[][] = [];
+    editor.setDocExtrasReporter((e) => seen.push(e));
+    const geometry = editor.docExtras().find((e) => e.kind === "geometry")!;
+    editor.applyRemoteDocExtras([
+      { kind: "geometry", id: "", value: JSON.stringify({ ...JSON.parse(geometry.value), widthPx: 999 }) },
+    ]);
+    expect(seen, "applying is not a change to announce").toEqual([]);
+  });
+
+  it("stops reporting when the session lets go", () => {
+    const { body, editor } = mount();
+    const seen: DocExtra[][] = [];
+    editor.setDocExtrasReporter((e) => seen.push(e));
+    editor.setDocExtrasReporter(null);
+    edit(body, 0, "Changed.");
+    expect(seen).toEqual([]);
   });
 });

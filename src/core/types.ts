@@ -282,6 +282,22 @@ export interface PeerCaret extends BlockPosition {
   colour: string;
 }
 
+/**
+ * Everything a document carries besides its body: the headers and footers, the footnote
+ * and endnote bodies, the page geometry, and any styles added in this session.
+ *
+ * One channel rather than four, because they are all "the document, minus the blocks" and
+ * a session wants them to arrive together. Each entry says what kind it is, so a reader
+ * does not have to guess from the id.
+ */
+export interface DocExtra {
+  kind: "band" | "note" | "geometry" | "styles";
+  /** The part path for a band, the note's id for a note, "" for the document-wide ones. */
+  id: string;
+  /** HTML for a band, JSON for everything else. */
+  value: string;
+}
+
 /** Undo and redo owned by someone else. See RichEditor.setUndoHandler. */
 export interface UndoHandler {
   undo(): void;
@@ -338,6 +354,11 @@ export interface RichEditor {
    * end up in the undo history, in the saved file, and in the next per-block diff.
    */
   setPeerCarets(carets: readonly PeerCaret[]): void;
+  /** The document beside its body: bands, notes, page geometry, added styles. */
+  docExtras(): DocExtra[];
+  setDocExtrasReporter(handler: ((extras: DocExtra[]) => void) | null): void;
+  /** Take a peer's bands, notes, geometry and styles. Reports nothing back. */
+  applyRemoteDocExtras(extras: DocExtra[]): void;
   /** Every block as it stands, in document order. A host seeds a session from this. */
   blockSnapshot(): BlockState[];
   /**

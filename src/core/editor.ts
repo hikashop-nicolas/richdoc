@@ -6,7 +6,7 @@
 import { t, getLocale } from "./i18n";
 import { formatPageNumber } from "./util";
 import { defaultPageGeometry, paginate } from "./page";
-import type { Adapter, BlockChanges, BlockPosition, EditorOptions, RichEditor, RichDoc, SecGeom, Note, UndoHandler } from "./types";
+import type { Adapter, BlockChanges, BlockPosition, DocExtra, EditorOptions, RichEditor, RichDoc, SecGeom, Note, UndoHandler } from "./types";
 import { setupComments } from "./feature/comments";
 import { setupImages } from "./feature/images";
 import { setupImageLayout } from "./feature/image-layout";
@@ -349,6 +349,9 @@ export function createRichEditor(container: HTMLElement, adapter: Adapter, optio
   // the diff walks every block's outerHTML, which is not a cost to pay on every keystroke
   // of a document nobody is sharing.
   let blockReporter: ((changes: BlockChanges) => void) | null = null;
+  let extrasReporter: ((extras: DocExtra[]) => void) | null = null;
+  let lastExtrasSig: string | null = null;
+  let applyingRemoteExtras = false;
   /** Told where this person's caret is, while a session wants to know. */
   let selectionReporter: ((at: BlockPosition | null) => void) | null = null;
   // Set when a reporter subscribes, not at load: with no baseline the first edit would
@@ -358,6 +361,40 @@ export function createRichEditor(container: HTMLElement, adapter: Adapter, optio
   let applyingRemote = false;
   /** Set while a session owns undo. Null means this editor's own snapshot history. */
   let undoHandler: UndoHandler | null = null;
+
+  /** Every band this document has, by the path it will be written back to. */
+  const bandEntries = (): { path: string; el: HTMLElement }[] => {
+    const out: { path: string; el: HTMLElement }[] = [];
+    if (header) out.push({ path: parts.headerPath ?? "header", el: header });
+    if (footer) out.push({ path: parts.footerPath ?? "footer", el: footer });
+    if (headerFirst) out.push({ path: parts.headerFirst?.path ?? "header:first", el: headerFirst });
+    if (footerFirst) out.push({ path: parts.footerFirst?.path ?? "footer:first", el: footerFirst });
+    if (headerEven) out.push({ path: parts.headerEven?.path ?? "header:even", el: headerEven });
+    if (footerEven) out.push({ path: parts.footerEven?.path ?? "footer:even", el: footerEven });
+    for (const { el, path } of secBands.values()) out.push({ path, el });
+    return out;
+  };
+
+  const docExtraList = (): DocExtra[] => {
+    const out: DocExtra[] = [];
+    for (const { path, el } of bandEntries()) out.push({ kind: "band", id: path, value: el.innerHTML });
+    for (const [id, nb] of noteBands) {
+      out.push({ kind: "note", id, value: JSON.stringify({ kind: nb.kind, html: nb.el.innerHTML }) });
+    }
+    out.push({ kind: "geometry", id: "", value: JSON.stringify(geometry) });
+    out.push({ kind: "styles", id: "", value: JSON.stringify(newStyles) });
+    return out;
+  };
+
+  const reportDocExtras = (): void => {
+    if (!extrasReporter) return;
+    const extras = docExtraList();
+    const sig = JSON.stringify(extras);
+    if (sig === lastExtrasSig) return;
+    lastExtrasSig = sig;
+    if (applyingRemoteExtras) return;
+    extrasReporter(extras);
+  };
 
   const reportBlocks = () => {
     if (!blockReporter) return;
@@ -382,6 +419,7 @@ export function createRichEditor(container: HTMLElement, adapter: Adapter, optio
     dirty = true;
     options.onChange?.();
     reportBlocks();
+    reportDocExtras();
     scheduleReflow(); // content changed: re-paginate (debounced)
     commitHistory(coalesce ?? null);
   };
@@ -2107,6 +2145,57 @@ export function createRichEditor(container: HTMLElement, adapter: Adapter, optio
     setSelectionReporter(handler) {
       selectionReporter = handler;
       if (handler) handler(caretPosition()); // visible now, not once they next move
+    },
+    docExtras() {
+      return docExtraList();
+    },
+    setDocExtrasReporter(handler) {
+      extrasReporter = handler;
+      lastExtrasSig = handler ? JSON.stringify(docExtraList()) : null;
+    },
+    applyRemoteDocExtras(extras) {
+      applyingRemoteExtras = true;
+      try {
+        const bands = new Map(bandEntries().map((b) => [b.path, b.el]));
+        for (const extra of extras) {
+          if (extra.kind === "band") {
+            const el = bands.get(extra.id);
+            // A band this document does not have is left alone: creating one would give
+            // the page a header nobody asked this side for.
+            if (el && el.innerHTML !== extra.value) el.innerHTML = extra.value;
+          } else if (extra.kind === "note") {
+            const nb = noteBands.get(extra.id);
+            if (!nb) continue;
+            try {
+              const note = JSON.parse(extra.value) as { html: string };
+              if (nb.el.innerHTML !== note.html) nb.el.innerHTML = note.html;
+            } catch {
+              /* unreadable; leave the note as it is */
+            }
+          } else if (extra.kind === "geometry") {
+            try {
+              Object.assign(geometry, JSON.parse(extra.value) as object);
+              geometryDirty = true;
+            } catch {
+              /* unreadable; keep the page as it is */
+            }
+          } else if (extra.kind === "styles") {
+            try {
+              const list = JSON.parse(extra.value) as typeof newStyles;
+              newStyles.length = 0;
+              newStyles.push(...list);
+            } catch {
+              /* unreadable; keep the styles as they are */
+            }
+          }
+        }
+        dirty = true;
+        options.onChange?.();
+        reportDocExtras();
+        reflow();
+      } finally {
+        applyingRemoteExtras = false;
+      }
     },
     setBlockReporter(handler) {
       blockReporter = handler;
