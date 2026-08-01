@@ -359,6 +359,16 @@ export interface RichEditor {
    * end up in the undo history, in the saved file, and in the next per-block diff.
    */
   setPeerCarets(carets: readonly PeerCaret[]): void;
+  /**
+   * Change the name new tracked changes and comments are attributed to.
+   *
+   * Set at mount from the host's settings, which is enough alone and not enough shared: a
+   * session hands everyone the name their peers see, deduplicated, and two peers editing
+   * under one name is not a cosmetic problem. A suggested insertion merges into an
+   * adjacent one by the same author, so a second "Author" typing next to the first has
+   * their words absorbed into that person's change, to be accepted or rejected with it.
+   */
+  setAuthor(name: string): void;
   /** The document beside its body: bands, notes, page geometry, added styles. */
   docExtras(): DocExtra[];
   setDocExtrasReporter(handler: ((extras: DocExtra[]) => void) | null): void;

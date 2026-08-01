@@ -2130,6 +2130,9 @@ export function createRichEditor(container: HTMLElement, adapter: Adapter, optio
     canRedo() {
       return undoHandler ? undoHandler.canRedo() : history.canRedo();
     },
+    setAuthor(name) {
+      options.author = name;
+    },
     blockSnapshot() {
       assignBlockIds(doc);
       return [...blockSnapshot(doc)].map(([id, html]) => ({ id, html }));

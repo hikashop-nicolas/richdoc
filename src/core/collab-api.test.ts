@@ -68,6 +68,34 @@ function edit(body: HTMLElement, index: number, text: string): void {
   body.dispatchEvent(new Event("input", { bubbles: true }));
 }
 
+/** Turn suggestion mode on, the way its toolbar button does. */
+function suggest(host: HTMLElement): void {
+  const btn = [...host.querySelectorAll("button")].find((b) =>
+    /suggest/i.test(b.getAttribute("title") ?? ""),
+  );
+  if (!btn) throw new Error("no suggestion-mode button");
+  btn.dispatchEvent(new MouseEvent("click", { bubbles: true }));
+}
+
+/**
+ * Type at the end of a block with suggestion mode on.
+ *
+ * beforeinput rather than input: the feature is an interception of the keystroke before
+ * the browser applies it, so anything dispatched after that point tests nothing.
+ */
+function typeSuggested(body: HTMLElement, block: HTMLElement, text: string): void {
+  const range = document.createRange();
+  range.selectNodeContents(block);
+  range.collapse(false);
+  const sel = window.getSelection();
+  sel?.removeAllRanges();
+  sel?.addRange(range);
+
+  const ev = new InputEvent("beforeinput", { bubbles: true, cancelable: true, data: text });
+  Object.defineProperty(ev, "inputType", { value: "insertText" });
+  body.dispatchEvent(ev);
+}
+
 describe("the collaboration API", () => {
   it("gives every block an id, and keeps it across edits", () => {
     const { body, editor } = mount();
@@ -585,6 +613,83 @@ describe("the document beside its body", () => {
       editor.applyRemoteDocExtras([{ kind: "comment:done", id: "p1", value: "true" }]);
       const done = editor.docExtras().find((e) => e.kind === "comment:done" && e.id === "p1");
       expect(done?.value).toBe("true");
+    });
+  });
+
+  // Tracked changes need no channel of their own: a block is reported as its outerHTML, so
+  // an ins, a del and a paragraph-mark record all ride along with the block that holds
+  // them. What does not travel by itself is who made them.
+  describe("tracked changes", () => {
+    const suggested = (id: string): string =>
+      `<p ${BID}="${id}" data-rev-para="del" data-rev-author="Ada" data-rev-date="2026-01-01">` +
+      `First, <ins class="docx-ins" data-author="Ada" data-date="2026-01-01">added</ins>` +
+      `<del class="docx-del" data-author="Ada" data-date="2026-01-01">cut</del></p>`;
+
+    it("carries a peer's suggestion, marks and all", () => {
+      const { editor, body } = mount();
+      const id = editor.blockSnapshot()[0].id;
+      editor.applyRemoteBlocks({
+        changed: [{ id, html: suggested(id) }],
+        removed: [],
+        order: editor.blockSnapshot().map((b) => b.id),
+      });
+
+      const block = body.children[0] as HTMLElement;
+      expect(block.querySelector("ins.docx-ins")?.getAttribute("data-author")).toBe("Ada");
+      expect(block.querySelector("del.docx-del")?.textContent).toBe("cut");
+      // The paragraph-mark record lives on the block element itself, so it survives only
+      // because the snapshot is outerHTML. innerHTML would drop a pending merge silently.
+      expect(block.getAttribute("data-rev-para"), "the paragraph mark too").toBe("del");
+    });
+
+    it("reports a suggestion back out as part of the block that holds it", () => {
+      const { editor } = mount();
+      const id = editor.blockSnapshot()[0].id;
+      editor.applyRemoteBlocks({
+        changed: [{ id, html: suggested(id) }],
+        removed: [],
+        order: editor.blockSnapshot().map((b) => b.id),
+      });
+      const html = editor.blockSnapshot().find((b) => b.id === id)?.html ?? "";
+      expect(html).toContain('class="docx-ins"');
+      expect(html).toContain('data-rev-para="del"');
+    });
+
+    it("attributes a new suggestion to the name it was last given", () => {
+      const { editor, host, body } = mount();
+      editor.setAuthor("Bo");
+      suggest(host);
+
+      const block = body.children[0] as HTMLElement;
+      typeSuggested(body, block, "Bo's words");
+
+      const ins = block.querySelector("ins.docx-ins");
+      expect(ins?.textContent).toBe("Bo's words");
+      expect(ins?.getAttribute("data-author"), "credited to this peer").toBe("Bo");
+    });
+
+    // Why attribution is not decoration. An insertion merges into an adjacent one by the
+    // same author, so two peers editing under one name have their suggestions fused into a
+    // single change, accepted or rejected as one and credited to whoever got there first.
+    it("does not merge a suggestion into one by another author", () => {
+      const { editor, host, body } = mount();
+      editor.setAuthor("Bo");
+      suggest(host);
+
+      const block = body.children[0] as HTMLElement;
+      const theirs = document.createElement("ins");
+      theirs.className = "docx-ins";
+      theirs.setAttribute("data-author", "Ada");
+      theirs.textContent = "Ada's words";
+      block.appendChild(theirs);
+
+      typeSuggested(body, block, " and Bo's");
+
+      const authors = [...block.querySelectorAll("ins.docx-ins")].map((i) =>
+        i.getAttribute("data-author"),
+      );
+      expect(authors, "two changes, not one fused").toEqual(["Ada", "Bo"]);
+      expect(theirs.textContent, "and hers is untouched").toBe("Ada's words");
     });
   });
 });
