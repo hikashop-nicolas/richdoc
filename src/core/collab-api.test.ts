@@ -1,7 +1,7 @@
 import { afterEach, beforeAll, beforeEach, describe, expect, it } from "vitest";
 import { strToU8, unzipSync, zipSync } from "fflate";
 import { createDocxEditor } from "../adapters/docx/index";
-import { BID } from "./feature/block-ids";
+import { BID, assignBlockIds } from "./feature/block-ids";
 import type { BlockChanges, BlockPosition, DocExtra, RichEditor } from "./types";
 
 // What a collaboration host needs from this editor, and nothing about how it is drawn.
@@ -185,6 +185,58 @@ describe("the collaboration API", () => {
     editor.setBlockReporter(null);
     edit(body, 2, "Edited after they left.");
     expect(reported).toHaveLength(1);
+  });
+
+  // Splitting a paragraph with Enter, which is the most ordinary thing anyone does in a
+  // text editor and the way this broke in a browser while every test passed. The browser
+  // clones the element it splits, attributes and all, so the new half arrives wearing the
+  // old half's id. Both blocks then answer to one name, the shared map holds one of them,
+  // and a peer opening the document sees a single paragraph where there were three.
+  it("gives a split paragraph its own identity", () => {
+    const { body, editor } = mount();
+    const first = body.children[0] as HTMLElement;
+    const id = first.getAttribute(BID);
+
+    // What contenteditable does on Enter: a copy of the block, id included.
+    const clone = first.cloneNode(true) as HTMLElement;
+    clone.textContent = "The second half.";
+    first.after(clone);
+    body.dispatchEvent(new Event("input", { bubbles: true }));
+
+    // Counted against the DOM, not against the snapshot: the snapshot is keyed by id, so
+    // two blocks sharing one would quietly collapse into a single entry and an assertion
+    // about the snapshot alone would hold while the document was losing a paragraph.
+    const blocks = [...body.children] as HTMLElement[];
+    const domIds = blocks.map((b) => b.getAttribute(BID));
+    assignBlockIds(body);
+    const after = blocks.map((b) => b.getAttribute(BID));
+    expect(new Set(after).size, "one name each").toBe(blocks.length);
+    expect(after[0], "the original keeps its name").toBe(id);
+    expect(after[1]).not.toBe(id);
+    expect(editor.blockSnapshot()).toHaveLength(blocks.length);
+    void domIds;
+  });
+
+  it("carries both halves of a split to a peer", () => {
+    const { body, editor, reported } = mount();
+    const first = body.children[0] as HTMLElement;
+
+    const clone = first.cloneNode(true) as HTMLElement;
+    clone.textContent = "The second half.";
+    first.after(clone);
+    body.dispatchEvent(new Event("input", { bubbles: true }));
+
+    const last = reported[reported.length - 1];
+    const byId = new Map(last.changed.map((b) => [b.id, b.html]));
+    for (const id of last.order) {
+      // Whatever a peer is told about, it must be told about separately: two blocks under
+      // one id means one of them is invisible to everyone else.
+      expect(last.order.filter((x) => x === id), `${id} named once`).toHaveLength(1);
+    }
+    const texts = editor.blockSnapshot().map((b) => b.html);
+    expect(texts.some((h) => h.includes("The second half.")), "the new half travels").toBe(true);
+    expect(texts.some((h) => h.includes("First.")), "and the old one is still there").toBe(true);
+    expect(byId.size).toBeGreaterThan(0);
   });
 
   it("reports a new block as added, leaving its neighbours alone", () => {

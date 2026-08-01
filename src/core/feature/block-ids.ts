@@ -34,11 +34,22 @@ function newId(): string {
  */
 export function assignBlockIds(root: HTMLElement): number {
   let added = 0;
+  const seen = new Set<string>();
   for (const block of topLevelBlocks(root)) {
-    if (!block.hasAttribute(BID)) {
-      block.setAttribute(BID, newId());
+    const id = block.getAttribute(BID);
+    // A duplicate is not a missing id, and it is the common case rather than a strange one:
+    // splitting a paragraph with Enter makes the browser clone the element it splits,
+    // attributes and all, so the new half arrives wearing the old half's identity. Left
+    // alone, every one of those blocks is the same block to anyone reading by id, and a
+    // peer sees the last of them where a document should be.
+    if (id === null || seen.has(id)) {
+      const fresh = newId();
+      block.setAttribute(BID, fresh);
+      seen.add(fresh);
       added += 1;
+      continue;
     }
+    seen.add(id);
   }
   return added;
 }
