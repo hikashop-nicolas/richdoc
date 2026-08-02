@@ -238,6 +238,13 @@
 /* Symmetric margins keep the page centred; the right one holds the comments column. */
 .docxedit-canvas { display: flex; align-items: flex-start; gap: 18px; flex: 0 0 auto; }
 .docxedit-margin { flex: 0 1 250px; min-width: 0; }
+/* The left spacer only centres the page when there is room to spare; it holds nothing.
+   Flexbox shares a shortfall between the two margins, so on a phone both kept half of it
+   and a quarter of the screen went to a grey band the page was pushed off the side to make
+   room for. Giving the left one a large shrink factor makes it surrender its space first,
+   with no breakpoint to pick: on a wide window nothing shrinks and nothing changes. The
+   right one keeps its behaviour, because the comment column lives in it. */
+.docxedit-canvas > .docxedit-margin:first-child { flex-shrink: 100; }
 
 .docxedit-page {
   background: #fff; color: #111; width: var(--rdoc-page-width, 816px); min-height: 300px; flex: 0 0 auto;
