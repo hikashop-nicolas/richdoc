@@ -389,5 +389,14 @@ export interface RichEditor {
    * yours and the two documents would silently diverge.
    */
   setUndoHandler(handler: UndoHandler | null): void;
+  /**
+   * Hand printing to the host, or pass null to take it back.
+   *
+   * The toolbar's print button opens a window and prints a clone of the pages, which needs
+   * window.print(). A WebView does not implement it, so inside a native shell that button
+   * silently opens a window and prints nothing; such a host prints through the platform
+   * instead and takes this over.
+   */
+  setPrintHandler(handler: (() => void) | null): void;
   destroy(): void;
 }

@@ -361,6 +361,8 @@ export function createRichEditor(container: HTMLElement, adapter: Adapter, optio
   let applyingRemote = false;
   /** Set while a session owns undo. Null means this editor's own snapshot history. */
   let undoHandler: UndoHandler | null = null;
+  /** Set by a host that prints through its platform instead of window.print(). */
+  let printHandler: (() => void) | null = null;
 
   /** Every band this document has, by the path it will be written back to. */
   const bandEntries = (): { path: string; el: HTMLElement }[] => {
@@ -601,13 +603,15 @@ export function createRichEditor(container: HTMLElement, adapter: Adapter, optio
   main.append(outline.pane, scroll);
   const printBtn = document.createElement("button");
   printBtn.type = "button";
+  printBtn.className = "docxedit-tb-print";
   printBtn.innerHTML =
     '<svg width="14" height="14" viewBox="0 0 16 16" fill="none" stroke="currentColor" stroke-width="1.4" aria-hidden="true">' +
     '<path d="M4 6V2.5h8V6M4 12.5H2.5V7A1 1 0 0 1 3.5 6h9A1 1 0 0 1 13.5 7v5.5H12"/><rect x="4" y="10" width="8" height="3.5"/></svg>';
   printBtn.title = t("printTitle");
   printBtn.setAttribute("aria-label", t("printTitle"));
   printBtn.addEventListener("mousedown", (e) => e.preventDefault());
-  printBtn.addEventListener("click", () => printDocument());
+  // Through the handler when a host has taken printing over: see setPrintHandler.
+  printBtn.addEventListener("click", () => (printHandler ? printHandler() : printDocument()));
   toolbar.prepend(printBtn); // leftmost in the top toolbar
   bottomLeft.append(outline.toggleBtn);
   // Live word/character count over the body text.
@@ -2142,6 +2146,9 @@ export function createRichEditor(container: HTMLElement, adapter: Adapter, optio
     },
     setUndoHandler(handler) {
       undoHandler = handler;
+    },
+    setPrintHandler(handler) {
+      printHandler = handler;
     },
     setPeerCarets(carets) {
       peerCarets.set(carets as PeerCaret[]);
