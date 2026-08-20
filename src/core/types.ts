@@ -398,5 +398,13 @@ export interface RichEditor {
    * instead and takes this over.
    */
   setPrintHandler(handler: (() => void) | null): void;
+  /**
+   * A clean copy of the pages, for a host that prints them itself.
+   *
+   * The live pages sit inside this editor's backdrop, at the zoom in use, under its bars,
+   * so printing them prints all of that too. This copy has none of it, and none of the
+   * handles and affordances that only mean something while editing.
+   */
+  printClone(): HTMLElement;
   destroy(): void;
 }

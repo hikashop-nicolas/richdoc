@@ -1967,13 +1967,25 @@ export function createRichEditor(container: HTMLElement, adapter: Adapter, optio
   // page then starts exactly at a card boundary and the gap becomes a hair of
   // trailing whitespace. Vertical (tategaki) layouts print the canvas as-is
   // (browsers only fragment vertically).
+  /**
+   * A clean copy of the pages, with nothing in it that belongs to editing.
+   *
+   * Printing the live pages prints them as they sit on screen: inside the editor's
+   * backdrop, at whatever zoom is in use, under its bars. A host that prints the document
+   * itself takes this instead and puts it somewhere of its own.
+   */
+  const printClone = (): HTMLElement => {
+    const clone = page.cloneNode(true) as HTMLElement;
+    for (const el of clone.querySelectorAll("[contenteditable]")) el.removeAttribute("contenteditable");
+    for (const el of clone.querySelectorAll(".docxedit-img-handle, .docxedit-img-del, .docxedit-change-pop")) el.remove();
+    return clone;
+  };
+
   const printDocument = () => {
     const win = window.open("", "_blank", "width=900,height=700");
     if (!win) return;
     const styles = [...document.querySelectorAll("style, link[rel=stylesheet]")].map((n) => n.outerHTML).join("\n");
-    const clone = page.cloneNode(true) as HTMLElement;
-    for (const el of clone.querySelectorAll("[contenteditable]")) el.removeAttribute("contenteditable");
-    for (const el of clone.querySelectorAll(".docxedit-img-handle, .docxedit-img-del, .docxedit-change-pop")) el.remove();
+    const clone = printClone();
     const pageRect = page.getBoundingClientRect();
     const cards = [...page.querySelectorAll(".docxedit-pagecard")].map((c) => {
       const r = c.getBoundingClientRect();
@@ -2149,6 +2161,9 @@ export function createRichEditor(container: HTMLElement, adapter: Adapter, optio
     },
     setPrintHandler(handler) {
       printHandler = handler;
+    },
+    printClone() {
+      return printClone();
     },
     setPeerCarets(carets) {
       peerCarets.set(carets as PeerCaret[]);
