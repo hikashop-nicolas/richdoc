@@ -10,6 +10,14 @@ back, preserving everything it does not model.
 No server, no upload: the file is read, edited and rebuilt entirely on the
 user's machine.
 
+**[▶ Live demo](https://hikashop-nicolas.github.io/richdoc/)** — open a `.docx` or `.odt`,
+edit it, and save it back.
+
+Used in production by **[Omnitext](https://hikashop-nicolas.github.io/omnitext/)**, a free
+browser editor for practically any file, as its
+[Word](https://hikashop-nicolas.github.io/omnitext/formats/docx.html) and
+[OpenDocument](https://hikashop-nicolas.github.io/omnitext/formats/odt.html) editor.
+
 ## Features
 
 A full word-processor surface in the browser, the same for both formats unless noted.
