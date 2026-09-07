@@ -17,6 +17,12 @@ export type Dict = Record<string, string>;
 const LOADERS: Record<string, () => Promise<{ default: Dict }>> = {
   fr: () => import("./locales/fr"),
   ja: () => import("./locales/ja"),
+  es: () => import("./locales/es"),
+  de: () => import("./locales/de"),
+  pt: () => import("./locales/pt"),
+  ru: () => import("./locales/ru"),
+  // Simplified; also serves a browser asking for zh-TW, since detection matches the base tag.
+  zh: () => import("./locales/zh"),
 };
 
 const loaded: Record<string, Dict> = { en };
