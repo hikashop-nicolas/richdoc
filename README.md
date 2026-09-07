@@ -112,7 +112,8 @@ src/core/
     page-view.ts       margin rulers + zoom + the centred canvas
   page.ts            page geometry + the pure paginate()
   types.ts           the Adapter / RichDoc / CommentEdits / Capabilities contract
-  util.ts, i18n.ts   shared helpers + the multilingual dictionary
+  util.ts, i18n.ts   shared helpers + the i18n runtime
+  locales/           one dictionary per language, each its own lazy chunk
 src/adapters/
   docx/              OOXML, split into shared / read / write / index
   odt/               OpenDocument, split into shared / read / write / index
