@@ -1,6 +1,7 @@
 /* docxedit styles. Imported by the library entry so a consumer's bundler ships it. */
 
-.docxedit-wrap { display: flex; flex-direction: column; height: 100%; background: #525659; position: relative; }
+/* --rdoc-desk is the area around the pages; a host can match it to its own theme. */
+.docxedit-wrap { display: flex; flex-direction: column; height: 100%; background: var(--rdoc-desk, #525659); position: relative; }
 
 /* Bottom bar: style pickers (left) + zoom (right). */
 .docxedit-bottombar {

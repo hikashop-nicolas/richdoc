@@ -1107,12 +1107,23 @@ export function setupToolbar(deps: ToolbarDeps) {
   wrap.append(overflow, styleGroup.menu, insertGroup.menu, tablePicker, lineSpacingMenu, fieldsMenu, listMenu, borderMenu);
 
   const fits = () => toolbar.scrollWidth <= toolbar.clientWidth + 1;
+  // The editor's own print button. A host usually has one of its own, and on a phone the second
+  // one only takes room from formatting controls, so there it lives in "⋯".
+  // matchMedia is missing outside a real browser (jsdom): no media query means never narrow.
+  const narrow = typeof window.matchMedia === "function" ? window.matchMedia("(max-width: 600px)") : null;
+  const printBtn = (): HTMLElement | null => wrap.querySelector<HTMLElement>(".docxedit-tb-print");
   const layoutToolbar = () => {
     overflow.hidden = true;
+    const print = printBtn();
+    if (print && print.parentElement !== toolbar) toolbar.prepend(print); // back to its place, leftmost
     for (const it of toolbarItems) toolbar.insertBefore(it, moreBtn); // pull everything back in
     moreBtn.style.display = "none";
     insertGroup.expand();
     styleGroup.expand();
+    if (print && narrow?.matches) {
+      overflow.appendChild(print);
+      moreBtn.style.display = "";
+    }
     if (fits()) return;
     insertGroup.collapse(); // first collapse the insert cluster
     if (fits()) return;
@@ -1124,6 +1135,7 @@ export function setupToolbar(deps: ToolbarDeps) {
       overflow.insertBefore(toolbarItems[i], overflow.firstChild);
     }
   };
+  narrow?.addEventListener("change", layoutToolbar);
   layoutToolbar();
   requestAnimationFrame(layoutToolbar);
   setTimeout(layoutToolbar, 150);
@@ -1138,6 +1150,7 @@ export function setupToolbar(deps: ToolbarDeps) {
 
   const teardown = () => {
     toolbarObserver.disconnect();
+    narrow?.removeEventListener("change", layoutToolbar);
     document.removeEventListener("click", closeOverflow);
     document.removeEventListener("selectionchange", scheduleSync);
     floatBar.teardown();
