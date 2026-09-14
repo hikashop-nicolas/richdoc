@@ -15,6 +15,8 @@
 .docxedit-count { flex: 0 1 auto; min-width: 0; overflow: hidden; text-overflow: ellipsis; white-space: nowrap; }
 .docxedit-bottombar-left select { flex: 0 1 auto; min-width: 48px; max-width: 16em; text-overflow: ellipsis; }
 @media (max-width: 600px) {
+  .docxedit-scroll { padding: 12px 8px; }
+  .docxedit-canvas { gap: 0; }
   .docxedit-bottombar { gap: 6px; padding: 5px 8px; }
   .docxedit-zoom-slider { width: 64px; }
 }
@@ -246,7 +248,10 @@
 .docxedit-symbol:hover { background: var(--rdoc-accent, #6e7bff); border-color: var(--rdoc-accent, #6e7bff); color: #fff; }
 .docxedit-symbol:focus-visible { outline: 2px solid var(--rdoc-accent, #6e7bff); outline-offset: 1px; }
 /* Symmetric margins keep the page centred; the right one holds the comments column. */
-.docxedit-canvas { display: flex; align-items: flex-start; gap: 18px; flex: 0 0 auto; }
+/* max-width caps the row at the scroll area's width. Without it the row took its content's width,
+   so the margins never had to shrink, and a row wider than the screen lost its centring (safe
+   center falls back to the start): the page sat right of a 125px margin, cut off on a phone. */
+.docxedit-canvas { display: flex; align-items: flex-start; gap: 18px; flex: 0 0 auto; max-width: 100%; }
 .docxedit-margin { flex: 0 1 250px; min-width: 0; }
 /* The left spacer only centres the page when there is room to spare; it holds nothing.
    Flexbox shares a shortfall between the two margins, so on a phone both kept half of it

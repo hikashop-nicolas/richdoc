@@ -396,7 +396,14 @@ export function setupPageView(deps: PageViewDeps) {
   let userZoom: number | null = options.zoom ?? null;
   const fitZoom = (): number => {
     // Vertical pages grow along x, so fit to the page's fixed height; horizontal fit to width.
-    const avail = (vertical() ? scroll.clientHeight : scroll.clientWidth) - 56;
+    // What the page really has is the scroll area less its own padding and the ruler inset in
+    // front of the page. A fixed 56 was short of that on a phone, so a "fitted" page overflowed.
+    const sc = getComputedStyle(scroll), pw = getComputedStyle(pageWrap);
+    const px = (v: string): number => parseFloat(v) || 0;
+    const inset = vertical()
+      ? px(sc.paddingTop) + px(sc.paddingBottom) + px(pw.paddingTop)
+      : px(sc.paddingLeft) + px(sc.paddingRight) + px(pw.paddingLeft);
+    const avail = (vertical() ? scroll.clientHeight : scroll.clientWidth) - inset - 8;
     const dim = vertical() ? geometry.heightPx : geometry.widthPx;
     return Math.max(0.2, Math.min(1, avail / Math.max(1, dim)));
   };
