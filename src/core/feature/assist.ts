@@ -66,6 +66,16 @@ export function setupAssist(deps: AssistDeps) {
     items[task] = it;
     menu.appendChild(it);
   }
+  // The writing tasks need a GPU localml can run its chat model on. Without one (most phones) the
+  // fallback model refuses or rambles instead of rewriting, so they are not offered; Translate
+  // uses its own model and stays. localml is still only loaded when the check runs, not with the editor.
+  void import("localml/generate")
+    .then((m) => m.chatTasksAvailable())
+    .then((ok) => {
+      if (ok) return;
+      for (const task of ["elaborate", "shorten", "write"] as Task[]) items[task].style.display = "none";
+    })
+    .catch(() => undefined);
 
   const closeMenu = (): void => {
     menu.hidden = true;
