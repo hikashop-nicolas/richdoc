@@ -8,6 +8,16 @@
   background: var(--rdoc-chrome, #2b2f36); border-top: 1px solid var(--rdoc-border, #1c1f24); color: var(--rdoc-text, #e6e6e6); font: 13px system-ui, sans-serif;
 }
 .docxedit-bottombar-left, .docxedit-bottombar-right { display: flex; align-items: center; gap: 6px; }
+/* On a narrow screen the left side gives way: the word count and the style pickers shrink (with
+   an ellipsis) so page setup and zoom on the right always stay reachable. */
+.docxedit-bottombar-left { flex: 1 1 auto; min-width: 0; }
+.docxedit-bottombar-right { flex: 0 0 auto; }
+.docxedit-count { flex: 0 1 auto; min-width: 0; overflow: hidden; text-overflow: ellipsis; white-space: nowrap; }
+.docxedit-bottombar-left select { flex: 0 1 auto; min-width: 48px; max-width: 16em; text-overflow: ellipsis; }
+@media (max-width: 600px) {
+  .docxedit-bottombar { gap: 6px; padding: 5px 8px; }
+  .docxedit-zoom-slider { width: 64px; }
+}
 
 /* Floating formatting bar shown near the caret/selection on mouse proximity (desktop). */
 .docxedit-floatbar {
