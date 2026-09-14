@@ -167,6 +167,22 @@ describe("docx <-> html", () => {
     expect(xml).toContain('<w:tblInd w:w="720"'); // 48px indent -> twips
   });
 
+  // A header row shaded in the cell (w:tcPr/w:shd) with white text rendered as white on white,
+  // an empty-looking row. The shading is shown on the cell; the tcPr still carries it on save.
+  it("shows a table cell's shading", () => {
+    const tbl =
+      '<w:tbl><w:tblGrid><w:gridCol w:w="4500"/></w:tblGrid>' +
+      '<w:tr><w:tc><w:tcPr><w:shd w:val="clear" w:fill="4F46E5"/></w:tcPr><w:p><w:r><w:rPr><w:color w:val="FFFFFF"/></w:rPr><w:t>Area</w:t></w:r></w:p></w:tc></w:tr>' +
+      '<w:tr><w:tc><w:tcPr><w:shd w:val="clear" w:fill="auto"/></w:tcPr><w:p><w:r><w:t>Paths</w:t></w:r></w:p></w:tc></w:tr></w:tbl>';
+    const doc = `<?xml version="1.0"?>
+<w:document xmlns:w="http://schemas.openxmlformats.org/wordprocessingml/2006/main"><w:body>${tbl}</w:body></w:document>`;
+    const html = docxToHtml(makeDocx(doc));
+    expect(html).toContain('style="background-color:#4F46E5"');
+    expect(html.match(/background-color:#/g)?.length, "fill=auto paints nothing").toBe(1);
+    const xml = strFromU8(unzipSync(htmlToDocx(html, makeDocx(doc)))["word/document.xml"]);
+    expect(xml).toContain('w:fill="4F46E5"');
+  });
+
   it("resolves table and cell borders into the editor's per-side model on read", () => {
     const tbl =
       "<w:tbl><w:tblPr><w:tblBorders>" +

@@ -333,8 +333,11 @@ function tableHtml(tbl: Element, ctx: RenderCtx): string {
         bAttr("l", resolveCellBorder(tcB, tblB, "w:left", "w:insideV", ci.gridCol === 0)) +
         bAttr("r", resolveCellBorder(tcB, tblB, "w:right", "w:insideV", ci.gridCol + ci.gridSpan === totalCols));
       // Structure is locked (contenteditable=false on the table); each cell's content is its
-      // own editable region. Cell shading round-trips via the preserved tcPr.
-      cells += `<td${cs}${rs}${propAttr("tcpr", ci.tcPr)}${borders}><div class="docx-cell" contenteditable="true">${inner || "<br>"}</div></td>`;
+      // own editable region. Cell shading round-trips via the preserved tcPr, and is shown here:
+      // a shaded header with white text was otherwise white on white, an empty-looking row.
+      const shdFill = Array.from(ci.tcPr?.children ?? []).find((e) => e.tagName === "w:shd")?.getAttribute("w:fill");
+      const bg = shdFill && /^[0-9a-f]{6}$/i.test(shdFill) ? ` style="background-color:#${shdFill}"` : "";
+      cells += `<td${cs}${rs}${bg}${propAttr("tcpr", ci.tcPr)}${borders}><div class="docx-cell" contenteditable="true">${inner || "<br>"}</div></td>`;
     }
     rows += `<tr>${cells}</tr>`;
   }

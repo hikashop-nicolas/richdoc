@@ -255,6 +255,9 @@
    with no breakpoint to pick: on a wide window nothing shrinks and nothing changes. The
    right one keeps its behaviour, because the comment column lives in it. */
 .docxedit-canvas > .docxedit-margin:first-child { flex-shrink: 100; }
+/* With no comments, the right margin holds nothing either, and gives way the same way. It kept
+   its 250px on a phone and pushed a fitted page half off the screen. */
+.docxedit-canvas > .docxedit-margin:last-child:has(> .docxedit-comments:empty) { flex-shrink: 100; }
 
 .docxedit-page {
   background: #fff; color: #111; width: var(--rdoc-page-width, 816px); min-height: 300px; flex: 0 0 auto;
