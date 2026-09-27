@@ -1025,7 +1025,8 @@ describe("shared engine mount", () => {
   it("renders and round-trips furigana / ruby (docx)", async () => {
     const { strFromU8, unzipSync } = await import("fflate");
     const doc = `<?xml version="1.0"?><w:document xmlns:w="http://schemas.openxmlformats.org/wordprocessingml/2006/main"><w:body>` +
-      "<w:p><w:ruby><w:rubyPr><w:rubyAlign w:val=\"center\"/></w:rubyPr><w:rt><w:r><w:t>かんじ</w:t></w:r></w:rt><w:rubyBase><w:r><w:t>漢字</w:t></w:r></w:rubyBase></w:ruby></w:p>" +
+      // Nested in a w:r, which is where the schema puts it and where Word writes it.
+      "<w:p><w:r><w:ruby><w:rubyPr><w:rubyAlign w:val=\"center\"/></w:rubyPr><w:rt><w:r><w:t>かんじ</w:t></w:r></w:rt><w:rubyBase><w:r><w:t>漢字</w:t></w:r></w:rubyBase></w:ruby></w:r><w:r><w:t>です</w:t></w:r></w:p>" +
       "<w:p><w:r><w:t>tail</w:t></w:r></w:p></w:body></w:document>";
     const docx = zipSync({
       "[Content_Types].xml": strToU8("<Types/>"),
@@ -1045,10 +1046,11 @@ describe("shared engine mount", () => {
     tail.firstChild!.textContent = "tail edited";
     (host.querySelector(".docxedit-doc") as HTMLElement).dispatchEvent(new Event("input", { bubbles: true }));
     const xml = strFromU8(unzipSync(await ed.getBytes())["word/document.xml"]!);
-    expect(xml).toContain("<w:ruby");
+    expect(xml).toContain("<w:r><w:ruby"); // run content, not a bare child of the w:p
     expect(xml).toContain("<w:rubyBase");
     expect(xml).toContain("かんじ");
     expect(xml).toContain("漢字");
+    expect(xml).toContain("です"); // text after the ruby in the same paragraph survives
     ed.destroy();
     host.remove();
   });

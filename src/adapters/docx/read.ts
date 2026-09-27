@@ -524,6 +524,10 @@ function runToHtml(run: Element): string {
     } else if (el.tagName === "w:lastRenderedPageBreak") {
       flush();
       out += pageBreakHtml("auto");
+    } else if (el.tagName === "w:ruby") {
+      // Where Word actually puts furigana: inside the run, not beside it.
+      flush();
+      out += rubyHtml(el);
     }
   }
   flush();
@@ -586,7 +590,7 @@ function revisionHtml(el: Element, ctx: RenderCtx): string {
 
 // Runs we can model fully; anything else in a run (w:sym, w:fldChar, w:footnoteReference,
 // w:object, ...) means we must preserve the whole run verbatim rather than drop it.
-const MODELED_RUN_CHILDREN = new Set(["w:rPr", "w:t", "w:delText", "w:tab", "w:br", "w:lastRenderedPageBreak"]);
+const MODELED_RUN_CHILDREN = new Set(["w:rPr", "w:t", "w:delText", "w:tab", "w:br", "w:lastRenderedPageBreak", "w:ruby"]);
 const runIsModeled = (run: Element): boolean => Array.from(run.children).every((c) => MODELED_RUN_CHILDREN.has(c.tagName));
 // Preserve an unmodelled element (bookmark, field, content control, math, ...) verbatim:
 // show its text read-only and carry the original XML so it round-trips on save.

@@ -458,7 +458,8 @@ function appendInline(ctx: DocxCtx, node: Node, parent: Element, f: Fmt, del = f
       continue;
     }
     if (tag === "ruby") {
-      // Furigana: <ruby>base<rt>reading</rt></ruby> -> w:ruby (rubyPr, w:rt, w:rubyBase).
+      // Furigana: <ruby>base<rt>reading</rt></ruby> -> a w:r holding a w:ruby (rubyPr, w:rt,
+      // w:rubyBase). w:ruby is run content, so a bare one under the w:p makes Word repair the file.
       const ruby = ctx.doc.createElementNS(W, "w:ruby");
       const prStash = el.getAttribute("data-docx-rubypr");
       const pr = prStash ? importPassthrough(ctx, prStash) : null;
@@ -471,7 +472,9 @@ function appendInline(ctx: DocxCtx, node: Node, parent: Element, f: Fmt, del = f
       for (const r of Array.from(baseClone.children)) if (r.tagName.toLowerCase() === "rt") r.remove();
       appendInline(ctx, baseClone, base, f, del, change, stash4);
       ruby.append(rt, base);
-      parent.appendChild(ruby);
+      const rubyRun = ctx.doc.createElementNS(W, "w:r");
+      rubyRun.appendChild(ruby);
+      parent.appendChild(rubyRun);
       continue;
     }
     if (tag === "a" && el.classList.contains("docx-bookmark")) {
