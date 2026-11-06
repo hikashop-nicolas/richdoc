@@ -577,7 +577,7 @@ export function createRichEditor(container: HTMLElement, adapter: Adapter, optio
     mark();
     reflow();
   };
-  const { applyZoom, effectiveZoom, setPinch, zoomSlider, zoomLabel, pageSetupBtn, sectionBreakBtn, teardown: teardownPageView } = setupPageView({
+  const { applyZoom, effectiveZoom, setZoom, setPinch, zoomSlider, zoomLabel, pageSetupBtn, sectionBreakBtn, teardown: teardownPageView } = setupPageView({
     page, pagebox, canvas, leftSpacer, rightArea, scroll, geometry, options, caps,
     getVertical: () => isVertical(),
     applyGeometry, mark, positionCards, reflow: () => reflow(), scheduleReflow: () => scheduleReflow(),
@@ -607,7 +607,8 @@ export function createRichEditor(container: HTMLElement, adapter: Adapter, optio
     fsBtn.className = "docxedit-fs-btn";
     labelFs(false);
     fsBtn.addEventListener("mousedown", (e) => e.preventDefault());
-    fsBtn.addEventListener("click", () => options.onFullscreen?.());
+    // Pin the zoom first: the new window size must not refit the page to it.
+    fsBtn.addEventListener("click", () => { setZoom(effectiveZoom()); options.onFullscreen?.(); });
     bottomRight.append(fsBtn);
   }
   // Reading: nothing editable, so no caret, keyboard or selection handles; restored on the way out.
