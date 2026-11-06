@@ -577,7 +577,7 @@ export function createRichEditor(container: HTMLElement, adapter: Adapter, optio
     mark();
     reflow();
   };
-  const { applyZoom, effectiveZoom, zoomSlider, zoomLabel, pageSetupBtn, sectionBreakBtn, teardown: teardownPageView } = setupPageView({
+  const { applyZoom, effectiveZoom, setPinch, zoomSlider, zoomLabel, pageSetupBtn, sectionBreakBtn, teardown: teardownPageView } = setupPageView({
     page, pagebox, canvas, leftSpacer, rightArea, scroll, geometry, options, caps,
     getVertical: () => isVertical(),
     applyGeometry, mark, positionCards, reflow: () => reflow(), scheduleReflow: () => scheduleReflow(),
@@ -594,6 +594,38 @@ export function createRichEditor(container: HTMLElement, adapter: Adapter, optio
   bottomRight.className = "docxedit-bottombar-right";
   if (sectionBreakBtn) bottomRight.append(sectionBreakBtn);
   bottomRight.append(pageSetupBtn, zoomSlider, zoomLabel);
+  const fsBtn = document.createElement("button");
+  const FS_ENTER = '<svg width="16" height="16" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round" aria-hidden="true"><polyline points="15 3 21 3 21 9"/><polyline points="9 21 3 21 3 15"/><line x1="21" x2="14" y1="3" y2="10"/><line x1="3" x2="10" y1="21" y2="14"/></svg>';
+  const FS_EXIT = '<svg width="16" height="16" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round" aria-hidden="true"><polyline points="4 14 10 14 10 20"/><polyline points="20 10 14 10 14 4"/><line x1="14" x2="21" y1="10" y2="3"/><line x1="3" x2="10" y1="21" y2="14"/></svg>';
+  const labelFs = (exit: boolean): void => {
+    fsBtn.innerHTML = exit ? FS_EXIT : FS_ENTER;
+    fsBtn.title = t(exit ? "exitFullscreen" : "fullscreen");
+    fsBtn.setAttribute("aria-label", fsBtn.title);
+  };
+  if (options.onFullscreen) {
+    fsBtn.type = "button";
+    fsBtn.className = "docxedit-fs-btn";
+    labelFs(false);
+    fsBtn.addEventListener("mousedown", (e) => e.preventDefault());
+    fsBtn.addEventListener("click", () => options.onFullscreen?.());
+    bottomRight.append(fsBtn);
+  }
+  // Reading: nothing editable, so no caret, keyboard or selection handles; restored on the way out.
+  let frozen: HTMLElement[] = [];
+  const setReadingMode = (on: boolean): void => {
+    wrap.classList.toggle("docxedit-reading", on);
+    setPinch(on);
+    labelFs(on);
+    if (on) {
+      (document.activeElement as HTMLElement | null)?.blur?.();
+      window.getSelection()?.removeAllRanges();
+      frozen = [...wrap.querySelectorAll<HTMLElement>('[contenteditable="true"]')];
+      for (const f of frozen) f.setAttribute("contenteditable", "false");
+    } else {
+      for (const f of frozen) f.setAttribute("contenteditable", "true");
+      frozen = [];
+    }
+  };
   bottomBar.append(bottomLeft, bottomRight);
   // The outline pane sits left of the scroll area in a flex row; its toggle lives in the status bar.
   const outline = setupOutline({ doc });
@@ -2162,6 +2194,7 @@ export function createRichEditor(container: HTMLElement, adapter: Adapter, optio
     setPrintHandler(handler) {
       printHandler = handler;
     },
+    setReadingMode,
     printClone() {
       return printClone();
     },

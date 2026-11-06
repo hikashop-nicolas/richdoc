@@ -1201,3 +1201,38 @@ describe("shared engine mount", () => {
     host.remove();
   });
 });
+
+describe("reading mode", () => {
+  it("freezes the page, hides the chrome and gives the fullscreen button its state", () => {
+    const host = document.createElement("div");
+    document.body.appendChild(host);
+    let asked = 0;
+    const ed = createDocxEditor(host, DOCX, { onFullscreen: () => asked++ });
+    const btn = host.querySelector<HTMLButtonElement>(".docxedit-fs-btn")!;
+    btn.click();
+    expect(asked).toBe(1);
+    const enter = btn.title;
+    const wrap = host.querySelector(".docxedit-wrap")!;
+    const editable = document.createElement("div"); // jsdom does not reflect the property the editor sets
+    editable.setAttribute("contenteditable", "true");
+    wrap.append(editable);
+    ed.setReadingMode(true);
+    expect(wrap.classList.contains("docxedit-reading")).toBe(true);
+    expect(editable.getAttribute("contenteditable")).toBe("false");
+    expect(btn.title).not.toBe(enter);
+    ed.setReadingMode(false);
+    expect(wrap.classList.contains("docxedit-reading")).toBe(false);
+    expect(editable.getAttribute("contenteditable")).toBe("true");
+    expect(btn.title).toBe(enter);
+    ed.destroy();
+    host.remove();
+  });
+  it("has no fullscreen button unless the host asks for one", () => {
+    const host = document.createElement("div");
+    document.body.appendChild(host);
+    const ed = createDocxEditor(host, DOCX);
+    expect(host.querySelector(".docxedit-fs-btn")).toBeNull();
+    ed.destroy();
+    host.remove();
+  });
+});

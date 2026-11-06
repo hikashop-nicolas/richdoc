@@ -325,6 +325,8 @@ export interface EditorOptions {
   paginated?: boolean;
   /** Initial zoom factor (1 = 100%); omit for fit-to-width. */
   zoom?: number;
+  /** Show a fullscreen button beside the zoom; the host enters or leaves fullscreen when it is pressed. */
+  onFullscreen?: () => void;
   /** On-device writing assist (translate / elaborate / shorten / write) via localml. Default
       on; set false to hide the toolbar control (and never load the models). */
   assist?: boolean;
@@ -398,6 +400,8 @@ export interface RichEditor {
    * instead and takes this over.
    */
   setPrintHandler(handler: (() => void) | null): void;
+  /** Reading mode, for a host's fullscreen: no toolbars, rulers, caret or selection, and two-finger pinch zooms. */
+  setReadingMode(on: boolean): void;
   /**
    * A clean copy of the pages, for a host that prints them itself.
    *

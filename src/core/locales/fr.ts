@@ -95,6 +95,8 @@ const dict: Dict = {
   formatting: "Mise en forme du texte",
   insertMenu: "Insérer",
   zoom: "Zoom",
+  fullscreen: "Plein écran",
+  exitFullscreen: "Quitter le plein écran",
   zoomIn: "Zoom avant",
   zoomOut: "Zoom arrière",
   zoomReset: "Réinitialiser le zoom (ajuster la largeur)",

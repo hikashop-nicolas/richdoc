@@ -95,6 +95,8 @@ const dict: Dict = {
   formatting: "文字の書式設定",
   insertMenu: "挿入",
   zoom: "ズーム",
+  fullscreen: "全画面",
+  exitFullscreen: "全画面を終了",
   zoomIn: "拡大",
   zoomOut: "縮小",
   zoomReset: "ズームをリセット（幅に合わせる）",

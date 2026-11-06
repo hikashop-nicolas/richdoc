@@ -806,9 +806,31 @@ export function setupPageView(deps: PageViewDeps) {
     });
   }
 
+  // Two-finger pinch zoom, on only while reading (the browser's own is off in the app).
+  let pinchOn = false;
+  let pinch: { dist: number; zoom: number } | null = null;
+  let pinchRaf = 0;
+  let pinchTo = 1;
+  const touchDist = (e: TouchEvent): number => Math.hypot(e.touches[0]!.clientX - e.touches[1]!.clientX, e.touches[0]!.clientY - e.touches[1]!.clientY) || 1;
+  scroll.addEventListener("touchstart", (e) => { pinch = pinchOn && e.touches.length === 2 ? { dist: touchDist(e), zoom: effectiveZoom() } : null; }, { passive: true });
+  scroll.addEventListener("touchmove", (e) => {
+    if (!pinch || e.touches.length !== 2) return;
+    e.preventDefault();
+    pinchTo = pinch.zoom * (touchDist(e) / pinch.dist);
+    if (!pinchRaf) pinchRaf = requestAnimationFrame(() => { pinchRaf = 0; setZoom(pinchTo); });
+  }, { passive: false });
+  const endPinch = (e: TouchEvent): void => { if (e.touches.length < 2) pinch = null; };
+  scroll.addEventListener("touchend", endPinch, { passive: true });
+  scroll.addEventListener("touchcancel", endPinch, { passive: true });
+  const setPinch = (on: boolean): void => {
+    pinchOn = on;
+    pinch = null;
+    scroll.style.touchAction = on ? "pan-x pan-y" : "";
+  };
+
   const teardown = () => {
     document.removeEventListener("selectionchange", onSelForRuler);
     window.clearTimeout(rulerSyncTimer);
   };
-  return { applyZoom, effectiveZoom, setZoom, zoomSlider, zoomLabel, pageSetupBtn, sectionBreakBtn, teardown };
+  return { applyZoom, effectiveZoom, setZoom, setPinch, zoomSlider, zoomLabel, pageSetupBtn, sectionBreakBtn, teardown };
 }

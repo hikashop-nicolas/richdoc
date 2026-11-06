@@ -95,6 +95,8 @@ const dict: Dict = {
   formatting: "文字格式",
   insertMenu: "插入",
   zoom: "缩放",
+  fullscreen: "全屏",
+  exitFullscreen: "退出全屏",
   zoomIn: "放大",
   zoomOut: "缩小",
   zoomReset: "重置缩放（适合宽度）",
