@@ -1343,7 +1343,7 @@ describe("list fidelity: nesting and ordered/bullet", () => {
     expect(doc).toMatch(/w:ilvl[^>]*w:val="1"/);
     const back = docxToHtml(out);
     // nested ordered list survives inside the outer unordered list
-    expect(back).toMatch(/<ul>[\s\S]*<ol>[\s\S]*sub1[\s\S]*<\/ol>[\s\S]*<\/ul>/);
+    expect(back).toMatch(/<ul>[\s\S]*<ol[^>]*>[\s\S]*sub1[\s\S]*<\/ol>[\s\S]*<\/ul>/);
     expect(back).toContain("top2");
   });
 

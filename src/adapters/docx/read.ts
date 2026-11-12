@@ -60,6 +60,7 @@ interface RenderCtx {
   rels: Map<string, string>;
   numbering: Map<string, boolean>;
   numStart: Map<string, number>; // numId -> level-0 starting number (for <ol start>)
+  numLevels?: Map<string, LvlFmt[]>; // numId -> per-level kind + marker style
   comments: Map<string, Comment>;
   openComments: Set<string>; // comment ids whose range spans across paragraphs (render state)
   commentOrder: string[]; // ids in document order, for the side panel
@@ -369,15 +370,30 @@ function readRels(file: Uint8Array | undefined): Map<string, string> {
 /** numId -> ordered flag + the level-0 starting number, best-effort from numbering.xml. The
     start is the numId's lvlOverride/startOverride for level 0, else the abstractNum's level-0
     w:start, else 1 (so a file that begins a list at N round-trips). */
-function readNumbering(file: Uint8Array | undefined): { ordered: Map<string, boolean>; start: Map<string, number> } {
+function readNumbering(file: Uint8Array | undefined): { ordered: Map<string, boolean>; start: Map<string, number>; levels: Map<string, LvlFmt[]>; css: string } {
   const ordered = new Map<string, boolean>();
   const start = new Map<string, number>();
-  if (!file) return { ordered, start };
+  const levels = new Map<string, LvlFmt[]>();
+  let css = "";
+  if (!file) return { ordered, start, levels, css };
   const doc = new DOMParser().parseFromString(strFromU8(file), "application/xml");
   const absFmt = new Map<string, boolean>(); // abstractNumId -> ordered
   const absStart = new Map<string, number>(); // abstractNumId -> level-0 start
+  const absLevels = new Map<string, LvlFmt[]>(); // abstractNumId -> per-level format
   for (const an of Array.from(doc.getElementsByTagName("w:abstractNum"))) {
     const id = an.getAttributeNS(W, "abstractNumId") ?? an.getAttribute("w:abstractNumId");
+    if (id) {
+      const lv: LvlFmt[] = [];
+      for (const l of Array.from(an.getElementsByTagName("w:lvl"))) {
+        const i = Number(l.getAttribute("w:ilvl") ?? "0");
+        if (!(i >= 0 && i <= 8)) continue;
+        const ruleName = `rdoc-num-${id.replace(/[^\w-]/g, "_")}-${i}`;
+        const f = lvlFmt(l, ruleName);
+        if (f.rule) css += f.rule;
+        lv[i] = { ordered: f.ordered, listStyle: f.listStyle };
+      }
+      absLevels.set(id, lv);
+    }
     const fmt = an.getElementsByTagName("w:numFmt")[0]?.getAttribute("w:val") ?? "";
     if (!id) continue;
     absFmt.set(id, fmt !== "bullet" && fmt !== "none" && fmt !== "");
@@ -390,11 +406,48 @@ function readNumbering(file: Uint8Array | undefined): { ordered: Map<string, boo
     const abs = num.getElementsByTagName("w:abstractNumId")[0]?.getAttribute("w:val") ?? "";
     if (!numId) continue;
     ordered.set(numId, absFmt.get(abs) ?? false);
+    const lv = absLevels.get(abs);
+    if (lv) levels.set(numId, lv);
     const ov = Array.from(num.getElementsByTagName("w:lvlOverride")).find((o) => (o.getAttribute("w:ilvl") ?? "0") === "0");
     const so = Number(ov?.getElementsByTagName("w:startOverride")[0]?.getAttribute("w:val"));
     start.set(numId, Number.isFinite(so) ? so : absStart.get(abs) ?? 1);
   }
-  return { ordered, start };
+  return { ordered, start, levels, css };
+}
+
+/** One list level's kind and CSS marker (list-style-type value), from a w:lvl. */
+interface LvlFmt {
+  ordered: boolean;
+  listStyle?: string;
+}
+// Word numFmt -> a CSS list-style-type with the same counter.
+const NUMFMT_CSS: Record<string, string> = {
+  decimal: "decimal", decimalZero: "decimal-leading-zero", lowerLetter: "lower-alpha", upperLetter: "upper-alpha",
+  lowerRoman: "lower-roman", upperRoman: "upper-roman", aiueo: "katakana", aiueoFullWidth: "katakana", iroha: "katakana-iroha",
+  irohaFullWidth: "katakana-iroha", ideographDigital: "cjk-decimal", japaneseCounting: "japanese-informal",
+  chineseCounting: "simp-chinese-informal", chineseCountingThousand: "simp-chinese-informal", taiwaneseCounting: "trad-chinese-informal",
+  koreanCounting: "korean-hangul-formal", hebrew1: "hebrew", arabicAlpha: "arabic-indic", russianLower: "lower-russian" , russianUpper: "upper-russian",
+  lowerGreek: "lower-greek", decimalEnclosedCircle: "decimal", decimalFullWidth: "decimal",
+};
+// Symbol / Wingdings private-use bullet glyphs Word writes in w:lvlText, as Unicode.
+const BULLET_PUA: Record<string, string> = { "\uF0B7": "•", "\uF0A7": "▪", "\uF0D8": "➢", "\uF076": "❖", "\uF0FC": "✓", "\uF0A8": "□", "\uF06E": "■", "\uF0E0": "➔" };
+const cssStr = (v: string): string => `"${v.replace(/["\\]/g, "\\$&")}"`;
+function lvlFmt(l: Element, ruleName: string): LvlFmt & { rule?: string } {
+  const fmt = l.getElementsByTagName("w:numFmt")[0]?.getAttribute("w:val") ?? "decimal";
+  const text = l.getElementsByTagName("w:lvlText")[0]?.getAttribute("w:val") ?? "";
+  if (fmt === "none") return { ordered: false, listStyle: "none" };
+  if (fmt === "bullet") {
+    const ch = BULLET_PUA[text] ?? (/^[\uE000-\uF8FF]?$/.test(text) ? "•" : text);
+    const kw = ch === "•" ? "disc" : ch === "o" || ch === "◦" ? "circle" : ch === "▪" || ch === "■" ? "square" : undefined;
+    return { ordered: false, listStyle: kw ?? cssStr(ch + " ") };
+  }
+  const base = NUMFMT_CSS[fmt] ?? "decimal";
+  // A single-counter label ("%1)", "(%2)", "%1.") keeps its punctuation via @counter-style;
+  // a multi-counter one ("%1.%2.") falls back to its own counter with the default suffix.
+  const m = /^([^%]*)%[1-9]([^%]*)$/.exec(text);
+  if (!m || (m[1] === "" && m[2] === ".")) return { ordered: true, listStyle: base === "decimal" ? undefined : base };
+  const rule = `@counter-style ${ruleName}{system:extends ${base};prefix:${cssStr(m[1]!)};suffix:${cssStr(m[2]! + " ")};}\n`;
+  return { ordered: true, listStyle: ruleName, rule };
 }
 
 const onFlag = (rPr: Element | undefined, tag: string): boolean => {
@@ -535,7 +588,7 @@ function runToHtml(run: Element): string {
   flush();
   // Unmodeled run properties (small caps, character spacing, eastAsia fonts, underline
   // flavours, lang, ...) ride along so the writer can merge them back on save.
-  if (rPr && out && rPrHasUnmodeled(rPr)) out = `<span data-docx-rpr="${escapeAttr(serializePassthrough(rPr))}">${out}</span>`;
+  if (rPr && out && rPrHasUnmodeled(rPr)) out = `<span data-docx-rpr="${escapeAttr(serializePassthrough(rPr))}"${rPrDisplayAttrs(rPr)}>${out}</span>`;
   // A named character style on the run, so it round-trips and picks up the injected style CSS.
   const rStyle = attrVal(rPr, "w:rStyle");
   if (rStyle && out) out = `<span data-rdoc-cstyle="${escapeAttr(rStyle)}">${out}</span>`;
@@ -545,6 +598,27 @@ function runToHtml(run: Element): string {
     out = `<span class="docx-rpr-change" data-old="${escapeAttr(JSON.stringify(readFmt(oldRPr)))}" data-rev-author="${escapeAttr(author)}" data-rev-date="${escapeAttr(date)}" title="${escapeAttr(author ? author + (date ? " – " + date.slice(0, 10) : "") : "")}">${out}</span>`;
   }
   return out;
+}
+
+// How the unmodeled run properties look: classes and styles the writer never reads back
+// (the stashed rPr is the source of truth), so showing them cannot change the file.
+const U_CLASS: Record<string, string> = { double: "double", thick: "thick", dotted: "dotted", dottedHeavy: "dotted", dash: "dashed", dashedHeavy: "dashed", dashLong: "dashed", dashLongHeavy: "dashed", dotDash: "dashed", dotDotDash: "dashed", wave: "wavy", wavyHeavy: "wavy", wavyDouble: "wavy" };
+function rPrDisplayAttrs(rPr: Element): string {
+  const own = (tag: string) => Array.from(rPr.children).find((c) => c.tagName === tag);
+  const flag = (tag: string) => { const e = own(tag); if (!e) return false; const v = e.getAttribute("w:val"); return v !== "false" && v !== "0" && v !== "off"; };
+  const cls: string[] = [];
+  if (flag("w:caps")) cls.push("docx-caps");
+  if (flag("w:smallCaps")) cls.push("docx-smallcaps");
+  if (flag("w:dstrike")) cls.push("docx-dstrike");
+  if (flag("w:vanish")) cls.push("docx-hidden");
+  const u = U_CLASS[own("w:u")?.getAttribute("w:val") ?? ""];
+  if (u) cls.push(`docx-u-${u}`);
+  const st: string[] = [];
+  const spacing = Number(own("w:spacing")?.getAttribute("w:val"));
+  if (spacing) st.push(`letter-spacing:${spacing / 20}pt`);
+  const pos = Number(own("w:position")?.getAttribute("w:val"));
+  if (pos) st.push(`vertical-align:${pos / 2}pt`);
+  return (cls.length ? ` class="${cls.join(" ")}"` : "") + (st.length ? ` style="${st.join(";")}"` : "");
 }
 
 // Furigana: a w:ruby (base + reading) -> an HTML <ruby>base<rt>reading</rt></ruby>, which the
@@ -723,6 +797,7 @@ interface PInfo {
   heading: number; // 0 = not a heading
   isList: boolean;
   ordered: boolean;
+  listStyle?: string; // the level's CSS list-style-type, when not the browser default
   numId?: string; // the list's numId (to track restart/continue across lists)
   level: number; // list nesting level (w:ilvl), 0 = top
   align?: string; // CSS text-align
@@ -761,7 +836,7 @@ function parseWTabs(pPr: Element | undefined): { pos: number; val: string; leade
     .map((tb) => ({ pos: Math.round(twipToPx(tb.getAttribute("w:pos")) ?? 0), val: tb.getAttribute("w:val") ?? "left", leader: tb.getAttribute("w:leader") ?? undefined }))
     .filter((s) => s.pos > 0);
 }
-function paragraphInfo(p: Element, numbering: Map<string, boolean>): PInfo {
+function paragraphInfo(p: Element, numbering: Map<string, boolean>, numLevels?: Map<string, LvlFmt[]>): PInfo {
   const pPr = p.getElementsByTagName("w:pPr")[0];
   let heading = 0;
   const rawStyle = pPr?.getElementsByTagName("w:pStyle")[0]?.getAttribute("w:val") ?? "";
@@ -792,7 +867,8 @@ function paragraphInfo(p: Element, numbering: Map<string, boolean>): PInfo {
   return {
     heading,
     isList: !!numPr,
-    ordered: numbering.get(numId) ?? false,
+    ordered: numLevels?.get(numId)?.[level]?.ordered ?? numbering.get(numId) ?? false,
+    listStyle: numLevels?.get(numId)?.[level]?.listStyle,
     numId: numId || undefined,
     level,
     align: JC_TO_ALIGN[jc],
@@ -848,7 +924,7 @@ function blockStyleAttr(info: PInfo): string {
 
 /** Build nested <ul>/<ol> from a flat list of items carrying their nesting level (w:ilvl).
     A deeper item opens new lists inside the current <li>; a shallower one closes them. */
-function buildNestedList(items: { level: number; ordered: boolean; li: string }[], rootStart = 1): string {
+function buildNestedList(items: { level: number; ordered: boolean; li: string; listStyle?: string }[], rootStart = 1): string {
   let html = "";
   const open: string[] = []; // stack of open list tags
   for (const it of items) {
@@ -858,7 +934,8 @@ function buildNestedList(items: { level: number; ordered: boolean; li: string }[
     while (open.length < depth) {
       const tag = it.ordered ? "ol" : "ul";
       const startAttr = open.length === 0 && tag === "ol" && rootStart > 1 ? ` start="${rootStart}"` : ""; // restart/continue
-      html += `<${tag}${startAttr}>`;
+      const lsAttr = it.listStyle && open.length === it.level && !(open.length === 0 && it.listStyle === "disc") ? ` style="list-style-type:${escapeAttr(it.listStyle)}"` : "";
+      html += `<${tag}${startAttr}${lsAttr}>`;
       open.push(tag);
     }
     html += `<li${it.li}`;
@@ -870,7 +947,7 @@ function buildNestedList(items: { level: number; ordered: boolean; li: string }[
 /** Render a block container (w:body or a header/footer root) to HTML. */
 function renderBlocks(container: Element, ctx: RenderCtx): string {
   let html = "";
-  let listBuf: { level: number; ordered: boolean; li: string; numId?: string }[] = [];
+  let listBuf: { level: number; ordered: boolean; li: string; numId?: string; listStyle?: string }[] = [];
   // Running count of level-0 items per ordered numId across the document, so a list that
   // continues an earlier one (same numId) gets the right <ol start>, not a fresh 1.
   const numRun = new Map<string, number>();
@@ -904,10 +981,10 @@ function renderBlocks(container: Element, ctx: RenderCtx): string {
       }
       continue;
     }
-    const info = paragraphInfo(node, ctx.numbering);
+    const info = paragraphInfo(node, ctx.numbering, ctx.numLevels);
     const inner = inlineToHtml(node, ctx);
     if (info.isList) {
-      listBuf.push({ level: info.level, ordered: info.ordered, numId: info.numId, li: `${blockStyleAttr(info)}>${inner || "<br>"}` });
+      listBuf.push({ level: info.level, ordered: info.ordered, listStyle: info.listStyle, numId: info.numId, li: `${blockStyleAttr(info)}>${inner || "<br>"}` });
       continue;
     }
     flushList();
@@ -1301,6 +1378,7 @@ export function docxToParts(bytes: Uint8Array, preunzipped?: Record<string, Uint
     rels,
     numbering: num.ordered,
     numStart: num.start,
+    numLevels: num.levels,
     comments,
     openComments: new Set(),
     commentOrder: [],
@@ -1393,7 +1471,7 @@ export function docxToParts(bytes: Uint8Array, preunzipped?: Record<string, Uint
     paragraphStyles: ps.paragraphStyles,
     characterStyles: ps.characterStyles,
     styleDefs: ps.styleDefs,
-    styleCss: ps.css,
+    styleCss: ps.css + num.css,
     noteCss: ps.noteCss,
   };
 }

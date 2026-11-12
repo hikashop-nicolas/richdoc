@@ -635,3 +635,14 @@
 .docxedit-reading .docxedit-fs-btn { width: 44px; height: 44px; opacity: .75; }
 .docxedit-reading .docxedit-fs-btn svg { width: 24px; height: 24px; }
 .docxedit-reading .docxedit-scroll { -webkit-user-select: none; user-select: none; -webkit-touch-callout: none; }
+
+/* Run properties shown from the preserved w:rPr (caps, double strike, hidden, underline styles). */
+.docx-caps { text-transform: uppercase; }
+.docx-smallcaps { font-variant: small-caps; }
+.docx-dstrike { text-decoration: line-through double; }
+.docx-hidden { display: none; }
+.docx-u-double u { text-decoration-style: double; }
+.docx-u-thick u { text-decoration-thickness: 2px; }
+.docx-u-dotted u { text-decoration-style: dotted; }
+.docx-u-dashed u { text-decoration-style: dashed; }
+.docx-u-wavy u { text-decoration-style: wavy; }
