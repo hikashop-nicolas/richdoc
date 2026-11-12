@@ -646,3 +646,10 @@
 .docx-u-dotted u { text-decoration-style: dotted; }
 .docx-u-dashed u { text-decoration-style: dashed; }
 .docx-u-wavy u { text-decoration-style: wavy; }
+/* A drop cap (w:framePr dropCap): its own paragraph, floated beside the next one's first lines. */
+.docxedit-doc p[data-rdoc-dropcap] { float: left; margin: 0 .1em 0 0; line-height: .9; }
+.docxedit-doc p[data-rdoc-dropcap="margin"] { margin-left: -1.1em; }
+/* A metafile picture: the bitmap it wraps, or a box of its size when it is vector-only. */
+.docx-img-ph.docx-img-meta { padding: 0; border: 0; line-height: 0; }
+.docx-img-ph.docx-img-meta img { max-width: 100%; }
+.docx-img-ph.docx-img-vector { box-sizing: border-box; display: inline-flex; align-items: center; justify-content: center; max-width: 100%; background: #f6f6f6; }

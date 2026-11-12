@@ -170,3 +170,41 @@ describe("docx numbering from a paragraph style", () => {
     expect(xml).toMatch(/<w:ilvl w:val="1"\/><w:numId w:val="5"\/>/);
   });
 });
+
+describe("docx heading numbering from the Heading styles", () => {
+  const STYLES = `<?xml version="1.0"?><w:styles ${NS}>` +
+    `<w:style w:type="paragraph" w:styleId="Heading1"><w:name w:val="heading 1"/><w:pPr><w:numPr><w:numId w:val="7"/></w:numPr></w:pPr></w:style>` +
+    `<w:style w:type="paragraph" w:styleId="Heading2"><w:name w:val="heading 2"/><w:pPr><w:numPr><w:ilvl w:val="1"/><w:numId w:val="7"/></w:numPr></w:pPr></w:style>` +
+    `</w:styles>`;
+  const NUM = `<w:abstractNum w:abstractNumId="2">${lvl(0, "decimal", "%1")}${lvl(1, "decimal", "%1.%2")}</w:abstractNum><w:num w:numId="7"><w:abstractNumId w:val="2"/></w:num>`;
+  const h = (n: number, t: string) => `<w:p><w:pPr><w:pStyle w:val="Heading${n}"/></w:pPr><w:r><w:t>${t}</w:t></w:r></w:p>`;
+  const make = (body: string) => {
+    const files = unzipSync(docx(body, NUM));
+    files["word/styles.xml"] = strToU8(STYLES);
+    return zipSync(files);
+  };
+
+  it("keeps headings as headings and numbers them with CSS counters", () => {
+    const d = make(h(1, "Intro") + h(2, "Scope") + h(1, "Method"));
+    const { body, styleCss } = docxToParts(d);
+    expect(body).toMatch(/^<h1[^>]*>Intro<\/h1><h2[^>]*>Scope<\/h2><h1[^>]*>Method<\/h1>$/);
+    expect(styleCss).toContain(".docxedit-doc{counter-reset:rdoc-hn-7-0 0 rdoc-hn-7-1 0}");
+    expect(styleCss).toContain(".docxedit-doc h1{counter-increment:rdoc-hn-7-0;counter-set:rdoc-hn-7-1 0}");
+    expect(styleCss).toContain('.docxedit-doc h2::before{content:counter(rdoc-hn-7-0,decimal) "." counter(rdoc-hn-7-1,decimal) " "}');
+    // Nothing of the label is saved: the headings keep only their style.
+    const xml = strFromU8(unzipSync(htmlToDocx(body, d))["word/document.xml"]!);
+    expect(xml).not.toContain("w:numPr");
+    expect(xml).toContain("<w:t xml:space=\"preserve\">Intro</w:t>");
+  });
+});
+
+describe("docx drop caps", () => {
+  it("floats a drop-cap paragraph and keeps its frame on save", () => {
+    const d = docx('<w:p><w:pPr><w:framePr w:dropCap="drop" w:lines="3" w:wrap="around" w:vAnchor="text" w:hAnchor="text"/></w:pPr><w:r><w:rPr><w:sz w:val="96"/></w:rPr><w:t>O</w:t></w:r></w:p><w:p><w:r><w:t>nce upon a time</w:t></w:r></w:p>');
+    const { body } = docxToParts(d);
+    expect(body).toMatch(/<p[^>]*data-rdoc-dropcap="drop"[^>]*>.*O/);
+    const xml = strFromU8(unzipSync(htmlToDocx(body, d))["word/document.xml"]!);
+    expect(xml).toContain('w:dropCap="drop"');
+    expect(xml).toContain('w:lines="3"');
+  });
+});

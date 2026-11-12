@@ -10,6 +10,7 @@ import { ensureDingsFont } from "./materialdings";
 import { SYMBOL, WEBDINGS, WINGDINGS2, WINGDINGS3 } from "./dingbats";
 import type { Fmt } from "./shared";
 import { readLayout } from "./image-layout";
+import { metafileBitmap } from "./metafile";
 import { readDocDefaults, readThemeFonts, rFontsLatin } from "./fonts";
 import type { ThemeFonts } from "./fonts";
 
@@ -209,12 +210,27 @@ function imageHtml(run: Element, ctx: RenderCtx): string {
   const ext = (target?.split(".").pop() ?? "").toLowerCase();
   const mime = IMG_MIME[ext];
   const pass = passthroughAttr(run);
-  if (!bytes || !mime || ext === "emf" || ext === "wmf") {
+  const extent = run.getElementsByTagName("wp:extent")[0];
+  let wpx = emuToPx(extent?.getAttribute("cx") ?? null);
+  let cy = emuToPx(extent?.getAttribute("cy") ?? null);
+  if (!wpx) {
+    // A VML picture sizes itself in its shape's style ("width:120pt;height:80pt").
+    const st = run.getElementsByTagName("v:shape")[0]?.getAttribute("style") ?? "";
+    const dim = (k: string) => { const m = new RegExp(`(?:^|;)\\s*${k}:\\s*([\\d.]+)(pt|px|in)`).exec(st); return m ? Math.round(Number(m[1]) * (m[2] === "pt" ? 4 / 3 : m[2] === "in" ? 96 : 1)) : undefined; };
+    wpx = dim("width");
+    cy = dim("height");
+  }
+  if (bytes && (ext === "emf" || ext === "wmf")) {
+    // A metafile: show the bitmap it wraps, inside the preserved placeholder (which the writer
+    // re-emits verbatim, so the picture is saved as it was); else a box of the picture's size.
+    const size = wpx && cy ? `width:${wpx}px;height:${cy}px` : "";
+    const bmp = metafileBitmap(bytes, ext);
+    if (bmp) return `<span class="docx-img-ph docx-img-meta" contenteditable="false"${pass}><img src="data:${bmp.mime};base64,${bytesToBase64(bmp.bytes)}" alt=""${size ? ` style="${size}"` : ""}></span>`;
+    return `<span class="docx-img-ph docx-img-vector" contenteditable="false"${pass}${size ? ` style="${size}"` : ""}>${escapeHtml(t("vectorPicture"))}</span>`;
+  }
+  if (!bytes || !mime) {
     return `<span class="docx-img-ph" contenteditable="false"${pass}>[image]</span>`;
   }
-  const extent = run.getElementsByTagName("wp:extent")[0];
-  const wpx = emuToPx(extent?.getAttribute("cx") ?? null);
-  const cy = emuToPx(extent?.getAttribute("cy") ?? null);
   const dims = wpx ? ` width="${wpx}"${cy ? ` height="${cy}"` : ""}` : "";
   // A floating (anchored) image: surface its wrap mode + position so it renders out of line
   // and the image toolbar can edit it. Inline images carry no layout attributes.
@@ -560,7 +576,8 @@ function readNumbering(file: Uint8Array | undefined): { ordered: Map<string, boo
         const ruleName = `rdoc-num-${id.replace(/[^\w-]/g, "_")}-${i}`;
         const f = lvlFmt(l, ruleName);
         if (f.rule) css += f.rule;
-        lv[i] = { ordered: f.ordered, listStyle: f.listStyle, cls: f.cls };
+        const kidVal = (tag: string) => Array.from(l.children).find((c) => c.tagName === tag)?.getAttribute("w:val") ?? undefined;
+        lv[i] = { ordered: f.ordered, listStyle: f.listStyle, cls: f.cls, fmt: kidVal("w:numFmt") ?? "decimal", text: kidVal("w:lvlText") ?? "", start: Number(kidVal("w:start") ?? "1") || 0, lgl: !!Array.from(l.children).find((c) => c.tagName === "w:isLgl"), suff: kidVal("w:suff") ?? "tab" };
       }
       absLevels.set(id, lv);
     }
@@ -590,6 +607,49 @@ interface LvlFmt {
   ordered: boolean;
   listStyle?: string;
   cls?: string; // a class on the list carrying a ::marker rule (multi-level labels)
+  fmt?: string; // the raw w:numFmt, w:lvlText, w:start, w:isLgl and w:suff (heading numbering)
+  text?: string;
+  start?: number;
+  lgl?: boolean;
+  suff?: string;
+}
+
+/** CSS numbering the h1-h6 headings whose Heading style carries a w:numPr ("1 Introduction",
+    "1.2 Scope"): CSS counters, so the numbers follow headings added or removed while editing,
+    and a ::before label, so nothing enters the text that is saved. Deeper levels restart with
+    counter-set on the one root counter (a sibling counter-reset does not scope in Chrome). */
+function headingNumberCss(styleNum: Map<string, { numId: string; level: number }>, levels: Map<string, LvlFmt[]>): string {
+  const heads: { h: number; numId: string; level: number }[] = [];
+  for (const [id, sn] of styleNum) {
+    const m = /^heading([1-6])$/i.exec(id.replace(/\s+/g, ""));
+    if (m && levels.get(sn.numId)?.[sn.level]) heads.push({ h: Number(m[1]), ...sn });
+  }
+  if (!heads.length) return "";
+  const name = (numId: string, lvl: number) => `rdoc-hn-${numId.replace(/[^\w-]/g, "_")}-${lvl}`;
+  const startOf = (numId: string, lvl: number) => (levels.get(numId)?.[lvl]?.start ?? 1) - 1;
+  const roots = new Set<string>();
+  let css = "";
+  for (const hd of heads) {
+    const lv = levels.get(hd.numId)![hd.level]!;
+    if (lv.fmt === "bullet" || lv.fmt === "none") continue;
+    roots.add(`${name(hd.numId, hd.level)} ${startOf(hd.numId, hd.level)}`);
+    // Deeper numbered headings of the same list restart under this one.
+    const deeper = heads.filter((o) => o.numId === hd.numId && o.level > hd.level).map((o) => `${name(o.numId, o.level)} ${startOf(o.numId, o.level)}`);
+    css += `.docxedit-doc h${hd.h}{counter-increment:${name(hd.numId, hd.level)}${deeper.length ? `;counter-set:${deeper.join(" ")}` : ""}}\n`;
+    const parts: string[] = [];
+    for (const tok of (lv.text ?? "").split(/(%[1-9])/)) {
+      if (!tok) continue;
+      const k = /^%([1-9])$/.exec(tok);
+      if (!k) { parts.push(cssStr(tok)); continue; }
+      const ref = Number(k[1]) - 1;
+      const refLv = levels.get(hd.numId)?.[ref];
+      const style = lv.lgl ? "decimal" : NUMFMT_CSS[refLv?.fmt ?? "decimal"] ?? "decimal";
+      parts.push(heads.some((o) => o.numId === hd.numId && o.level === ref) ? `counter(${name(hd.numId, ref)},${style})` : cssStr(String(refLv?.start ?? 1)));
+    }
+    const suffix = lv.suff === "nothing" ? "" : lv.suff === "space" ? " " : "\u2003";
+    if (parts.length) css += `.docxedit-doc h${hd.h}::before{content:${parts.join(" ")}${suffix ? " " + cssStr(suffix) : ""}}\n`;
+  }
+  return roots.size ? `.docxedit-doc{counter-reset:${[...roots].join(" ")}}\n${css}` : "";
 }
 // Word numFmt -> a CSS list-style-type with the same counter.
 const NUMFMT_CSS: Record<string, string> = {
@@ -988,6 +1048,7 @@ interface PInfo {
   pageBreakBefore: boolean;
   keepNext?: boolean; // w:keepNext: paginate with the next paragraph
   styleNum?: string; // "numId:level" when the numbering comes from the paragraph style
+  dropCap?: string; // w:framePr/@w:dropCap: "drop" (in the text) or "margin"
   revPara?: "ins" | "del"; // paragraph-mark revision (split/merge)
   revAuthor?: string;
   revDate?: string;
@@ -1048,7 +1109,9 @@ function paragraphInfo(p: Element, numbering: Map<string, boolean>, numLevels?: 
   const stops = parseWTabs(pPr);
   const kn = pPr ? Array.from(pPr.children).find((c) => c.tagName === "w:keepNext") : undefined;
   const keepNext = !!kn && !/^(0|false|off)$/.test(kn.getAttribute("w:val") ?? "");
+  const dc = pPr ? Array.from(pPr.children).find((c) => c.tagName === "w:framePr")?.getAttribute("w:dropCap") : undefined;
   return {
+    dropCap: dc === "drop" || dc === "margin" ? dc : undefined,
     keepNext,
     styleNum: styleNum ? `${styleNum.numId}:${styleNum.level}` : undefined,
     heading,
@@ -1100,7 +1163,7 @@ function blockStyleAttr(info: PInfo): string {
   const secGeomAttr = info.secGeom ? ` data-rdoc-secbreak="${escapeAttr(info.secGeom)}"` : "";
   const secHKey = info.secHeaderRid ? ` data-rdoc-secheaderkey="${escapeAttr(info.secHeaderRid)}"` : "";
   const secFKey = info.secFooterRid ? ` data-rdoc-secfooterkey="${escapeAttr(info.secFooterRid)}"` : "";
-  const tabAttr = (info.tabStops ? ` data-rdoc-tabstops="${escapeAttr(info.tabStops)}"` : "") + (info.keepNext ? " data-rdoc-keepnext" : "");
+  const tabAttr = (info.tabStops ? ` data-rdoc-tabstops="${escapeAttr(info.tabStops)}"` : "") + (info.keepNext ? " data-rdoc-keepnext" : "") + (info.dropCap ? ` data-rdoc-dropcap="${info.dropCap}"` : "");
   // Unmodeled paragraph properties + the list's original numbering id, for merge-back on save.
   const pprAttr = info.pPrXml ? ` data-docx-ppr="${escapeAttr(info.pPrXml)}"` : "";
   const numAttr = (info.isList && info.numId ? ` data-docx-numid="${escapeAttr(info.numId)}"` : "") + (info.styleNum ? ` data-docx-stylenum="${info.styleNum}"` : "");
@@ -1684,7 +1747,7 @@ export function docxToParts(bytes: Uint8Array, preunzipped?: Record<string, Uint
     paragraphStyles: ps.paragraphStyles,
     characterStyles: ps.characterStyles,
     styleDefs: ps.styleDefs,
-    styleCss: ps.css + num.css + [...TBL_STYLES].filter(([, t]) => t.pCss).map(([id, t]) => `.docxedit-doc table[data-rdoc-tstyle="${cssAttrValue(id)}"] p{${t.pCss}}\n`).join(""),
+    styleCss: ps.css + num.css + headingNumberCss(STYLE_NUM, num.levels) + [...TBL_STYLES].filter(([, t]) => t.pCss).map(([id, t]) => `.docxedit-doc table[data-rdoc-tstyle="${cssAttrValue(id)}"] p{${t.pCss}}\n`).join(""),
     noteCss: ps.noteCss,
   };
 }

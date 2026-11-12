@@ -265,6 +265,7 @@ const dict: Dict = {
   assistError: "エラー: {msg}",
   assistUnavailable: "オンデバイスモデルを読み込めませんでした。",
   assistNeedInput: "先に指示を入力してください。",
+  vectorPicture: "ベクター画像（ここでは表示されません）",
 };
 
 export default dict;

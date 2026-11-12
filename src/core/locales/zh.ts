@@ -265,6 +265,7 @@ const dict: Dict = {
   assistError: "错误：{msg}",
   assistUnavailable: "无法加载设备上的模型。",
   assistNeedInput: "请先输入指令。",
+  vectorPicture: "矢量图（此处不显示）",
 };
 
 export default dict;
