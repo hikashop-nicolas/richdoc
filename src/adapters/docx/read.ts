@@ -10,7 +10,7 @@ import { ensureDingsFont } from "./materialdings";
 import { SYMBOL, WEBDINGS, WINGDINGS2, WINGDINGS3 } from "./dingbats";
 import type { Fmt } from "./shared";
 import { readLayout } from "./image-layout";
-import { metafileBitmap } from "./metafile";
+import { metafileToSvgUrl } from "./metafile";
 import { readDocDefaults, readThemeFonts, rFontsLatin } from "./fonts";
 import type { ThemeFonts } from "./fonts";
 
@@ -221,11 +221,11 @@ function imageHtml(run: Element, ctx: RenderCtx): string {
     cy = dim("height");
   }
   if (bytes && (ext === "emf" || ext === "wmf")) {
-    // A metafile: show the bitmap it wraps, inside the preserved placeholder (which the writer
-    // re-emits verbatim, so the picture is saved as it was); else a box of the picture's size.
+    // A metafile: drawn as SVG inside the preserved placeholder (which the writer re-emits
+    // verbatim, so the picture is saved as it was); else a box of the picture's size.
     const size = wpx && cy ? `width:${wpx}px;height:${cy}px` : "";
-    const bmp = metafileBitmap(bytes, ext);
-    if (bmp) return `<span class="docx-img-ph docx-img-meta" contenteditable="false"${pass}><img src="data:${bmp.mime};base64,${bytesToBase64(bmp.bytes)}" alt=""${size ? ` style="${size}"` : ""}></span>`;
+    const svg = metafileToSvgUrl(bytes);
+    if (svg) return `<span class="docx-img-ph docx-img-meta" contenteditable="false"${pass}><img src="${escapeAttr(svg)}" alt=""${size ? ` style="${size}"` : ""}></span>`;
     return `<span class="docx-img-ph docx-img-vector" contenteditable="false"${pass}${size ? ` style="${size}"` : ""}>${escapeHtml(t("vectorPicture"))}</span>`;
   }
   if (!bytes || !mime) {

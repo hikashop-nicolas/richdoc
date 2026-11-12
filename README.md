@@ -50,6 +50,8 @@ A full word-processor surface in the browser, the same for both formats unless n
 - **Images:** inline and floating / anchored with text wrap (square, tight,
   top-and-bottom, behind, in front), alignment, alt text and wrap padding, driven by an
   on-select toolbar. A wrapped image's exact offset round-trips per axis.
+  EMF / WMF pictures (charts, clip art, pasted drawings) are drawn as SVG in the browser
+  and saved untouched.
 - **Furigana / ruby**, rendered natively (reading above in horizontal text, to the
   right in vertical).
 - **Tabs & tab stops:** real tab characters plus custom tab stops with left / center /
@@ -156,3 +158,8 @@ MIT, see [LICENSE](LICENSE).
 The bundled MaterialDings webfont (used to render Wingdings `w:sym` glyphs without the proprietary
 font) is © 2018 Accusoft Corporation under the SIL Open Font License 1.1; see
 [src/adapters/docx/MaterialDings.LICENSE.md](src/adapters/docx/MaterialDings.LICENSE.md).
+
+EMF / WMF pictures are drawn by a TypeScript port of the `wordcraft-metafile` crate from
+[WordCraft](https://github.com/storytold/wordcraft), © 2026 ArtCraft Team and the WordCraft
+contributors, used under the MIT license; see
+[src/adapters/docx/metafile.LICENSE.md](src/adapters/docx/metafile.LICENSE.md).
