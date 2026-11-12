@@ -63,3 +63,20 @@ describe("paginate", () => {
     expect(paginate([100, 100], { pageStep: 0, contentHeight: 0 }).cardCount).toBe(1);
   });
 });
+
+describe("paginate keep-with-next", () => {
+  const m = { pageStep: 1100, contentHeight: 1000 };
+  it("moves a heading to the next page when its paragraph cannot start beside it", () => {
+    // 940px of text, then a 40px heading that fits, then a 200px paragraph that does not.
+    const r = paginate([940, 40, 200], { ...m, keepWithNext: new Set([1]) });
+    expect(r.pageOfBlock).toEqual([0, 1, 1]);
+  });
+  it("leaves the heading when the start of its paragraph fits", () => {
+    const r = paginate([880, 40, 200], { ...m, keepWithNext: new Set([1]) });
+    expect(r.pageOfBlock).toEqual([0, 0, 1]); // 880+40+48 <= 1000
+  });
+  it("keeps a chain of kept blocks together, and gives up on one taller than a page", () => {
+    expect(paginate([850, 60, 60, 200], { ...m, keepWithNext: new Set([1, 2]) }).pageOfBlock).toEqual([0, 1, 1, 1]);
+    expect(paginate([100, 990, 200], { ...m, keepWithNext: new Set([1]) }).pageOfBlock).toEqual([0, 1, 2]);
+  });
+});

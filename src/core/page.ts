@@ -31,6 +31,9 @@ export interface PageMetrics {
   /** Extra space reserved at the bottom of a given page (e.g. for its footnotes), reducing how
       much body content fits there. */
   reserveOf?: (page: number) => number;
+  /** Blocks kept on the same page as the block after them (headings, w:keepNext): such a
+      block moves to the next page when it fits but the start of its follower does not. */
+  keepWithNext?: ReadonlySet<number>;
 }
 
 export interface PaginationResult {
@@ -45,6 +48,7 @@ export interface PaginationResult {
 }
 
 const EPS = 1; // sub-pixel overflow tolerance
+const KEEP_TAIL = 48; // how much of the follower must fit beside a kept block (about two lines)
 
 /**
  * Greedy block-level fill: never splits a block. A block taller than a page overflows
@@ -65,7 +69,17 @@ export function paginate(heights: number[], m: PageMetrics, forceBreakBefore?: R
     const h = heights[i] ?? 0;
     const pageBottom = page * m.pageStep + m.contentHeight - (m.reserveOf?.(page) ?? 0);
     const pageTop = page * m.pageStep;
-    const forced = forceBreakBefore?.has(i) ?? false;
+    let forced = forceBreakBefore?.has(i) ?? false;
+    if (!forced && localY > pageTop && m.keepWithNext?.has(i) && i + 1 < heights.length) {
+      // The kept chain (this block, any kept blocks after it, then the start of the follower).
+      let total = h;
+      for (let j = i + 1; j < heights.length; j++) {
+        const hj = heights[j] ?? 0;
+        if (!m.keepWithNext.has(j) || forceBreakBefore?.has(j)) { if (!forceBreakBefore?.has(j)) total += Math.min(hj, KEEP_TAIL); break; }
+        total += hj;
+      }
+      if (total <= m.contentHeight && localY + total > pageBottom + EPS) forced = true;
+    }
     if (localY > pageTop && (forced || localY + h > pageBottom + EPS)) {
       // Start a new page: a forced break always advances; otherwise only when the block
       // does not fit. Advance to the next card boundary at or below the current y (covers

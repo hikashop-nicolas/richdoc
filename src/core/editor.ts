@@ -810,6 +810,12 @@ export function createRichEditor(container: HTMLElement, adapter: Adapter, optio
   // block's inline-size (its width in vertical-rl) and the page's content width; page cards
   // advance right-to-left and spacer gaps are widths. The doc is an inline-block, right-aligned,
   // fixed at the page height and growing leftward (see the .is-vertical.is-paginated CSS).
+  // Blocks that stay with the next one on a page: headings, and paragraphs marked keep-with-next.
+  const keepSet = (kids: HTMLElement[]): Set<number> => {
+    const set = new Set<number>();
+    kids.forEach((k, i) => { if (/^H[1-6]$/.test(k.tagName) || k.hasAttribute("data-rdoc-keepnext")) set.add(i); });
+    return set;
+  };
   const manualBreaks = (kids: HTMLElement[]): Set<number> => {
     const set = new Set<number>();
     const isMarker = (el: Element) => el.classList.contains("docx-pagebreak") && el.getAttribute("data-docx-pagebreak") === "manual";
@@ -1638,6 +1644,7 @@ export function createRichEditor(container: HTMLElement, adapter: Adapter, optio
       ({ ks: kids, hs: heights } = measureKids());
     }
     const forceBreakBefore = forceBreaksOf(kids);
+    const keepWithNext = keepSet(kids);
 
     // Footnotes: measure each referenced footnote body at content width, then reserve that space at
     // the bottom of the page its reference lands on (paginate accounts for it). Endnotes go to the
@@ -1648,8 +1655,8 @@ export function createRichEditor(container: HTMLElement, adapter: Adapter, optio
     const kidIndexOf = (ref: HTMLElement) => kids.findIndex((k) => k.contains(ref));
     const { fnRow, fnSize } = measureFootnotes(footRefs, false, cw);
     const reserveFor = (pob: number[]): number[] => footnoteReserve(footRefs, fnSize, (ref) => { const ki = kidIndexOf(ref); return ki < 0 ? -1 : pob[ki]!; });
-    let reserve = footRefs.length ? reserveFor(paginate(heights, { pageStep, contentHeight }, forceBreakBefore).pageOfBlock) : [];
-    const { spacerBefore, cardCount, pageOfBlock } = paginate(heights, { pageStep, contentHeight, reserveOf: (p) => reserve[p] || 0 }, forceBreakBefore);
+    let reserve = footRefs.length ? reserveFor(paginate(heights, { pageStep, contentHeight, keepWithNext }, forceBreakBefore).pageOfBlock) : [];
+    const { spacerBefore, cardCount, pageOfBlock } = paginate(heights, { pageStep, contentHeight, keepWithNext, reserveOf: (p) => reserve[p] || 0 }, forceBreakBefore);
     reserve = footRefs.length ? reserveFor(pageOfBlock) : [];
 
     for (const [idx, h] of spacerBefore) {
