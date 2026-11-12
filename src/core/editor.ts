@@ -4,7 +4,7 @@
 // reference adapter; odt reuses this same engine.
 
 import { t, getLocale } from "./i18n";
-import { formatPageNumber } from "./util";
+import { formatPageNumber, firstFontFamily, fontSizeToHalfPt } from "./util";
 import { defaultPageGeometry, paginate } from "./page";
 import type { Adapter, BlockChanges, BlockPosition, DocExtra, EditorOptions, RichEditor, RichDoc, SecGeom, Note, UndoHandler } from "./types";
 import { setupComments } from "./feature/comments";
@@ -190,7 +190,9 @@ export function createRichEditor(container: HTMLElement, adapter: Adapter, optio
   const newStyles: import("./types").NewStyle[] = [];
   const newStyleCss = document.createElement("style");
   wrap.appendChild(newStyleCss);
-  if (parts.defaultFont) page.style.setProperty("--docxedit-doc-font", `"${parts.defaultFont.replace(/"/g, "")}"`);
+  const defFaces = [parts.defaultFont, parts.defaultFontEastAsia].filter((f): f is string => !!f).map((f) => `"${f.replace(/"/g, "")}"`);
+  if (defFaces.length) page.style.setProperty("--docxedit-doc-font", defFaces.join(", "));
+  if (parts.defaultSizeHalfPt) page.style.setProperty("--docxedit-doc-size", `${parts.defaultSizeHalfPt / 2}pt`);
 
   // Page geometry: render at the document's real size and margins, or the default size
   // (A4 unless options override) when the file declares none. Height is unused until
@@ -2163,7 +2165,10 @@ export function createRichEditor(container: HTMLElement, adapter: Adapter, optio
       const notes: Note[] = [];
       for (const [id, nb] of noteBands) if (refIds.has(id)) notes.push({ id, kind: nb.kind, html: nb.el.innerHTML });
 
-      return adapter.write(cleanBody(true), editedParts, getEdits(), geometryDirty ? geometry : undefined, newStyles, notes);
+      // The page-wide font/size set on the surface (a new document's default) is stored as the
+      // document default, so the file opens in the font it was written in.
+      const docDefaults = { font: firstFontFamily(doc.style.fontFamily), sizeHalfPt: fontSizeToHalfPt(doc.style.fontSize) };
+      return adapter.write(cleanBody(true), editedParts, getEdits(), geometryDirty ? geometry : undefined, newStyles, notes, docDefaults.font || docDefaults.sizeHalfPt ? docDefaults : undefined);
     },
     undo() {
       if (undoHandler) return void undoHandler.undo();

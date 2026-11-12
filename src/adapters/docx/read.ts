@@ -10,6 +10,12 @@ import { ensureDingsFont } from "./materialdings";
 import { SYMBOL, WEBDINGS, WINGDINGS2, WINGDINGS3 } from "./dingbats";
 import type { Fmt } from "./shared";
 import { readLayout } from "./image-layout";
+import { readDocDefaults, readThemeFonts, rFontsLatin } from "./fonts";
+import type { ThemeFonts } from "./fonts";
+
+// The theme fonts of the document being read, so run and style fonts given as a theme
+// reference (w:asciiTheme="minorHAnsi") resolve to a real typeface. Set by docxToParts.
+let THEME: ThemeFonts = {};
 
 
 interface Reaction {
@@ -182,13 +188,9 @@ export function loadEmbeddedFonts(files: Record<string, Uint8Array>): { css: str
   return out;
 }
 
-/** The document default font (styles.xml docDefaults), used as the page base font. */
+/** The document default font (styles.xml docDefaults + the Normal style, theme resolved). */
 export function defaultFont(files: Record<string, Uint8Array>): string | undefined {
-  const sx = files["word/styles.xml"];
-  if (!sx) return undefined;
-  const doc = new DOMParser().parseFromString(strFromU8(sx), "application/xml");
-  const rf = doc.getElementsByTagName("w:docDefaults")[0]?.getElementsByTagName("w:rFonts")[0];
-  return rf?.getAttribute("w:ascii") || rf?.getAttribute("w:hAnsi") || undefined;
+  return readDocDefaults(files).font;
 }
 
 const emuToPx = (v: string | null): number | undefined => {
@@ -493,7 +495,7 @@ function readFmt(rPr: Element | undefined): Fmt {
     highlight: highlight && highlight !== "none" ? highlight : undefined,
     shading: shd && shd !== "auto" && /^[0-9a-fA-F]{6}$/.test(shd) ? shd.toUpperCase() : undefined,
     sizeHalfPt: sz && /^\d+$/.test(sz) ? Number(sz) : undefined,
-    font: rPr?.getElementsByTagName("w:rFonts")[0]?.getAttribute("w:ascii") || rPr?.getElementsByTagName("w:rFonts")[0]?.getAttribute("w:hAnsi") || undefined,
+    font: rFontsLatin(rPr?.getElementsByTagName("w:rFonts")[0], THEME),
   };
 }
 
@@ -1229,7 +1231,7 @@ function readStyles(stylesXml: Uint8Array | undefined): {
     if (color && color !== "auto" && /^[0-9a-f]{6}$/i.test(color)) out["color"] = `#${color}`;
     const sz = wv(rPr?.getElementsByTagName("w:sz")[0] ?? undefined, "val");
     if (sz && Number(sz) > 0) out["font-size"] = `${Number(sz) / 2}pt`;
-    const font = wv(rPr?.getElementsByTagName("w:rFonts")[0] ?? undefined, "ascii");
+    const font = rFontsLatin(rPr?.getElementsByTagName("w:rFonts")[0], THEME);
     if (font) out["font-family"] = `'${font.replace(/'/g, "")}'`;
     return out;
   };
@@ -1252,6 +1254,13 @@ function readStyles(stylesXml: Uint8Array | undefined): {
     return list;
   };
   const paragraphStyles = collect(paraById, "paragraph", "data-rdoc-style", (id) => /^heading[1-9]$/i.test(id.replace(/\s+/g, "")));
+  // Headings render as <h1>..<h6>, not data-rdoc-style: give them their style's look too.
+  for (const id of paraById.keys()) {
+    const hm = /^heading([1-6])$/i.exec(id.replace(/\s+/g, ""));
+    if (!hm) continue;
+    const body = Object.entries(cssFor(paraById, id, true, new Set())).map(([k, v]) => `${k}:${v}`).join(";");
+    if (body) css += `.docxedit-doc h${hm[1]}{${body}}\n`;
+  }
   const characterStyles = collect(charById, "character", "data-rdoc-cstyle", () => false);
   // The footnote/endnote body style's inheritable text props, applied to the note area so notes
   // render at the document's footnote size/font. Match by style id or name (Word: "FootnoteText"
@@ -1278,6 +1287,7 @@ function readStyles(stylesXml: Uint8Array | undefined): {
 export function docxToParts(bytes: Uint8Array, preunzipped?: Record<string, Uint8Array>): DocxParts {
   const empty: DocxParts = { body: "", header: "", footer: "", comments: [] };
   const files = preunzipped ?? unzipSync(bytes);
+  THEME = readThemeFonts(files);
   const docXml = files["word/document.xml"];
   if (!docXml) return empty;
   const doc = new DOMParser().parseFromString(strFromU8(docXml), "application/xml");

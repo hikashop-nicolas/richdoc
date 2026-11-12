@@ -4,7 +4,9 @@
 import { strFromU8, strToU8, unzipSync, zipSync } from "fflate";
 import { zipAsync } from "../../core/zip";
 import { toHex6, fontSizeToHalfPt, firstFontFamily, imageLayoutFromEl, blockBorders, parseCssBorder } from "../../core/util";
-import type { ImageLayout, NewStyle, Note, PageBorder, PageGeometry } from "../../core/types";
+import type { DocDefaultsEdit, ImageLayout, NewStyle, Note, PageBorder, PageGeometry } from "../../core/types";
+import { readDocDefaults, readThemeFonts, rFontsLatin } from "./fonts";
+import type { ThemeFonts } from "./fonts";
 import { W, R, PKG, REL_HYPERLINK, NS_DECLS, FMT0, HL_BY_HEX, JC_BY_ALIGN } from "./shared";
 import type { Fmt } from "./shared";
 import { EMU_PER_PX, makeContainer } from "./image-layout";
@@ -248,6 +250,13 @@ function insertInOrder(parent: Element, el: Element, order: string[]): void {
   parent.appendChild(el);
 }
 
+const themeCache = new WeakMap<Record<string, Uint8Array>, ThemeFonts>();
+const themeOf = (files: Record<string, Uint8Array>): ThemeFonts => {
+  let t = themeCache.get(files);
+  if (!t) themeCache.set(files, (t = readThemeFonts(files)));
+  return t;
+};
+
 /** Build a run's w:rPr: the stashed original properties (minus the modeled ones, which
     the DOM owns) merged with the modeled Fmt, in schema order. Null when empty. */
 function buildRPr(ctx: DocxCtx, f: Fmt, change?: RprChange, stashXml?: string | null): Element | null {
@@ -265,7 +274,12 @@ function buildRPr(ctx: DocxCtx, f: Fmt, change?: RprChange, stashXml?: string | 
           if (f.u) keptU = true;
           else base.removeChild(c);
         } else if (tag === "w:rFonts" && f.font) {
-          // ascii/hAnsi are re-set from the DOM below; keep eastAsia/cs/theme attrs.
+          // ascii/hAnsi are re-set from the DOM below; keep eastAsia/cs attrs. A Latin theme
+          // reference outranks ascii in Word, so it goes when the user picked another font.
+          if (rFontsLatin(c, themeOf(ctx.files)) !== f.font) {
+            c.removeAttribute("w:asciiTheme");
+            c.removeAttribute("w:hAnsiTheme");
+          }
           c.removeAttribute("w:ascii");
           c.removeAttribute("w:hAnsi");
           if (!c.attributes.length) base.removeChild(c);
@@ -2052,7 +2066,51 @@ function registerStylesPart(files: Record<string, Uint8Array>): void {
   }
 }
 
-type DocxOpts = { reactions?: ReactionEdit[]; replies?: ReplyEdit[]; done?: Map<string, boolean>; deletedComments?: string[]; edited?: { id: string; text: string }[]; pageGeometry?: PageGeometry; newStyles?: NewStyle[]; notes?: Note[] };
+type DocxOpts = { reactions?: ReactionEdit[]; replies?: ReplyEdit[]; done?: Map<string, boolean>; deletedComments?: string[]; edited?: { id: string; text: string }[]; pageGeometry?: PageGeometry; newStyles?: NewStyle[]; notes?: Note[]; docDefaults?: DocDefaultsEdit };
+
+/** Store the editor's page-wide font/size as styles.xml docDefaults when they differ from what
+    the file already resolves to (a new document has none), creating the part if absent. */
+function applyDocDefaults(files: Record<string, Uint8Array>, want: DocDefaultsEdit): void {
+  const have = readDocDefaults(files);
+  const font = want.font && want.font !== have.font ? want.font : undefined;
+  const size = want.sizeHalfPt && want.sizeHalfPt !== have.sizeHalfPt ? want.sizeHalfPt : undefined;
+  if (!font && !size) return;
+  const key = "word/styles.xml";
+  const created = !files[key];
+  const doc = new DOMParser().parseFromString(created ? `<w:styles xmlns:w="${W}"></w:styles>` : strFromU8(files[key]!), "application/xml");
+  const root = doc.documentElement!;
+  const kid = (parent: Element, tag: string, first = false): Element => {
+    let e = Array.from(parent.children).find((c) => c.tagName === tag);
+    if (!e) {
+      e = doc.createElementNS(W, tag);
+      if (first) parent.insertBefore(e, parent.firstChild);
+      else parent.appendChild(e);
+    }
+    return e;
+  };
+  const rPr = kid(kid(kid(root, "w:docDefaults", true), "w:rPrDefault", true), "w:rPr");
+  // The default paragraph style overrides docDefaults, so a value it sets is changed there.
+  const normal = Array.from(root.children).find((c) => c.tagName === "w:style" && (c.getAttribute("w:type") ?? "paragraph") === "paragraph" && /^(1|true)$/.test(c.getAttribute("w:default") ?? ""));
+  const nRPr = normal ? Array.from(normal.children).find((c) => c.tagName === "w:rPr") : undefined;
+  if (font) {
+    const nrf = nRPr && Array.from(nRPr.children).find((c) => c.tagName === "w:rFonts");
+    const rf = nrf && (nrf.getAttribute("w:ascii") || nrf.getAttribute("w:asciiTheme")) ? nrf : kid(rPr, "w:rFonts", true);
+    for (const a of ["w:asciiTheme", "w:hAnsiTheme"]) rf.removeAttribute(a);
+    rf.setAttributeNS(W, "w:ascii", font);
+    rf.setAttributeNS(W, "w:hAnsi", font);
+    if (!rf.getAttribute("w:cs") && !rf.getAttribute("w:cstheme")) rf.setAttributeNS(W, "w:cs", font);
+  }
+  if (size) {
+    const target = nRPr && Array.from(nRPr.children).some((c) => c.tagName === "w:sz") ? nRPr : rPr;
+    for (const tag of ["w:sz", "w:szCs"]) {
+      let e = Array.from(target.children).find((c) => c.tagName === tag);
+      if (!e) insertInOrder(target, (e = doc.createElementNS(W, tag)), RPR_ORDER);
+      e.setAttributeNS(W, "w:val", String(size));
+    }
+  }
+  files[key] = strToU8(new XMLSerializer().serializeToString(doc));
+  if (created) registerStylesPart(files);
+}
 
 // Rebuild the .docx part map from the edited HTML, editing only the parts that changed and
 // keeping every other entry byte-for-byte. The caller compresses the result (sync or on a
@@ -2065,6 +2123,7 @@ function buildDocxFiles(html: string, original: Uint8Array, parts?: { path: stri
   for (const p of parts ?? []) bandHtml.set(p.path, p.html);
   rebuildPart(files, "word/document.xml", html, bandHtml);
   if (opts?.newStyles?.length) addNewStyles(files, opts.newStyles);
+  if (opts?.docDefaults) applyDocDefaults(files, opts.docDefaults);
   // First/even variant parts created in-editor arrive as "header:first" / "footer:even" sentinels;
   // hold them out of the generic loop and mint them with their typed reference in applyHFVariants.
   const hfVariants = new Map<string, string>();

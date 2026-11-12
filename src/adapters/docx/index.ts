@@ -7,10 +7,12 @@
 import { unzipSync } from "fflate";
 import { unzipAsync } from "../../core/zip";
 import { createRichEditor } from "../../core/editor";
-import type { Adapter, CommentEdits, EditorOptions, NewCommentMeta, NewStyle, Note, PageGeometry, RichDoc, RichEditor } from "../../core/types";
+import type { Adapter, CommentEdits, DocDefaultsEdit, EditorOptions, NewCommentMeta, NewStyle, Note, PageGeometry, RichDoc, RichEditor } from "../../core/types";
 import "./docxedit.css";
 import { W } from "./shared";
-import { docxToParts, loadEmbeddedFonts, defaultFont } from "./read";
+import { docxToParts, loadEmbeddedFonts } from "./read";
+import { readDocDefaults } from "./fonts";
+import type { DocDefaults } from "./fonts";
 import type { DocxParts } from "./read";
 import { htmlToDocxAsync } from "./write";
 
@@ -70,20 +72,20 @@ export function createDocxAdapter(bytes: Uint8Array, preunzipped?: Record<string
       const parts: DocxParts = docxToParts(bytes, preunzipped);
       let fontCss = "";
       let fontUrls: string[] = [];
-      let defaultFontName: string | undefined;
+      let defs: DocDefaults = {};
       try {
         const fileMap = preunzipped ?? unzipSync(bytes);
         const ff = loadEmbeddedFonts(fileMap);
         fontCss = ff.css;
         fontUrls = ff.urls;
-        defaultFontName = defaultFont(fileMap);
+        defs = readDocDefaults(fileMap);
       } catch {
         /* no embedded fonts */
       }
-      return { ...parts, fontCss, fontUrls, defaultFont: defaultFontName };
+      return { ...parts, fontCss, fontUrls, defaultFont: defs.font, defaultFontEastAsia: defs.eastAsia, defaultSizeHalfPt: defs.sizeHalfPt };
     },
-    write(bodyHtml: string, editedParts: { path: string; html: string }[], edits: CommentEdits, page?: PageGeometry, newStyles?: NewStyle[], notes?: Note[]): Promise<Uint8Array> {
-      return htmlToDocxAsync(bodyHtml, original, editedParts, { ...edits, pageGeometry: page, newStyles, notes });
+    write(bodyHtml: string, editedParts: { path: string; html: string }[], edits: CommentEdits, page?: PageGeometry, newStyles?: NewStyle[], notes?: Note[], docDefaults?: DocDefaultsEdit): Promise<Uint8Array> {
+      return htmlToDocxAsync(bodyHtml, original, editedParts, { ...edits, pageGeometry: page, newStyles, notes, docDefaults });
     },
     newCommentMarkers: docxCommentMarkers,
     capabilities: {

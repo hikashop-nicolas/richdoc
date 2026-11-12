@@ -219,7 +219,7 @@ export function setupToolbar(deps: ToolbarDeps) {
   // typing starts in them. Existing documents keep their own fonts; the pickers stay blank.
   if (caps.fontControls && !doc.textContent?.trim()) {
     const defFont = parts.defaultFont && FONTS.includes(parts.defaultFont) ? parts.defaultFont : "Arial";
-    const defSize = "11";
+    const defSize = parts.defaultSizeHalfPt ? String(parts.defaultSizeHalfPt / 2) : "11";
     fontSel.value = defFont;
     sizeSel.value = defSize;
     doc.style.fontFamily = `'${defFont}', sans-serif`;

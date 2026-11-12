@@ -110,6 +110,8 @@ export interface RichDoc {
   fontCss?: string; // @font-face rules for embedded fonts
   fontUrls?: string[]; // blob URLs to revoke on destroy
   defaultFont?: string;
+  defaultFontEastAsia?: string; // the default East Asian typeface, a display fallback after defaultFont
+  defaultSizeHalfPt?: number; // the default run size (half-points), the page's base font size
   page?: PageGeometry; // the document's own page size/margins, if it declares them
   paragraphStyles?: ParagraphStyle[]; // named paragraph styles, for the style picker
   characterStyles?: ParagraphStyle[]; // named character styles, for the character-style picker
@@ -241,13 +243,20 @@ export interface NewStyle {
   css: Record<string, string>;
 }
 
+/** The document-wide default run font and size, as the editor applies them to the page. */
+export interface DocDefaultsEdit {
+  font?: string;
+  sizeHalfPt?: number;
+}
+
 /** The irreducible per-format layer: parse, serialize, comment markers, feature flags. */
 export interface Adapter {
   original: Uint8Array;
   read(): RichDoc;
   /** Serialize edits. `page` is passed when the user changed the page geometry (margins);
-      `newStyles` are styles authored in-session, to add to the stylesheet. */
-  write(bodyHtml: string, parts: { path: string; html: string }[], edits: CommentEdits, page?: PageGeometry, newStyles?: NewStyle[], notes?: Note[]): Uint8Array | Promise<Uint8Array>;
+      `newStyles` are styles authored in-session, to add to the stylesheet. `docDefaults` is the
+      document-wide font/size the editor shows (a new document's default), to store as such. */
+  write(bodyHtml: string, parts: { path: string; html: string }[], edits: CommentEdits, page?: PageGeometry, newStyles?: NewStyle[], notes?: Note[], docDefaults?: DocDefaultsEdit): Uint8Array | Promise<Uint8Array>;
   newCommentMarkers(meta: NewCommentMeta): CommentMarkers;
   capabilities: Capabilities;
 }

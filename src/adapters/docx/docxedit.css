@@ -263,7 +263,7 @@
 .docxedit-page {
   background: #fff; color: #111; width: var(--rdoc-page-width, 816px); min-height: 300px; flex: 0 0 auto;
   box-shadow: 0 2px 12px rgba(0, 0, 0, .45); box-sizing: border-box;
-  font: 16px/1.5 var(--docxedit-doc-font, "Liberation Serif"), Georgia, serif;
+  font: var(--docxedit-doc-size, 16px)/1.5 var(--docxedit-doc-font, "Liberation Serif"), Georgia, serif;
 }
 .docxedit-page:focus-within { box-shadow: 0 0 0 2px var(--rdoc-accent, #6e7bff), 0 2px 12px rgba(0, 0, 0, .45); }
 /* The page is scaled inside this box, which carries the scaled footprint for layout. */
