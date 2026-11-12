@@ -41,8 +41,9 @@ are realistic to do, just not yet built.
 Left as the lossless passthrough they already are. Authoring these in a browser is not
 realistic / not worth it; "complete" for them means surviving a save, which they do.
 
-- Charts and SmartArt. Text boxes, shapes and drawing groups are shown read-only (box, fill,
-  outline, simple geometry, their text), but not editable; EMF / WMF pictures are drawn.
+- SmartArt and WordArt editing (both are drawn, not editable). Charts made by other programs keep
+  their type and table size (values, labels, names and title are editable). Shapes beyond
+  rectangle / rounded rectangle / ellipse render as rectangles; groups are edited only as text.
 - Embedded OLE objects.
 - Content controls / structured document tags (`w:sdt`) authoring.
 - VML legacy markup (beyond image extraction).

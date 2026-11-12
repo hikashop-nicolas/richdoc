@@ -251,6 +251,27 @@ export interface DocDefaultsEdit {
   sizeHalfPt?: number;
 }
 
+/** A chart as the chart dialog edits it: a table of categories x series plus its options.
+    `fixed` = the table keeps its shape and type (a chart the format cannot rewrite wholesale). */
+export interface ChartModel {
+  title: string;
+  categories: string[];
+  series: { name: string; values: (number | null)[] }[];
+  type?: string;
+  legend?: string;
+  dataLabels?: boolean;
+  fixed: boolean;
+}
+
+/** Chart support an adapter offers: read / update a chart element, make a new one. */
+export interface ChartHooks {
+  types: string[];
+  legends: string[];
+  read(el: HTMLElement): ChartModel | undefined;
+  update(el: HTMLElement, model: ChartModel): void;
+  create(): HTMLElement;
+}
+
 /** The irreducible per-format layer: parse, serialize, comment markers, feature flags. */
 export interface Adapter {
   original: Uint8Array;
@@ -261,6 +282,8 @@ export interface Adapter {
   write(bodyHtml: string, parts: { path: string; html: string }[], edits: CommentEdits, page?: PageGeometry, newStyles?: NewStyle[], notes?: Note[], docDefaults?: DocDefaultsEdit): Uint8Array | Promise<Uint8Array>;
   newCommentMarkers(meta: NewCommentMeta): CommentMarkers;
   capabilities: Capabilities;
+  /** Chart editing, when the format supports it. */
+  charts?: ChartHooks;
 }
 
 /** One block's identity and current markup. */

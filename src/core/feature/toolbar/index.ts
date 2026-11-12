@@ -45,13 +45,14 @@ export interface ToolbarDeps {
   insertSectionBreak: (() => void) | null; // section-break action (Ctrl+Shift+Enter), null if unsupported
   insertNote: (kind: "footnote" | "endnote", text: string) => void; // insert a footnote/endnote at the caret
   insertShape?: (kind: "textbox" | "rect" | "roundRect" | "ellipse") => void; // insert a text box / shape
+  insertChart?: () => void; // insert a chart and open its dialog
 }
 
 export function setupToolbar(deps: ToolbarDeps) {
   const {
     toolbar, wrap, doc, regions, caps, options, parts, adapter, getActiveEl, mark, undo, redo, positionCards,
     addThreadCard, setActiveComment, allocId, freshParaId, insertImage, styleBar,
-    newStyles, newStyleCss, vertical, insertSectionBreak, insertNote, insertShape,
+    newStyles, newStyleCss, vertical, insertSectionBreak, insertNote, insertShape, insertChart,
   } = deps;
 
   // An element counts as an editing host when it is inside the body/header/footer regions, or
@@ -845,6 +846,9 @@ export function setupToolbar(deps: ToolbarDeps) {
     shapesMenu.appendChild(b);
   }
   const shapesBtn = insertShape ? iconBtn(shapeIcon, t("insertShape"), () => {}) : null;
+  const chartIcon = '<svg width="16" height="16" viewBox="0 0 16 16" fill="currentColor" aria-hidden="true"><rect x="2" y="8" width="3" height="6" rx=".5"/><rect x="6.5" y="4" width="3" height="10" rx=".5"/><rect x="11" y="6" width="3" height="8" rx=".5"/></svg>';
+  const chartBtn = insertChart ? iconBtn(chartIcon, t("insertChart"), () => { restoreSel(); insertChart(); }) : null;
+  chartBtn?.addEventListener("mousedown", captureSel);
   shapesBtn?.addEventListener("click", (e) => {
     e.stopPropagation();
     captureSel();
@@ -1039,7 +1043,7 @@ export function setupToolbar(deps: ToolbarDeps) {
   // Two clusters collapse into a single dropdown button when the toolbar runs out of room:
   // the character-formatting controls ("style"), and the insert controls.
   const styleSrc: (HTMLElement | null)[] = [boldBtn, italicBtn, underlineBtn, strikeBtn, supBtn, subBtn, caps.textColor ? colorInput : null, caps.textColor ? bgWrap : null, caps.fontControls ? fontSel : null, caps.fontControls ? sizeSel : null];
-  const insertSrc: (HTMLElement | null)[] = [caps.images ? iconBtn(imgIcon, t("insertImage"), insertImage) : null, shapesBtn, caps.tables ? tableBtn : null, caps.fields ? fieldsBtn : null, caps.comments ? iconBtn(cmtIcon, t("addComment"), addComment) : null, caps.pageBreak ? iconBtn(pbIcon, t("insertPageBreak"), insertPageBreak) : null, linkBtn, iconBtn(footnoteIcon, t("insertNote"), openNoteDialog), iconBtn(captionIcon, t("insertCaption"), openCaptionDialog), iconBtn(bookmarkIcon, t("insertBookmark"), insertBookmark), iconBtn(xrefIcon, t("insertCrossRef"), openXrefDialog), equation ? iconBtn(equationIcon, t("insertEquation"), equation.openDialog) : null, iconBtn(symbolIcon, t("insertSymbol"), symbols.openDialog), caps.verticalText ? furiganaBtn : null];
+  const insertSrc: (HTMLElement | null)[] = [caps.images ? iconBtn(imgIcon, t("insertImage"), insertImage) : null, shapesBtn, chartBtn, caps.tables ? tableBtn : null, caps.fields ? fieldsBtn : null, caps.comments ? iconBtn(cmtIcon, t("addComment"), addComment) : null, caps.pageBreak ? iconBtn(pbIcon, t("insertPageBreak"), insertPageBreak) : null, linkBtn, iconBtn(footnoteIcon, t("insertNote"), openNoteDialog), iconBtn(captionIcon, t("insertCaption"), openCaptionDialog), iconBtn(bookmarkIcon, t("insertBookmark"), insertBookmark), iconBtn(xrefIcon, t("insertCrossRef"), openXrefDialog), equation ? iconBtn(equationIcon, t("insertEquation"), equation.openDialog) : null, iconBtn(symbolIcon, t("insertSymbol"), symbols.openDialog), caps.verticalText ? furiganaBtn : null];
   const styleControls = styleSrc.filter((n): n is HTMLElement => n != null);
   const insertControls = insertSrc.filter((n): n is HTMLElement => n != null);
   // A collapsible cluster: a slot that holds the controls inline or a group button + a popover.

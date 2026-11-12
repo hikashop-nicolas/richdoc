@@ -12,6 +12,9 @@ import type { Fmt } from "./shared";
 import { EMU_PER_PX, makeContainer } from "./image-layout";
 import { mathmlToOmml } from "./omml";
 import { blocksFromBody } from "./shapes";
+import { updateWorkbook } from "./chart-data";
+import { CHART_CT } from "./chart-spec";
+import { ensureTheme } from "./default-theme";
 
 // ---------------------------------------------------------------------------
 // HTML -> .docx
@@ -445,6 +448,64 @@ function shapeRun(ctx: DocxCtx, el: HTMLElement): Element | null {
   return run;
 }
 
+const REL_CHART = "http://schemas.openxmlformats.org/officeDocument/2006/relationships/chart";
+
+/** Resolve a target relative to a part (e.g. "../embeddings/x.xlsx" from "word/charts/chart1.xml"). */
+function resolvePart(from: string, target: string): string {
+  if (target.startsWith("/")) return target.slice(1);
+  const parts = from.split("/").slice(0, -1);
+  for (const seg of target.split("/")) {
+    if (seg === "..") parts.pop();
+    else if (seg && seg !== ".") parts.push(seg);
+  }
+  return parts.join("/");
+}
+
+/** A chart's w:r: the preserved run, writing its part (and embedded workbook) when edited;
+    or, for a chart inserted in the editor, a new chart part, its relationship and the run. */
+function chartRun(ctx: DocxCtx, el: HTMLElement): Element | null {
+  const xml = el.getAttribute("data-chart-xml") ?? "";
+  const stash = el.getAttribute("data-docx-xml");
+  if (stash) {
+    const part = el.getAttribute("data-chart-part");
+    if (part && el.getAttribute("data-chart-dirty") && xml) {
+      ctx.files[part] = strToU8(xml);
+      const dataJson = el.getAttribute("data-chart-data");
+      const relsKey = part.replace(/([^/]+)$/, "_rels/$1.rels");
+      const relsXml = ctx.files[relsKey];
+      const extId = /<c:externalData\b[^>]*\br:id="([^"]+)"/.exec(xml)?.[1];
+      if (dataJson && relsXml && extId) {
+        const rel = Array.from(new DOMParser().parseFromString(strFromU8(relsXml), "application/xml").getElementsByTagName("Relationship")).find((r) => r.getAttribute("Id") === extId);
+        const tgt = rel?.getAttribute("Target");
+        const emb = tgt && rel?.getAttribute("TargetMode") !== "External" ? resolvePart(part, tgt) : undefined;
+        if (emb && ctx.files[emb]) {
+          try { ctx.files[emb] = updateWorkbook(ctx.files[emb]!, xml, JSON.parse(dataJson)); } catch { /* keep the workbook as it was */ }
+        }
+      }
+    }
+    return importPassthrough(ctx, stash);
+  }
+  if (!xml || !ctx.rels) return null;
+  let n = 1;
+  while (ctx.files[`word/charts/chart${n}.xml`]) n++;
+  const key = `word/charts/chart${n}.xml`;
+  ctx.files[key] = strToU8(xml);
+  ensureOverride(ctx.files, `/${key}`, CHART_CT);
+  const rid = `rId${ctx.nextRid++}`;
+  const rel = ctx.rels.createElementNS(PKG, "Relationship");
+  rel.setAttribute("Id", rid);
+  rel.setAttribute("Type", REL_CHART);
+  rel.setAttribute("Target", `charts/chart${n}.xml`);
+  ctx.rels.documentElement.appendChild(rel);
+  ctx.relsAdded = true;
+  const img = el.querySelector("img");
+  const cx = Math.round((parseFloat(img?.style.width ?? "") || 576) * PX_EMU), cy = Math.round((parseFloat(img?.style.height ?? "") || 336) * PX_EMU);
+  const id = 30000 + ++shapeIds;
+  return importPassthrough(ctx,
+    `<w:r xmlns:w="${W}"><w:drawing><wp:inline xmlns:wp="${NS_WP}" distT="0" distB="0" distL="0" distR="0"><wp:extent cx="${cx}" cy="${cy}"/><wp:effectExtent l="0" t="0" r="0" b="0"/><wp:docPr id="${id}" name="Chart ${id}"/><wp:cNvGraphicFramePr/>` +
+    `<a:graphic xmlns:a="${NS_A}"><a:graphicData uri="http://schemas.openxmlformats.org/drawingml/2006/chart"><c:chart xmlns:c="http://schemas.openxmlformats.org/drawingml/2006/chart" xmlns:r="${R}" r:id="${rid}"/></a:graphicData></a:graphic></wp:inline></w:drawing></w:r>`);
+}
+
 /** A shape inserted in the editor: an inline wps shape (a text box when it has text). */
 function newShapeRun(ctx: DocxCtx, el: HTMLElement, body: Element | undefined): Element | null {
   const look = shapeLookOf(el.querySelector(":scope > .docx-shape-box"));
@@ -487,6 +548,12 @@ function appendInline(ctx: DocxCtx, node: Node, parent: Element, f: Fmt, del = f
       fld.setAttributeNS(W, "w:instr", instr);
       fld.appendChild(makeRun(ctx, el.textContent || "", f, del, change, stash4));
       parent.appendChild(fld);
+      continue;
+    }
+    // A chart: its run as read (its part rewritten when edited), or a new chart part.
+    if (tag === "span" && el.classList.contains("docx-chart")) {
+      const run = chartRun(ctx, el);
+      if (run) parent.appendChild(run);
       continue;
     }
     // A shape / text box: its run as read (or a new one), with the user's edits applied.
@@ -2224,6 +2291,8 @@ function buildDocxFiles(html: string, original: Uint8Array, parts?: { path: stri
   const bandHtml = new Map<string, string>();
   for (const p of parts ?? []) bandHtml.set(p.path, p.html);
   rebuildPart(files, "word/document.xml", html, bandHtml);
+  // A new chart takes its colours from the theme: give a theme-less package Word's default one.
+  if (html.includes("data-chart-new")) ensureTheme(files);
   if (opts?.newStyles?.length) addNewStyles(files, opts.newStyles);
   if (opts?.docDefaults) applyDocDefaults(files, opts.docDefaults);
   // First/even variant parts created in-editor arrive as "header:first" / "footer:even" sentinels;

@@ -11,6 +11,7 @@ import { setupComments } from "./feature/comments";
 import { setupImages } from "./feature/images";
 import { setupImageLayout } from "./feature/image-layout";
 import { setupShapeEdit } from "./feature/shape-edit";
+import { setupChartEdit } from "./feature/chart-edit";
 import { setupPageView } from "./feature/page-view";
 import { setupToolbar } from "./feature/toolbar";
 import { setupTableEdit } from "./feature/table-edit";
@@ -2001,6 +2002,8 @@ export function createRichEditor(container: HTMLElement, adapter: Adapter, optio
   const { insertImage } = images;
   // Shapes and text boxes: their text is edited in place; the bar edits look and size.
   const shapeEdit = caps.shapes ? setupShapeEdit({ wrap, regions, mark, getActiveEl: () => activeEl }) : null;
+  // Charts: double-click to edit; Insert > Chart adds one (when the adapter supports charts).
+  const chartEdit = adapter.charts ? setupChartEdit({ wrap, regions, mark, getActiveEl: () => activeEl, hooks: adapter.charts }) : null;
   // External clipboard HTML is normalized onto the editor vocabulary (see feature/paste.ts).
   setupPaste({ wrap, regions, mark });
 
@@ -2132,6 +2135,7 @@ export function createRichEditor(container: HTMLElement, adapter: Adapter, optio
     insertSectionBreak: sectionBreakBtn ? () => sectionBreakBtn.click() : null,
     insertNote: (kind, text) => insertNote(kind, text),
     insertShape: shapeEdit?.insert,
+    insertChart: chartEdit?.insert,
   });
   // Find/replace lives at the right end of the top toolbar (its own margin
   // pushes it past the layout-managed items; the overflow logic ignores it).
@@ -2294,6 +2298,7 @@ export function createRichEditor(container: HTMLElement, adapter: Adapter, optio
       tableEdit?.teardown();
       imageLayout?.teardown();
       shapeEdit?.teardown();
+      chartEdit?.teardown();
       outline.teardown();
       findReplace.teardown();
       teardownPageView();

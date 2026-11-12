@@ -14,6 +14,7 @@ import { metafileToSvgUrl } from "./metafile";
 import { readDocDefaults, readThemeColors, readThemeFonts, rFontsLatin, themeColor, modColor } from "./fonts";
 import { shapeHtml } from "./shapes";
 import { findSmartArtDrawing, smartArtSvg } from "./smartart";
+import { chartHtml } from "./charts";
 import type { ThemeFonts } from "./fonts";
 
 // The theme fonts of the document being read, so run and style fonts given as a theme
@@ -207,6 +208,15 @@ const emuToPx = (v: string | null): number | undefined => {
 function imageHtml(run: Element, ctx: RenderCtx): string {
   // SmartArt: the drawing Word saved beside the diagram, shown as a picture (run kept verbatim).
   const gd = run.getElementsByTagName("a:graphicData")[0];
+  // A chart: drawn from its part's cached data; the part's XML rides along for editing.
+  if (gd?.getAttribute("uri") === "http://schemas.openxmlformats.org/drawingml/2006/chart") {
+    const c = gd.getElementsByTagName("c:chart")[0];
+    const tgt = ctx.rels.get(c?.getAttribute("r:id") ?? "");
+    const key = tgt ? partKey(tgt, ctx.files) : undefined;
+    const ext = run.getElementsByTagName("wp:extent")[0];
+    const w = emuToPx(ext?.getAttribute("cx") ?? null) ?? 576, h = emuToPx(ext?.getAttribute("cy") ?? null) ?? 336;
+    if (key) return chartHtml(strFromU8(ctx.files[key]!), key, passthroughAttr(run), THEME_COLORS, w, h);
+  }
   if (gd?.getAttribute("uri")?.endsWith("/diagram")) {
     const ext = run.getElementsByTagName("wp:extent")[0];
     const w = emuToPx(ext?.getAttribute("cx") ?? null) ?? 0, h = emuToPx(ext?.getAttribute("cy") ?? null) ?? 0;

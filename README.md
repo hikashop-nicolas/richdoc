@@ -52,8 +52,14 @@ A full word-processor surface in the browser, the same for both formats unless n
   on-select toolbar. A wrapped image's exact offset round-trips per axis.
   EMF / WMF pictures (charts, clip art, pasted drawings) are drawn as SVG in the browser
   and saved untouched.
-- **Shapes and text boxes** are shown read-only with their fill, outline, simple geometry
-  and text (DrawingML and the older VML), floated like images, and saved untouched.
+- **Shapes and text boxes:** text box content is edited in place; a selected shape's fill,
+  outline and size are set from its bar; new text boxes, rectangles and ellipses can be inserted.
+  Untouched shapes save byte for byte.
+- **Charts:** drawn from their data (bar, column, line, area, pie, doughnut, scatter, radar).
+  Double-click to edit the title and the data grid; Word charts get their values written to their
+  caches and embedded workbook. Insert > Chart adds a chart whose type, legend and data are free.
+- **SmartArt and WordArt** are drawn (SmartArt from Word's saved drawing, WordArt with its warp
+  and text effects) and saved untouched.
 - **Furigana / ruby**, rendered natively (reading above in horizontal text, to the
   right in vertical).
 - **Tabs & tab stops:** real tab characters plus custom tab stops with left / center /

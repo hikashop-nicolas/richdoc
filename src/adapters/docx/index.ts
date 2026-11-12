@@ -11,7 +11,8 @@ import type { Adapter, CommentEdits, DocDefaultsEdit, EditorOptions, NewCommentM
 import "./docxedit.css";
 import { W } from "./shared";
 import { docxToParts, loadEmbeddedFonts } from "./read";
-import { readDocDefaults } from "./fonts";
+import { readDocDefaults, readThemeColors } from "./fonts";
+import { chartHooks } from "./charts";
 import type { DocDefaults } from "./fonts";
 import type { DocxParts } from "./read";
 import { htmlToDocxAsync } from "./write";
@@ -64,6 +65,7 @@ function docxCommentMarkers(meta: NewCommentMeta): { start: HTMLElement; end: HT
 /** Wrap a .docx byte array as an engine adapter: parse, serialize, comment markers, capabilities. */
 export function createDocxAdapter(bytes: Uint8Array, preunzipped?: Record<string, Uint8Array>): Adapter {
   const original = bytes.slice();
+  let themeColors: Record<string, string> | undefined;
   return {
     original,
     read(): RichDoc {
@@ -88,6 +90,10 @@ export function createDocxAdapter(bytes: Uint8Array, preunzipped?: Record<string
       return htmlToDocxAsync(bodyHtml, original, editedParts, { ...edits, pageGeometry: page, newStyles, notes, docDefaults });
     },
     newCommentMarkers: docxCommentMarkers,
+    charts: chartHooks(() => {
+      if (!themeColors) try { themeColors = readThemeColors(preunzipped ?? unzipSync(original)); } catch { themeColors = {}; }
+      return themeColors;
+    }),
     capabilities: {
       comments: true,
       commentReplies: true,

@@ -684,3 +684,17 @@
 .docxedit-shapebar-field { display: inline-flex; align-items: center; gap: 3px; font: 11px system-ui, sans-serif; color: var(--rdoc-text, #e6e6e6); }
 .docxedit-shapebar input[type="color"] { width: 24px; height: 22px; padding: 1px; }
 .docxedit-shapebar-num { width: 52px; }
+/* Charts: a picture of the chart (double-click to edit) and its dialog. */
+.docx-chart { display: inline-block; vertical-align: bottom; cursor: pointer; }
+.docx-chart img { display: block; max-width: 100%; }
+.docxedit-chart-dialog { max-width: min(720px, 94vw); min-width: min(420px, 94vw); }
+.docxedit-chart-opts { display: flex; flex-wrap: wrap; gap: 8px 14px; align-items: center; }
+.docxedit-chart-field { display: inline-flex; align-items: center; gap: 6px; }
+.docxedit-chart-field > span { color: var(--rdoc-muted, #aeb4bd); }
+.docxedit-chart-note { color: var(--rdoc-muted, #aeb4bd); font-size: 12px; }
+.docxedit-chart-grid { max-height: 46vh; overflow: auto; border: 1px solid var(--rdoc-btn-border, #4a4f57); border-radius: 6px; }
+.docxedit-chart-grid table { border-collapse: collapse; }
+.docxedit-chart-grid th, .docxedit-chart-grid td { padding: 2px; white-space: nowrap; }
+.docxedit-chart-cell { width: 96px; padding: 4px 6px; border: 1px solid var(--rdoc-btn-border, #4a4f57); border-radius: 4px; background: var(--rdoc-chrome2, #1f2329); color: var(--rdoc-canvas, #e6e8ec); font: 12px system-ui, sans-serif; }
+.docxedit-chart-num { width: 72px; text-align: right; }
+.docxedit-chart-x { border: 0; background: transparent; color: var(--rdoc-muted, #aeb4bd); cursor: pointer; padding: 0 3px; }
