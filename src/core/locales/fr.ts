@@ -266,6 +266,19 @@ const dict: Dict = {
   assistUnavailable: "Le modèle local n'a pas pu être chargé.",
   assistNeedInput: "Saisissez d'abord une instruction.",
   vectorPicture: "Image vectorielle (non affichée ici)",
+  insertShape: "Forme ou zone de texte",
+  shapeTextBox: "Zone de texte",
+  shapeRect: "Rectangle",
+  shapeRoundRect: "Rectangle arrondi",
+  shapeEllipse: "Ellipse",
+  shapeTextPlaceholder: "Texte",
+  shapeFill: "Remplissage",
+  shapeNoFill: "Sans remplissage",
+  shapeOutline: "Contour",
+  shapeNoOutline: "Sans contour",
+  shapeWidthCm: "Largeur (cm)",
+  shapeHeightCm: "Hauteur (cm)",
+  shapeDelete: "Supprimer la forme",
 };
 
 export default dict;

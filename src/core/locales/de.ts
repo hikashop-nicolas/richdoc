@@ -266,6 +266,19 @@ const dict: Dict = {
   assistUnavailable: "Das Modell auf dem Gerät konnte nicht geladen werden.",
   assistNeedInput: "Geben Sie zuerst eine Anweisung ein.",
   vectorPicture: "Vektorgrafik (hier nicht angezeigt)",
+  insertShape: "Form oder Textfeld",
+  shapeTextBox: "Textfeld",
+  shapeRect: "Rechteck",
+  shapeRoundRect: "Abgerundetes Rechteck",
+  shapeEllipse: "Ellipse",
+  shapeTextPlaceholder: "Text",
+  shapeFill: "Füllung",
+  shapeNoFill: "Keine Füllung",
+  shapeOutline: "Kontur",
+  shapeNoOutline: "Keine Kontur",
+  shapeWidthCm: "Breite (cm)",
+  shapeHeightCm: "Höhe (cm)",
+  shapeDelete: "Form löschen",
 };
 
 export default dict;

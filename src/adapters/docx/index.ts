@@ -94,6 +94,7 @@ export function createDocxAdapter(bytes: Uint8Array, preunzipped?: Record<string
       commentReactions: true,
       trackChanges: true,
       images: true,
+      shapes: true,
       tables: true,
       headerFooter: true,
       pageBreak: true,

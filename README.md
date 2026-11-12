@@ -161,7 +161,7 @@ The bundled MaterialDings webfont (used to render Wingdings `w:sym` glyphs witho
 font) is © 2018 Accusoft Corporation under the SIL Open Font License 1.1; see
 [src/adapters/docx/MaterialDings.LICENSE.md](src/adapters/docx/MaterialDings.LICENSE.md).
 
-EMF / WMF pictures are drawn by a TypeScript port of the `wordcraft-metafile` crate from
+EMF / WMF pictures, SmartArt, WordArt and charts are drawn by TypeScript ports of code from
 [WordCraft](https://github.com/storytold/wordcraft), © 2026 ArtCraft Team and the WordCraft
 contributors, used under the MIT license; see
-[src/adapters/docx/metafile.LICENSE.md](src/adapters/docx/metafile.LICENSE.md).
+[src/adapters/docx/wordcraft.LICENSE.md](src/adapters/docx/wordcraft.LICENSE.md).

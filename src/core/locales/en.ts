@@ -266,6 +266,19 @@ const dict: Dict = {
   assistUnavailable: "The on-device model could not be loaded.",
   assistNeedInput: "Enter an instruction first.",
   vectorPicture: "Vector picture (not shown here)",
+  insertShape: "Shape or text box",
+  shapeTextBox: "Text box",
+  shapeRect: "Rectangle",
+  shapeRoundRect: "Rounded rectangle",
+  shapeEllipse: "Ellipse",
+  shapeTextPlaceholder: "Text",
+  shapeFill: "Fill",
+  shapeNoFill: "No fill",
+  shapeOutline: "Outline",
+  shapeNoOutline: "No outline",
+  shapeWidthCm: "Width (cm)",
+  shapeHeightCm: "Height (cm)",
+  shapeDelete: "Delete shape",
 };
 
 export default dict;

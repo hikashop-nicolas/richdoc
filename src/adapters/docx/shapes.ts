@@ -1,9 +1,10 @@
-// DrawingML / VML shapes and text boxes, shown read-only: a box with the shape's size, fill,
-// outline and simple geometry, its text box content inside, positioned like a floating image.
-// The run that holds the shape is preserved verbatim, so what is shown never reaches the file.
+// DrawingML / VML shapes and text boxes: a box with the shape's size, fill, outline and simple
+// geometry, its text box content editable inside, positioned like a floating image. The run is
+// preserved verbatim; the writer edits only what the user changed (text, size, fill, outline).
 import { drawingColor, themeColor } from "./fonts";
 import { escapeAttr } from "./shared";
 import { readLayout } from "./image-layout";
+import { wordArtSvg } from "./wordart";
 
 const EMU_PER_PX = 9525;
 const emu = (v: string | null | undefined): number | undefined => {
@@ -29,7 +30,8 @@ function inlineBlocks(html: string): string {
   for (const el of Array.from(body.querySelectorAll("*")).reverse()) {
     if (!BLOCK_TAGS.has(el.tagName)) continue;
     const span = body.ownerDocument.createElement("span");
-    for (const a of Array.from(el.attributes)) if (a.name === "style" || a.name.startsWith("data-rdoc-style")) span.setAttribute(a.name, a.value);
+    // Every attribute rides along (the writer restores the block from them); class is kept aside.
+    for (const a of Array.from(el.attributes)) span.setAttribute(a.name === "class" ? "data-tb-class" : a.name, a.value);
     span.className = `docx-tb-${el.tagName.toLowerCase()}`;
     while (el.firstChild) span.appendChild(el.firstChild);
     el.replaceWith(span);
@@ -80,7 +82,8 @@ function bodyHtml(txbx: Element | undefined, bodyPr: Element | undefined, ctx: S
   const vert = bodyPr?.getAttribute("vert");
   if (vert === "vert" || vert === "eaVert" || vert === "wordArtVert") css.push("writing-mode:vertical-rl");
   else if (vert === "vert270") css.push("writing-mode:vertical-rl;transform:rotate(180deg)");
-  return `<span class="docx-shape-body" style="${css.join(";")}">${inlineBlocks(ctx.blocks(txbx))}</span>`;
+  // Editable in place; the writer rebuilds this text box's w:txbxContent from it when edited.
+  return `<span class="docx-shape-body" contenteditable="true" style="${css.join(";")}">${inlineBlocks(ctx.blocks(txbx)) || '<span class="docx-tb-p"><br></span>'}</span>`;
 }
 
 function wspHtml(sp: Element, w: number | undefined, h: number | undefined, ctx: ShapeCtx, extraCss: string[] = []): string {
@@ -155,10 +158,41 @@ export function shapeHtml(run: Element, pass: string, ctx: ShapeCtx): string | u
     const sp = drawing.getElementsByTagName("wps:wsp")[0];
     const grp = drawing.getElementsByTagName("wpg:wgp")[0];
     if (!sp && !grp) return undefined;
+    // WordArt (warped or effect text): drawn as a picture, the run kept verbatim.
+    const art = !grp && sp ? wordArtSvg(sp, ctx.colors, w, h) : undefined;
+    if (art) return `<span class="docx-shape docx-shape-art" contenteditable="false"${pass}${wrapAttrs(readLayout(run))}><span class="docx-shape-box" style="width:${px(w)};height:${px(h)}"><img src="data:image/svg+xml;charset=utf-8,${escapeAttr(encodeURIComponent(art))}" alt="" style="width:100%;height:100%"></span></span>`;
     const inner = grp ? `<span class="docx-shape-box" style="width:${px(w)};height:${px(h)}">${groupHtml(grp, w, h, ctx)}</span>` : wspHtml(sp!, w, h, ctx);
     return `<span class="docx-shape" contenteditable="false"${pass}${wrapAttrs(readLayout(run))}>${inner}</span>`;
   }
   const pict = run.getElementsByTagName("w:pict")[0];
   const v = pict && vmlHtml(pict, ctx);
   return v ? `<span class="docx-shape" contenteditable="false"${pass}>${v}</span>` : undefined;
+}
+
+/** Turn text box spans back into block HTML (docx-tb-p -> p, ...) for the block writer. */
+export function blocksFromBody(body: Element): DocumentFragment {
+  const doc = body.ownerDocument;
+  const frag = doc.createDocumentFragment();
+  const clone = body.cloneNode(true) as Element;
+  for (const el of Array.from(clone.querySelectorAll("span[class^='docx-tb-']")).reverse()) {
+    const tag = /^docx-tb-([a-z0-9]+)/.exec(el.className)?.[1];
+    if (!tag) continue;
+    const blk = doc.createElement(tag);
+    for (const a of Array.from(el.attributes)) {
+      if (a.name === "class") continue;
+      blk.setAttribute(a.name === "data-tb-class" ? "class" : a.name, a.value);
+    }
+    while (el.firstChild) blk.appendChild(el.firstChild);
+    el.replaceWith(blk);
+  }
+  // Loose inline content (typed outside any paragraph) gets a paragraph of its own.
+  let loose: HTMLElement | null = null;
+  for (const n of Array.from(clone.childNodes)) {
+    const isBlock = n.nodeType === 1 && BLOCK_TAGS.has((n as Element).tagName);
+    if (isBlock) { loose = null; frag.appendChild(n); continue; }
+    if (n.nodeType === 3 && !(n.textContent ?? "").trim() && !loose) continue;
+    if (!loose) { loose = doc.createElement("p"); frag.appendChild(loose); }
+    loose.appendChild(n);
+  }
+  return frag;
 }

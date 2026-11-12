@@ -266,6 +266,19 @@ const dict: Dict = {
   assistUnavailable: "无法加载设备上的模型。",
   assistNeedInput: "请先输入指令。",
   vectorPicture: "矢量图（此处不显示）",
+  insertShape: "形状或文本框",
+  shapeTextBox: "文本框",
+  shapeRect: "矩形",
+  shapeRoundRect: "圆角矩形",
+  shapeEllipse: "椭圆",
+  shapeTextPlaceholder: "文本",
+  shapeFill: "填充",
+  shapeNoFill: "无填充",
+  shapeOutline: "轮廓",
+  shapeNoOutline: "无轮廓",
+  shapeWidthCm: "宽度 (cm)",
+  shapeHeightCm: "高度 (cm)",
+  shapeDelete: "删除形状",
 };
 
 export default dict;

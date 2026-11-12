@@ -12,7 +12,7 @@
  * DAMAGES OR OTHER LIABILITY, WHETHER IN AN ACTION OF CONTRACT, TORT OR OTHERWISE, ARISING FROM, OUT
  * OF OR IN CONNECTION WITH THE SOFTWARE OR THE USE OR OTHER DEALINGS IN THE SOFTWARE. */
 // EMF / WMF pictures drawn in the browser: the records are played into paths, bitmaps and text
-// runs, then written as an SVG. WMF text, SVG and PNG output are richdoc's; see metafile.LICENSE.md.
+// runs, then written as an SVG. WMF text, SVG and PNG output are richdoc's; see wordcraft.LICENSE.md.
 import { zlibSync } from "fflate";
 
 // ---- limits (hostile input yields a shorter picture, never a hang) ----

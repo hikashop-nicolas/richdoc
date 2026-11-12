@@ -676,3 +676,11 @@
 .docxedit-doc [data-rdoc-frame="left"] { float: left; margin-right: 12px; }
 .docxedit-doc [data-rdoc-frame="right"] { float: right; margin-left: 12px; }
 .docxedit-doc [data-rdoc-frame="center"] { margin-left: auto; margin-right: auto; }
+/* Editing shapes: the text body is a caret host; a selected shape is outlined, with its bar. */
+.docx-shape-body:focus { outline: 1px dashed rgba(110,123,255,.6); outline-offset: -1px; }
+.docx-shape.docx-shape-selected > .docx-shape-box { outline: 2px solid var(--rdoc-accent, #6e7bff); outline-offset: 1px; }
+.docx-shape { cursor: default; }
+.docxedit-shapebar { gap: 6px; }
+.docxedit-shapebar-field { display: inline-flex; align-items: center; gap: 3px; font: 11px system-ui, sans-serif; color: var(--rdoc-text, #e6e6e6); }
+.docxedit-shapebar input[type="color"] { width: 24px; height: 22px; padding: 1px; }
+.docxedit-shapebar-num { width: 52px; }

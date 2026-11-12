@@ -44,13 +44,14 @@ export interface ToolbarDeps {
   vertical: boolean; // vertical (tategaki) writing, for the floating bar layout
   insertSectionBreak: (() => void) | null; // section-break action (Ctrl+Shift+Enter), null if unsupported
   insertNote: (kind: "footnote" | "endnote", text: string) => void; // insert a footnote/endnote at the caret
+  insertShape?: (kind: "textbox" | "rect" | "roundRect" | "ellipse") => void; // insert a text box / shape
 }
 
 export function setupToolbar(deps: ToolbarDeps) {
   const {
     toolbar, wrap, doc, regions, caps, options, parts, adapter, getActiveEl, mark, undo, redo, positionCards,
     addThreadCard, setActiveComment, allocId, freshParaId, insertImage, styleBar,
-    newStyles, newStyleCss, vertical, insertSectionBreak, insertNote,
+    newStyles, newStyleCss, vertical, insertSectionBreak, insertNote, insertShape,
   } = deps;
 
   // An element counts as an editing host when it is inside the body/header/footer regions, or
@@ -823,6 +824,37 @@ export function setupToolbar(deps: ToolbarDeps) {
     fieldsMenu.hidden = !fieldsMenu.hidden;
   });
 
+  // --- Shapes: insert a text box or a basic shape at the caret ----------------------------------
+  const shapeIcon = '<svg width="16" height="16" viewBox="0 0 16 16" fill="none" stroke="currentColor" stroke-width="1.4" aria-hidden="true"><rect x="1.5" y="1.5" width="8" height="6" rx="1"/><circle cx="10.5" cy="10.5" r="4"/></svg>';
+  const shapesMenu = document.createElement("div");
+  shapesMenu.className = "docxedit-menu";
+  shapesMenu.hidden = true;
+  for (const [kind, label] of [["textbox", t("shapeTextBox")], ["rect", t("shapeRect")], ["roundRect", t("shapeRoundRect")], ["ellipse", t("shapeEllipse")]] as const) {
+    const b = document.createElement("button");
+    b.type = "button";
+    b.className = "docxedit-menu-item";
+    b.textContent = label;
+    b.addEventListener("mousedown", (e) => e.preventDefault());
+    b.addEventListener("click", (e) => {
+      e.stopPropagation();
+      shapesMenu.hidden = true;
+      for (const m of Array.from(wrap.querySelectorAll<HTMLElement>(".docxedit-tb-groupmenu"))) m.hidden = true;
+      restoreSel();
+      insertShape?.(kind);
+    });
+    shapesMenu.appendChild(b);
+  }
+  const shapesBtn = insertShape ? iconBtn(shapeIcon, t("insertShape"), () => {}) : null;
+  shapesBtn?.addEventListener("click", (e) => {
+    e.stopPropagation();
+    captureSel();
+    const r = shapesBtn.getBoundingClientRect();
+    const wr = wrap.getBoundingClientRect();
+    shapesMenu.style.left = `${r.left - wr.left}px`;
+    shapesMenu.style.top = `${r.bottom - wr.top + 2}px`;
+    shapesMenu.hidden = !shapesMenu.hidden;
+  });
+
   // --- Ordered-list numbering: restart / continue / start-at on the list at the caret -------
   const currentOl = (): HTMLOListElement | null => {
     const n = window.getSelection()?.anchorNode as Node | null;
@@ -1007,7 +1039,7 @@ export function setupToolbar(deps: ToolbarDeps) {
   // Two clusters collapse into a single dropdown button when the toolbar runs out of room:
   // the character-formatting controls ("style"), and the insert controls.
   const styleSrc: (HTMLElement | null)[] = [boldBtn, italicBtn, underlineBtn, strikeBtn, supBtn, subBtn, caps.textColor ? colorInput : null, caps.textColor ? bgWrap : null, caps.fontControls ? fontSel : null, caps.fontControls ? sizeSel : null];
-  const insertSrc: (HTMLElement | null)[] = [caps.images ? iconBtn(imgIcon, t("insertImage"), insertImage) : null, caps.tables ? tableBtn : null, caps.fields ? fieldsBtn : null, caps.comments ? iconBtn(cmtIcon, t("addComment"), addComment) : null, caps.pageBreak ? iconBtn(pbIcon, t("insertPageBreak"), insertPageBreak) : null, linkBtn, iconBtn(footnoteIcon, t("insertNote"), openNoteDialog), iconBtn(captionIcon, t("insertCaption"), openCaptionDialog), iconBtn(bookmarkIcon, t("insertBookmark"), insertBookmark), iconBtn(xrefIcon, t("insertCrossRef"), openXrefDialog), equation ? iconBtn(equationIcon, t("insertEquation"), equation.openDialog) : null, iconBtn(symbolIcon, t("insertSymbol"), symbols.openDialog), caps.verticalText ? furiganaBtn : null];
+  const insertSrc: (HTMLElement | null)[] = [caps.images ? iconBtn(imgIcon, t("insertImage"), insertImage) : null, shapesBtn, caps.tables ? tableBtn : null, caps.fields ? fieldsBtn : null, caps.comments ? iconBtn(cmtIcon, t("addComment"), addComment) : null, caps.pageBreak ? iconBtn(pbIcon, t("insertPageBreak"), insertPageBreak) : null, linkBtn, iconBtn(footnoteIcon, t("insertNote"), openNoteDialog), iconBtn(captionIcon, t("insertCaption"), openCaptionDialog), iconBtn(bookmarkIcon, t("insertBookmark"), insertBookmark), iconBtn(xrefIcon, t("insertCrossRef"), openXrefDialog), equation ? iconBtn(equationIcon, t("insertEquation"), equation.openDialog) : null, iconBtn(symbolIcon, t("insertSymbol"), symbols.openDialog), caps.verticalText ? furiganaBtn : null];
   const styleControls = styleSrc.filter((n): n is HTMLElement => n != null);
   const insertControls = insertSrc.filter((n): n is HTMLElement => n != null);
   // A collapsible cluster: a slot that holds the controls inline or a group button + a popover.
@@ -1099,12 +1131,13 @@ export function setupToolbar(deps: ToolbarDeps) {
     if (!tablePicker.hidden && !tablePicker.contains(e.target as Node) && !tableBtn.contains(e.target as Node)) tablePicker.hidden = true;
     if (!lineSpacingMenu.hidden && !lineSpacingMenu.contains(e.target as Node) && !lineSpacingBtn.contains(e.target as Node)) lineSpacingMenu.hidden = true;
     if (!fieldsMenu.hidden && !fieldsMenu.contains(e.target as Node) && !fieldsBtn.contains(e.target as Node)) fieldsMenu.hidden = true;
+    if (!shapesMenu.hidden && !shapesMenu.contains(e.target as Node) && !shapesBtn?.contains(e.target as Node)) shapesMenu.hidden = true;
     if (!listMenu.hidden && !listMenu.contains(e.target as Node) && !listNumBtn.contains(e.target as Node)) listMenu.hidden = true;
     if (!borderMenu.hidden && !borderMenu.contains(e.target as Node) && !borderBtn.contains(e.target as Node)) borderMenu.hidden = true;
   };
   document.addEventListener("click", closeOverflow);
   toolbar.append(...toolbarItems, moreBtn);
-  wrap.append(overflow, styleGroup.menu, insertGroup.menu, tablePicker, lineSpacingMenu, fieldsMenu, listMenu, borderMenu);
+  wrap.append(overflow, styleGroup.menu, insertGroup.menu, tablePicker, lineSpacingMenu, fieldsMenu, shapesMenu, listMenu, borderMenu);
 
   const fits = () => toolbar.scrollWidth <= toolbar.clientWidth + 1;
   // The editor's own print button. A host usually has one of its own, and on a phone the second

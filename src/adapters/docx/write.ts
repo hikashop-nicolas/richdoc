@@ -11,6 +11,7 @@ import { W, R, PKG, REL_HYPERLINK, NS_DECLS, FMT0, HL_BY_HEX, JC_BY_ALIGN } from
 import type { Fmt } from "./shared";
 import { EMU_PER_PX, makeContainer } from "./image-layout";
 import { mathmlToOmml } from "./omml";
+import { blocksFromBody } from "./shapes";
 
 // ---------------------------------------------------------------------------
 // HTML -> .docx
@@ -373,6 +374,98 @@ function importPassthrough(ctx: DocxCtx, xml: string): Element | null {
   }
 }
 
+const NS_MC = "http://schemas.openxmlformats.org/markup-compatibility/2006";
+const NS_WPS = "http://schemas.microsoft.com/office/word/2010/wordprocessingShape";
+const NS_A = "http://schemas.openxmlformats.org/drawingml/2006/main";
+const NS_WP = "http://schemas.openxmlformats.org/drawingml/2006/wordprocessingDrawing";
+const PX_EMU = 9525;
+let shapeIds = 0;
+
+/** The shape box's look as set in the editor: size, fill, outline, geometry. */
+function shapeLookOf(box: HTMLElement | null) {
+  const st = box?.style;
+  const w = parseFloat(st?.width ?? ""), h = parseFloat(st?.height ?? "");
+  const lineW = parseFloat(st?.borderTopWidth ?? "");
+  const lineStyle = st?.borderTopStyle ?? "";
+  return {
+    w: w > 0 ? Math.round(w * PX_EMU) : undefined,
+    h: h > 0 ? Math.round(h * PX_EMU) : undefined,
+    fill: toHex6(st?.backgroundColor ?? ""),
+    line: lineStyle && lineStyle !== "none" && lineW > 0 ? { w: Math.round(lineW * PX_EMU), hex: toHex6(st?.borderTopColor ?? "") ?? "000000" } : undefined,
+    prst: st?.borderRadius === "50%" ? "ellipse" : st?.borderRadius ? "roundRect" : "rect",
+  };
+}
+
+/** Write a solid fill / outline into a wps:spPr, replacing what was there. */
+function setShapePaint(spPr: Element, look: ReturnType<typeof shapeLookOf>): void {
+  const doc = spPr.ownerDocument;
+  const a = (tag: string) => doc.createElementNS(NS_A, tag);
+  const solid = (hex: string) => { const f = a("a:solidFill"); const c = a("a:srgbClr"); c.setAttribute("val", hex); f.appendChild(c); return f; };
+  for (const c of Array.from(spPr.children)) if (/^a:(noFill|solidFill|gradFill|blipFill|pattFill|grpFill|ln)$/.test(c.tagName)) c.remove();
+  // Schema order in spPr: xfrm, geometry, fill, ln, effects...
+  const after = Array.from(spPr.children).find((c) => !/^a:(xfrm|prstGeom|custGeom)$/.test(c.tagName)) ?? null;
+  spPr.insertBefore(look.fill ? solid(look.fill) : a("a:noFill"), after);
+  const ln = a("a:ln");
+  if (look.line) { ln.setAttribute("w", String(look.line.w)); ln.appendChild(solid(look.line.hex)); }
+  else ln.appendChild(a("a:noFill"));
+  spPr.insertBefore(ln, after);
+}
+
+/** Rebuild a w:txbxContent from an edited text box body. */
+function fillTxbx(ctx: DocxCtx, txbx: Element, body: Element): void {
+  while (txbx.firstChild) txbx.removeChild(txbx.firstChild);
+  for (const n of Array.from(blocksFromBody(body).childNodes)) appendBlock(ctx, txbx, n);
+  if (!Array.from(txbx.children).some((c) => c.tagName === "w:p" || c.tagName === "w:tbl")) txbx.appendChild(ctx.doc.createElementNS(W, "w:p"));
+}
+
+/** The w:r for a shape span: the preserved run, untouched unless edited; or a new shape. */
+function shapeRun(ctx: DocxCtx, el: HTMLElement): Element | null {
+  const stash = el.getAttribute("data-docx-xml");
+  const bodies = Array.from(el.querySelectorAll(".docx-shape-body"));
+  if (!stash) return newShapeRun(ctx, el, bodies[0]);
+  const run = importPassthrough(ctx, stash);
+  const edit = el.getAttribute("data-shape-dirty");
+  if (!run || !edit) return run;
+  // The DrawingML choice is what Word reads; the VML fallback would go stale, so it is dropped.
+  for (const fb of Array.from(run.getElementsByTagNameNS(NS_MC, "Fallback"))) fb.remove();
+  const txbxs = Array.from(run.getElementsByTagNameNS(W, "txbxContent"));
+  bodies.forEach((b, i) => { if (txbxs[i]) fillTxbx(ctx, txbxs[i]!, b); });
+  if (/look/.test(edit)) {
+    const look = shapeLookOf(el.querySelector(":scope > .docx-shape-box"));
+    const ext = run.getElementsByTagNameNS(NS_WP, "extent")[0];
+    if (ext && look.w && look.h) { ext.setAttribute("cx", String(look.w)); ext.setAttribute("cy", String(look.h)); }
+    const sps = run.getElementsByTagNameNS(NS_WPS, "wsp");
+    if (sps.length === 1) {
+      const spPr = Array.from(sps[0]!.children).find((c) => c.localName === "spPr");
+      const aExt = spPr?.getElementsByTagNameNS(NS_A, "xfrm")[0]?.getElementsByTagNameNS(NS_A, "ext")[0];
+      if (aExt && look.w && look.h) { aExt.setAttribute("cx", String(look.w)); aExt.setAttribute("cy", String(look.h)); }
+      if (spPr) setShapePaint(spPr, look);
+    }
+  }
+  return run;
+}
+
+/** A shape inserted in the editor: an inline wps shape (a text box when it has text). */
+function newShapeRun(ctx: DocxCtx, el: HTMLElement, body: Element | undefined): Element | null {
+  const look = shapeLookOf(el.querySelector(":scope > .docx-shape-box"));
+  const cx = look.w ?? 1828800, cy = look.h ?? 914400;
+  const id = 30000 + ++shapeIds;
+  const isBox = el.getAttribute("data-shape-new") === "textbox";
+  const xml =
+    `<w:r xmlns:w="${W}"><mc:AlternateContent xmlns:mc="${NS_MC}"><mc:Choice xmlns:wps="${NS_WPS}" Requires="wps"><w:drawing>` +
+    `<wp:inline xmlns:wp="${NS_WP}" distT="0" distB="0" distL="0" distR="0"><wp:extent cx="${cx}" cy="${cy}"/><wp:effectExtent l="0" t="0" r="0" b="0"/><wp:docPr id="${id}" name="${isBox ? "Text Box" : "Shape"} ${id}"/><wp:cNvGraphicFramePr/>` +
+    `<a:graphic xmlns:a="${NS_A}"><a:graphicData uri="${NS_WPS}"><wps:wsp><wps:cNvSpPr${isBox ? ' txBox="1"' : ""}/><wps:spPr><a:xfrm><a:off x="0" y="0"/><a:ext cx="${cx}" cy="${cy}"/></a:xfrm><a:prstGeom prst="${look.prst}"><a:avLst/></a:prstGeom></wps:spPr>` +
+    `<wps:txbx><w:txbxContent/></wps:txbx><wps:bodyPr rot="0" vert="horz" wrap="square" lIns="91440" tIns="45720" rIns="91440" bIns="45720" anchor="${isBox ? "t" : "ctr"}" anchorCtr="0"><a:noAutofit/></wps:bodyPr></wps:wsp></a:graphicData></a:graphic></wp:inline>` +
+    `</w:drawing></mc:Choice></mc:AlternateContent></w:r>`;
+  const run = importPassthrough(ctx, xml);
+  if (!run) return null;
+  const spPr = run.getElementsByTagNameNS(NS_WPS, "spPr")[0];
+  if (spPr) setShapePaint(spPr, look);
+  const txbx = run.getElementsByTagNameNS(W, "txbxContent")[0];
+  if (txbx && body) fillTxbx(ctx, txbx, body);
+  return run;
+}
+
 function appendInline(ctx: DocxCtx, node: Node, parent: Element, f: Fmt, del = false, change?: RprChange, rprStash: string | null = null): void {
   for (const child of Array.from(node.childNodes)) {
     if (child.nodeType === 3) {
@@ -394,6 +487,12 @@ function appendInline(ctx: DocxCtx, node: Node, parent: Element, f: Fmt, del = f
       fld.setAttributeNS(W, "w:instr", instr);
       fld.appendChild(makeRun(ctx, el.textContent || "", f, del, change, stash4));
       parent.appendChild(fld);
+      continue;
+    }
+    // A shape / text box: its run as read (or a new one), with the user's edits applied.
+    if (tag === "span" && el.classList.contains("docx-shape")) {
+      const run = shapeRun(ctx, el);
+      if (run) parent.appendChild(run);
       continue;
     }
     // Tracked formatting change: record the previous run properties via rPrChange.

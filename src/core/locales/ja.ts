@@ -266,6 +266,19 @@ const dict: Dict = {
   assistUnavailable: "オンデバイスモデルを読み込めませんでした。",
   assistNeedInput: "先に指示を入力してください。",
   vectorPicture: "ベクター画像（ここでは表示されません）",
+  insertShape: "図形またはテキストボックス",
+  shapeTextBox: "テキストボックス",
+  shapeRect: "四角形",
+  shapeRoundRect: "角丸四角形",
+  shapeEllipse: "楕円",
+  shapeTextPlaceholder: "テキスト",
+  shapeFill: "塗りつぶし",
+  shapeNoFill: "塗りつぶしなし",
+  shapeOutline: "枠線",
+  shapeNoOutline: "枠線なし",
+  shapeWidthCm: "幅 (cm)",
+  shapeHeightCm: "高さ (cm)",
+  shapeDelete: "図形を削除",
 };
 
 export default dict;

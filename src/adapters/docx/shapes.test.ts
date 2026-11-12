@@ -23,7 +23,7 @@ describe("docx shapes and text boxes", () => {
     const d = docx(drawing(wsp('<a:prstGeom prst="rect"/><a:solidFill><a:srgbClr val="FFF2CC"/></a:solidFill><a:ln w="19050"><a:solidFill><a:srgbClr val="C00000"/></a:solidFill></a:ln>', txbx("Note"))));
     const { body } = docxToParts(d);
     expect(body).toMatch(/^<p>Before <span class="docx-shape" contenteditable="false" data-docx-xml="[^"]+"><span class="docx-shape-box" style="width:200px;height:100px;background-color:#FFF2CC;border:2px solid #C00000">/);
-    expect(body).toContain('<span class="docx-shape-body" style="padding:0px 0px 0px 0px;justify-content:center"><span class="docx-tb-p">Note</span><span class="docx-tb-p"><strong>second</strong></span></span>');
+    expect(body).toContain('<span class="docx-shape-body" contenteditable="true" style="padding:0px 0px 0px 0px;justify-content:center"><span class="docx-tb-p">Note</span><span class="docx-tb-p"><strong>second</strong></span></span>');
     expect(body.replace(/data-docx-xml="[^"]*"/g, "")).not.toContain("fallback"); // the DrawingML choice wins over the VML fallback
     expect(body).toMatch(/<\/span> after<\/p>$/); // the paragraph stays whole
     const xml = strFromU8(unzipSync(htmlToDocx(body, d))["word/document.xml"]!);
@@ -55,5 +55,88 @@ describe("docx shapes and text boxes", () => {
   it("colours a run whose colour is only a theme reference", () => {
     const { body } = docxToParts(docx('<w:p><w:r><w:rPr><w:color w:val="auto" w:themeColor="accent2" w:themeShade="BF"/></w:rPr><w:t>t</w:t></w:r></w:p>'));
     expect(body).toContain("color:#B25E25");
+  });
+});
+
+describe("editing shapes and text boxes", () => {
+  const TB = drawing(wsp('<a:xfrm><a:off x="0" y="0"/><a:ext cx="1905000" cy="952500"/></a:xfrm><a:prstGeom prst="rect"/><a:solidFill><a:srgbClr val="FFF2CC"/></a:solidFill><a:ln w="12700"><a:solidFill><a:srgbClr val="C00000"/></a:solidFill></a:ln>', txbx("Note")));
+  const edit = (html: string, fn: (doc: Document) => void) => {
+    const doc = new DOMParser().parseFromString(`<body>${html}</body>`, "text/html");
+    fn(doc);
+    return doc.body.innerHTML;
+  };
+  const xmlOf = (d: Uint8Array, html: string) => strFromU8(unzipSync(htmlToDocx(html, d))["word/document.xml"]!);
+
+  it("saves an untouched shape byte for byte, fallback included", () => {
+    const d = docx(TB);
+    const xml = xmlOf(d, docxToParts(d).body);
+    expect(xml).toContain("mc:Fallback");
+    expect(xml).toContain('<w:t>Note</w:t>');
+  });
+
+  it("writes edited text box text back into w:txbxContent, keeping paragraph formatting", () => {
+    const d = docx(TB);
+    const html = edit(docxToParts(d).body, (doc) => {
+      const shape = doc.querySelector(".docx-shape")!;
+      shape.setAttribute("data-shape-dirty", "text");
+      const ps = shape.querySelectorAll(".docx-tb-p");
+      ps[0]!.textContent = "Edited note";
+      const extra = doc.createElement("span");
+      extra.className = "docx-tb-p";
+      extra.textContent = "third line";
+      ps[1]!.after(extra);
+    });
+    const xml = xmlOf(d, html);
+    const txbx = /<w:txbxContent>(.*?)<\/w:txbxContent>/.exec(xml)![1]!;
+    expect(txbx).toContain("Edited note");
+    expect(txbx).toMatch(/<w:b\/>.*second/); // the bold run of paragraph 2 survives
+    expect(txbx).toContain("third line");
+    expect((txbx.match(/<w:p>|<w:p /g) ?? []).length).toBe(3);
+    expect(xml).not.toContain("mc:Fallback"); // the stale VML copy is dropped
+    expect(docxToParts(unzipSync(htmlToDocx(html, d)) && htmlToDocx(html, d)).body).toContain("Edited note");
+  });
+
+  it("writes an edited size, fill and outline", () => {
+    const d = docx(TB);
+    const html = edit(docxToParts(d).body, (doc) => {
+      const shape = doc.querySelector(".docx-shape")!;
+      shape.setAttribute("data-shape-dirty", "look");
+      const box = shape.querySelector<HTMLElement>(".docx-shape-box")!;
+      box.style.width = "300px";
+      box.style.height = "150px";
+      box.style.backgroundColor = "#00ff00";
+      box.style.border = "3px solid #0000ff";
+    });
+    const xml = xmlOf(d, html);
+    expect(xml).toContain('<wp:extent cx="2857500" cy="1428750"/>');
+    expect(xml).toContain('<a:ext cx="2857500" cy="1428750"/>');
+    expect(xml).toMatch(/<a:solidFill><a:srgbClr val="00FF00"\/><\/a:solidFill><a:ln w="28575"><a:solidFill><a:srgbClr val="0000FF"\/><\/a:solidFill><\/a:ln>/);
+    expect(xml).not.toContain("FFF2CC");
+  });
+
+  it("removes the fill and outline when cleared", () => {
+    const d = docx(TB);
+    const html = edit(docxToParts(d).body, (doc) => {
+      const shape = doc.querySelector(".docx-shape")!;
+      shape.setAttribute("data-shape-dirty", "look");
+      const box = shape.querySelector<HTMLElement>(".docx-shape-box")!;
+      box.style.backgroundColor = "";
+      box.style.border = "none";
+    });
+    expect(xmlOf(d, html)).toMatch(/<a:noFill\/><a:ln><a:noFill\/><\/a:ln>/);
+  });
+
+  it("creates a new text box that reads back", () => {
+    const d = docx("<w:p/>");
+    const html = '<p>Hi <span class="docx-shape" contenteditable="false" data-shape-new="textbox"><span class="docx-shape-box" style="width: 192px; height: 96px; background-color: rgb(255, 255, 255); border: 1px solid rgb(0, 0, 0);"><span class="docx-shape-body" contenteditable="true"><span class="docx-tb-p">Fresh <strong>box</strong></span></span></span></span></p>';
+    const out = htmlToDocx(html, d);
+    const xml = strFromU8(unzipSync(out)["word/document.xml"]!);
+    expect(xml).toContain('<wps:cNvSpPr txBox="1"/>');
+    expect(xml).toContain('<wp:extent cx="1828800" cy="914400"/>');
+    expect(xml).toMatch(/<w:txbxContent><w:p>.*Fresh.*<w:b\/>.*box.*<\/w:txbxContent>/);
+    const back = docxToParts(out).body;
+    expect(back).toMatch(/class="docx-shape"[^>]*data-docx-xml/);
+    expect(back).toContain("background-color:#FFFFFF;border:1px solid #000000");
+    expect(back).toContain("<strong>box</strong>");
   });
 });

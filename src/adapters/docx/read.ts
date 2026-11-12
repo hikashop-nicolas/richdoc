@@ -13,6 +13,7 @@ import { readLayout } from "./image-layout";
 import { metafileToSvgUrl } from "./metafile";
 import { readDocDefaults, readThemeColors, readThemeFonts, rFontsLatin, themeColor, modColor } from "./fonts";
 import { shapeHtml } from "./shapes";
+import { findSmartArtDrawing, smartArtSvg } from "./smartart";
 import type { ThemeFonts } from "./fonts";
 
 // The theme fonts of the document being read, so run and style fonts given as a theme
@@ -204,6 +205,15 @@ const emuToPx = (v: string | null): number | undefined => {
 
 /** Render an image-bearing run (w:drawing / w:pict) to an <img>, preserving the run. */
 function imageHtml(run: Element, ctx: RenderCtx): string {
+  // SmartArt: the drawing Word saved beside the diagram, shown as a picture (run kept verbatim).
+  const gd = run.getElementsByTagName("a:graphicData")[0];
+  if (gd?.getAttribute("uri")?.endsWith("/diagram")) {
+    const ext = run.getElementsByTagName("wp:extent")[0];
+    const w = emuToPx(ext?.getAttribute("cx") ?? null) ?? 0, h = emuToPx(ext?.getAttribute("cy") ?? null) ?? 0;
+    const dXml = findSmartArtDrawing(gd, ctx.rels, ctx.files);
+    const svg = dXml && w > 0 && h > 0 ? smartArtSvg(dXml, THEME_COLORS, w, h) : undefined;
+    if (svg) return `<span class="docx-img-ph docx-img-meta" contenteditable="false"${passthroughAttr(run)}><img src="data:image/svg+xml;charset=utf-8,${escapeAttr(encodeURIComponent(svg))}" alt="" style="width:${w}px;height:${h}px"></span>`;
+  }
   // A shape, text box or group: drawn read-only (its run is preserved verbatim).
   if (run.getElementsByTagName("wps:wsp").length || run.getElementsByTagName("wpg:wgp").length || run.getElementsByTagName("w:txbxContent").length) {
     const sh = shapeHtml(run, passthroughAttr(run), {

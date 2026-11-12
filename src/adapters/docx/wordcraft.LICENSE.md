@@ -1,9 +1,14 @@
-# metafile.ts: third-party notice
+# Third-party notice: WordCraft
 
-src/adapters/docx/metafile.ts is a TypeScript port of the `wordcraft-metafile` crate (v0.18.1, commit 07f9773) from
-WordCraft, https://github.com/storytold/wordcraft, which is dual-licensed MIT OR Apache-2.0. richdoc
-uses it under the MIT license below. The WMF text records, the SVG output and the PNG encoder were
-added in richdoc.
+These richdoc files are TypeScript ports of code from WordCraft, https://github.com/storytold/wordcraft
+(dual-licensed MIT OR Apache-2.0), used under the MIT license below:
+
+- src/adapters/docx/metafile.ts: the `wordcraft-metafile` crate (EMF / WMF player). WMF text, the
+  SVG output and the PNG encoder were added in richdoc.
+- src/adapters/docx/smartart.ts: the SmartArt drawing reader (`read/diagram.rs`) and its preset
+  geometries.
+- src/adapters/docx/wordart.ts: the WordArt reader and text warps (`read/wordart.rs`, `layout/wordart.rs`).
+- src/adapters/docx/chart.ts and chart-spec.ts: the chart reader and chart model (`read/chart/`, `chart_spec.rs`).
 
 MIT License
 

@@ -266,6 +266,19 @@ const dict: Dict = {
   assistUnavailable: "Не удалось загрузить модель на устройстве.",
   assistNeedInput: "Сначала введите указание.",
   vectorPicture: "Векторный рисунок (здесь не показан)",
+  insertShape: "Фигура или надпись",
+  shapeTextBox: "Надпись",
+  shapeRect: "Прямоугольник",
+  shapeRoundRect: "Скруглённый прямоугольник",
+  shapeEllipse: "Эллипс",
+  shapeTextPlaceholder: "Текст",
+  shapeFill: "Заливка",
+  shapeNoFill: "Без заливки",
+  shapeOutline: "Контур",
+  shapeNoOutline: "Без контура",
+  shapeWidthCm: "Ширина (см)",
+  shapeHeightCm: "Высота (см)",
+  shapeDelete: "Удалить фигуру",
 };
 
 export default dict;
