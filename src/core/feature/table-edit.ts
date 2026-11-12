@@ -102,6 +102,10 @@ export function setupTableEdit(deps: TableEditDeps) {
       cg.appendChild(col);
     }
     table.insertBefore(cg, table.firstChild);
+    // The widths shown from the file give way to the colgroup, which now owns them.
+    table.style.removeProperty("width");
+    table.style.removeProperty("table-layout");
+    for (const cell of Array.from(table.rows).flatMap((r) => Array.from(r.cells))) cell.style.removeProperty("width");
     return cg;
   };
   const moveContent = (src: HTMLTableCellElement, dst: HTMLTableCellElement): void => {

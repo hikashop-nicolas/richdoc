@@ -617,7 +617,10 @@ function makeParagraph(ctx: DocxCtx, src: HTMLElement, opts: { heading?: number;
       st.setAttributeNS(W, "w:val", opts.heading ? `Heading${opts.heading}` : namedStyle!);
       pPr.appendChild(st);
     }
-    if (opts.listNumId) {
+    // An item numbered by its paragraph style, still at the style's list and level: the style
+    // carries the numbering, so no direct w:numPr is added.
+    const fromStyle = !!namedStyle && src.getAttribute("data-docx-stylenum") === `${opts.listNumId}:${opts.listLevel ?? 0}`;
+    if (opts.listNumId && !fromStyle) {
       const numPr = ctx.doc.createElementNS(W, "w:numPr");
       const ilvl = ctx.doc.createElementNS(W, "w:ilvl");
       ilvl.setAttributeNS(W, "w:val", String(opts.listLevel ?? 0));

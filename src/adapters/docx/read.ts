@@ -276,6 +276,147 @@ const docxBorderSpec = (el: Element | undefined): string | null => {
   const color = !c || c === "auto" ? "#000000" : `#${c.replace(/^#/, "")}`;
   return `${w}px ${style} ${color}`;
 };
+// Table styles (styles.xml w:type="table"), resolved along basedOn, so a table shows its
+// style's borders, shading and header / banded-row looks. Set by docxToParts.
+interface TblCond { rPr: Element[]; shd?: string; borders: Map<string, Element> }
+interface TblStyle extends TblCond { rowBand: number; colBand: number; cond: Map<string, TblCond>; pCss: string }
+let TBL_STYLES = new Map<string, TblStyle>();
+// Paragraph styles that number their paragraphs (w:pPr/w:numPr in the style, along basedOn),
+// such as Word's "List Number" / "List Bullet": styleId -> numId + level. Set by docxToParts.
+let STYLE_NUM = new Map<string, { numId: string; level: number }>();
+function readStyleNumbering(stylesXml: Uint8Array | undefined): Map<string, { numId: string; level: number }> {
+  const out = new Map<string, { numId: string; level: number }>();
+  if (!stylesXml) return out;
+  const doc = new DOMParser().parseFromString(strFromU8(stylesXml), "application/xml");
+  const byId = new Map<string, Element>();
+  for (const st of Array.from(doc.getElementsByTagName("w:style"))) {
+    if ((st.getAttribute("w:type") ?? "paragraph") === "paragraph" && st.getAttribute("w:styleId")) byId.set(st.getAttribute("w:styleId")!, st);
+  }
+  for (const id of byId.keys()) {
+    let numId: string | undefined, level: number | undefined;
+    for (let st = byId.get(id), seen = new Set<Element>(); st && !seen.has(st); st = byId.get(kid(st, "w:basedOn")?.getAttribute("w:val") ?? "")) {
+      seen.add(st);
+      const numPr = kid(kid(st, "w:pPr"), "w:numPr");
+      if (numId === undefined) numId = kid(numPr, "w:numId")?.getAttribute("w:val") ?? undefined;
+      if (level === undefined) { const l = kid(numPr, "w:ilvl")?.getAttribute("w:val"); if (l) level = Number(l); }
+    }
+    if (numId && numId !== "0") out.set(id, { numId, level: Math.max(0, Math.min(8, level ?? 0)) });
+  }
+  return out;
+}
+const kids = (el: Element | undefined, tag: string): Element[] => (el ? Array.from(el.children).filter((c) => c.tagName === tag) : []);
+const kid = (el: Element | undefined, tag: string): Element | undefined => kids(el, tag)[0];
+const fillOf = (tcPr: Element | undefined): string | undefined => {
+  const f = kid(tcPr, "w:shd")?.getAttribute("w:fill");
+  return f && /^[0-9a-f]{6}$/i.test(f) ? f.toUpperCase() : undefined;
+};
+const bordersOf = (el: Element | undefined, into: Map<string, Element>): void => {
+  for (const b of Array.from(el?.children ?? [])) into.set(b.tagName, b);
+};
+function readTableStyles(stylesXml: Uint8Array | undefined): Map<string, TblStyle> {
+  const out = new Map<string, TblStyle>();
+  if (!stylesXml) return out;
+  const doc = new DOMParser().parseFromString(strFromU8(stylesXml), "application/xml");
+  const byId = new Map<string, Element>();
+  for (const st of Array.from(doc.getElementsByTagName("w:style"))) {
+    if (st.getAttribute("w:type") === "table" && st.getAttribute("w:styleId")) byId.set(st.getAttribute("w:styleId")!, st);
+  }
+  const resolve = (id: string, seen: Set<string>): TblStyle | undefined => {
+    if (out.has(id)) return out.get(id);
+    const st = byId.get(id);
+    if (!st || seen.has(id)) return undefined;
+    seen.add(id);
+    const base = resolve(kid(st, "w:basedOn")?.getAttribute("w:val") ?? "", seen);
+    const tblPr = kid(st, "w:tblPr");
+    const num = (tag: string, d: number) => Number(kid(tblPr, tag)?.getAttribute("w:val")) || d;
+    const ts: TblStyle = {
+      rPr: [...(base?.rPr ?? []), ...kids(st, "w:rPr")],
+      shd: fillOf(kid(st, "w:tcPr")) ?? base?.shd,
+      borders: new Map(base?.borders),
+      rowBand: num("w:tblStyleRowBandSize", base?.rowBand ?? 1),
+      colBand: num("w:tblStyleColBandSize", base?.colBand ?? 1),
+      cond: new Map(base?.cond),
+      pCss: base?.pCss ?? "",
+    };
+    bordersOf(kid(tblPr, "w:tblBorders"), ts.borders);
+    const sp = kid(kid(st, "w:pPr"), "w:spacing");
+    if (sp) {
+      const parts: string[] = [];
+      const before = twipToPx(sp.getAttribute("w:before"));
+      const after = twipToPx(sp.getAttribute("w:after"));
+      const line = sp.getAttribute("w:line");
+      if (before !== undefined) parts.push(`margin-top:${Math.round(before)}px`);
+      if (after !== undefined) parts.push(`margin-bottom:${Math.round(after)}px`);
+      if (line && (sp.getAttribute("w:lineRule") ?? "auto") === "auto") parts.push(`line-height:${Math.round((Number(line) / 240) * 100) / 100}`);
+      if (parts.length) ts.pCss = parts.join(";");
+    }
+    for (const sp2 of kids(st, "w:tblStylePr")) {
+      const type = sp2.getAttribute("w:type");
+      if (!type) continue;
+      const prev = ts.cond.get(type);
+      const c: TblCond = { rPr: [...(prev?.rPr ?? []), ...kids(sp2, "w:rPr")], shd: fillOf(kid(sp2, "w:tcPr")) ?? prev?.shd, borders: new Map(prev?.borders) };
+      bordersOf(kid(kid(sp2, "w:tcPr"), "w:tcBorders"), c.borders);
+      bordersOf(kid(kid(sp2, "w:tblPr"), "w:tblBorders"), c.borders);
+      ts.cond.set(type, c);
+    }
+    out.set(id, ts);
+    return ts;
+  };
+  for (const id of byId.keys()) resolve(id, new Set());
+  return out;
+}
+// Which of a table style's conditional formats a cell gets, lowest priority first (Word's order).
+function cellConds(look: TblLook, ts: TblStyle, r: number, c: number, span: number, rows: number, cols: number): string[] {
+  const out: string[] = [];
+  const fr = look.firstRow && r === 0, lr = look.lastRow && r === rows - 1;
+  const fc = look.firstCol && c === 0, lc = look.lastCol && c + span === cols;
+  if (!look.noVBand && !fc && !lc) out.push(Math.floor((c - (look.firstCol ? 1 : 0)) / ts.colBand) % 2 ? "band2Vert" : "band1Vert");
+  if (!look.noHBand && !fr && !lr) out.push(Math.floor((r - (look.firstRow ? 1 : 0)) / ts.rowBand) % 2 ? "band2Horz" : "band1Horz");
+  if (fc) out.push("firstCol");
+  if (lc) out.push("lastCol");
+  if (fr) out.push("firstRow");
+  if (lr) out.push("lastRow");
+  if (fr && lc) out.push("neCell");
+  if (fr && fc) out.push("nwCell");
+  if (lr && lc) out.push("seCell");
+  if (lr && fc) out.push("swCell");
+  return out;
+}
+interface TblLook { firstRow: boolean; lastRow: boolean; firstCol: boolean; lastCol: boolean; noHBand: boolean; noVBand: boolean }
+function readTblLook(el: Element | undefined): TblLook {
+  // No w:tblLook: Word's default (header row and first column on, column bands off).
+  if (!el) return { firstRow: true, lastRow: false, firstCol: true, lastCol: false, noHBand: false, noVBand: true };
+  const hex = parseInt(el.getAttribute("w:val") ?? "", 16) || 0;
+  const on = (name: string, bit: number) => {
+    const v = el.getAttribute(`w:${name}`);
+    return v !== null ? v === "1" || v === "true" || v === "on" : (hex & bit) !== 0;
+  };
+  return { firstRow: on("firstRow", 0x20), lastRow: on("lastRow", 0x40), firstCol: on("firstColumn", 0x80), lastCol: on("lastColumn", 0x100), noHBand: on("noHBand", 0x200), noVBand: on("noVBand", 0x400) };
+}
+// A table style's run properties as cell CSS (inherited by the cell's text).
+function rPrCss(list: Element[], out: Record<string, string>): void {
+  for (const rPr of list) {
+    for (const c of Array.from(rPr.children)) {
+      const v = c.getAttribute("w:val");
+      const on = v === null || (v !== "0" && v !== "false");
+      if (c.tagName === "w:b") out["font-weight"] = on ? "bold" : "normal";
+      else if (c.tagName === "w:i") out["font-style"] = on ? "italic" : "normal";
+      else if (c.tagName === "w:color" && v && /^[0-9a-f]{6}$/i.test(v)) out["color"] = `#${v}`;
+      else if (c.tagName === "w:caps") out["text-transform"] = on ? "uppercase" : "none";
+    }
+  }
+}
+
+// A w:tblBorders-like element holding the style's sides overlaid with the table's own.
+function mergedBorders(style: Map<string, Element> | undefined, own: Element | undefined): Element | undefined {
+  if (!style?.size) return own;
+  const m = new Map(style);
+  bordersOf(own, m);
+  const el = (own ?? style.values().next().value!).ownerDocument.createElementNS(W, "w:tblBorders");
+  for (const b of m.values()) el.appendChild(b.cloneNode(true));
+  return el;
+}
+
 // Resolve a cell side: an explicit tcBorders side wins (even nil = off); else the table's
 // outer border on an edge cell, or its inside border for an interior edge.
 const resolveCellBorder = (tcB: Element | undefined, tblB: Element | undefined, side: string, inside: string, edge: boolean): string | null => {
@@ -287,7 +428,10 @@ const resolveCellBorder = (tcB: Element | undefined, tblB: Element | undefined, 
 function tableHtml(tbl: Element, ctx: RenderCtx): string {
   const tblPr = tbl.getElementsByTagName("w:tblPr")[0];
   const tblGrid = tbl.getElementsByTagName("w:tblGrid")[0];
-  const tblB = tblPr?.getElementsByTagName("w:tblBorders")[0];
+  // The table style's borders under the table's own (w:tblBorders sides override per side).
+  const ts = TBL_STYLES.get(kid(tblPr, "w:tblStyle")?.getAttribute("w:val") ?? "");
+  const look = readTblLook(kid(tblPr, "w:tblLook"));
+  const tblB = mergedBorders(ts?.borders, tblPr?.getElementsByTagName("w:tblBorders")[0]);
   // Grid model: assign each cell its grid column (cumulative gridSpan); a vMerge=restart cell
   // spans down over the following rows' vMerge=continue cells in the same column.
   const trs = Array.from(tbl.children).filter((c) => c.tagName === "w:tr");
@@ -315,6 +459,9 @@ function tableHtml(tbl: Element, ctx: RenderCtx): string {
   };
   const totalRows = grid.length;
   const totalCols = Math.max(0, ...grid.flat().map((c) => c.gridCol + c.gridSpan));
+  // Column widths from w:tblGrid (twips -> px), only when the grid matches the cells.
+  const gridW = kids(tblGrid, "w:gridCol").map((g) => twipToPx(g.getAttribute("w:w")) ?? 0);
+  const colPx = gridW.length === totalCols && gridW.every((w) => w > 0) ? gridW.map((w) => Math.round(w)) : [];
   let rows = "";
   for (let r = 0; r < grid.length; r++) {
     let cells = "";
@@ -328,7 +475,12 @@ function tableHtml(tbl: Element, ctx: RenderCtx): string {
       const rs = rsN > 1 ? ` rowspan="${rsN}"` : "";
       // Resolve the cell's real borders (Word's tcBorders-over-tblBorders rules) into the
       // editor's per-side model, so the document's borders show on load.
-      const tcB = ci.tcPr?.getElementsByTagName("w:tcBorders")[0];
+      // A conditional format's sides (header row rule, ...) sit between the cell's own and the table's.
+      const conds = ts ? cellConds(look, ts, r, ci.gridCol, ci.gridSpan, totalRows, totalCols).map((k) => ts.cond.get(k)).filter((c): c is TblCond => !!c) : [];
+      const condB = new Map<string, Element>();
+      for (const c of conds) for (const [k, v] of c.borders) condB.set(k, v);
+      bordersOf(ci.tcPr?.getElementsByTagName("w:tcBorders")[0], condB);
+      const tcB = condB.size ? mergedBorders(condB, undefined) : undefined;
       const bAttr = (k: string, spec: string | null): string => (spec ? ` data-rdoc-b${k}="${spec}"` : "");
       const borders =
         bAttr("t", resolveCellBorder(tcB, tblB, "w:top", "w:insideH", r === 0)) +
@@ -338,8 +490,16 @@ function tableHtml(tbl: Element, ctx: RenderCtx): string {
       // Structure is locked (contenteditable=false on the table); each cell's content is its
       // own editable region. Cell shading round-trips via the preserved tcPr, and is shown here:
       // a shaded header with white text was otherwise white on white, an empty-looking row.
-      const shdFill = Array.from(ci.tcPr?.children ?? []).find((e) => e.tagName === "w:shd")?.getAttribute("w:fill");
-      const bg = shdFill && /^[0-9a-f]{6}$/i.test(shdFill) ? ` style="background-color:#${shdFill}"` : "";
+      // Display-only cell look (the writer keeps the cell's tcPr): its own shading, else the
+      // table style's; the style's text colour / weight; and the grid column width.
+      const cellCss: Record<string, string> = {};
+      if (ts) rPrCss([...ts.rPr, ...conds.flatMap((c) => c.rPr)], cellCss);
+      const fill = fillOf(ci.tcPr) ?? [...conds].reverse().find((c) => c.shd)?.shd ?? ts?.shd;
+      if (fill) cellCss["background-color"] = `#${fill}`;
+      const wPx = colPx.slice(ci.gridCol, ci.gridCol + ci.gridSpan).reduce((a, b) => a + b, 0);
+      if (wPx > 0) cellCss["width"] = `${wPx}px`;
+      const cssBody = Object.entries(cellCss).map(([k, v]) => `${k}:${v}`).join(";");
+      const bg = cssBody ? ` style="${cssBody}"` : "";
       cells += `<td${cs}${rs}${bg}${propAttr("tcpr", ci.tcPr)}${borders}><div class="docx-cell" contenteditable="true">${inner || "<br>"}</div></td>`;
     }
     rows += `<tr>${cells}</tr>`;
@@ -347,8 +507,18 @@ function tableHtml(tbl: Element, ctx: RenderCtx): string {
   // Table indent (w:tblInd) -> inline margin-left so it shows and round-trips.
   const tblInd = tblPr?.getElementsByTagName("w:tblInd")[0];
   const indPx = twipToPx(tblInd?.getAttributeNS(W, "w") ?? tblInd?.getAttribute("w:w"));
-  const indStyle = indPx && indPx > 0 ? ` style="margin-left:${Math.round(indPx)}px"` : "";
-  return `<table class="docx-table" contenteditable="false"${passthroughAttr(tbl)}${indStyle}${propAttr("tblpr", tblPr)}${propAttr("tblgrid", tblGrid)}>${rows}</table>`;
+  const tStyle: string[] = [];
+  if (indPx && indPx > 0) tStyle.push(`margin-left:${Math.round(indPx)}px`);
+  // Table width (dxa twips or pct fiftieths of a percent) and fixed layout, for display.
+  const tblW = kid(tblPr, "w:tblW");
+  const tw = tblW?.getAttribute("w:w") ?? "";
+  const twType = tblW?.getAttribute("w:type");
+  if (twType === "dxa" && Number(tw) > 0) tStyle.push(`width:${Math.round(twipToPx(tw)!)}px`);
+  else if (twType === "pct" && tw) tStyle.push(`width:${tw.endsWith("%") ? tw : `${Number(tw) / 50}%`}`);
+  if (kid(tblPr, "w:tblLayout")?.getAttribute("w:type") === "fixed" && colPx.length) tStyle.push("table-layout:fixed");
+  const indStyle = tStyle.length ? ` style="${tStyle.join(";")}"` : "";
+  const tsAttr = ts?.pCss ? ` data-rdoc-tstyle="${escapeAttr(kid(tblPr, "w:tblStyle")!.getAttribute("w:val")!)}"` : "";
+  return `<table class="docx-table" contenteditable="false"${passthroughAttr(tbl)}${indStyle}${tsAttr}${propAttr("tblpr", tblPr)}${propAttr("tblgrid", tblGrid)}>${rows}</table>`;
 }
 
 // ---------------------------------------------------------------------------
@@ -390,7 +560,7 @@ function readNumbering(file: Uint8Array | undefined): { ordered: Map<string, boo
         const ruleName = `rdoc-num-${id.replace(/[^\w-]/g, "_")}-${i}`;
         const f = lvlFmt(l, ruleName);
         if (f.rule) css += f.rule;
-        lv[i] = { ordered: f.ordered, listStyle: f.listStyle };
+        lv[i] = { ordered: f.ordered, listStyle: f.listStyle, cls: f.cls };
       }
       absLevels.set(id, lv);
     }
@@ -419,6 +589,7 @@ function readNumbering(file: Uint8Array | undefined): { ordered: Map<string, boo
 interface LvlFmt {
   ordered: boolean;
   listStyle?: string;
+  cls?: string; // a class on the list carrying a ::marker rule (multi-level labels)
 }
 // Word numFmt -> a CSS list-style-type with the same counter.
 const NUMFMT_CSS: Record<string, string> = {
@@ -443,7 +614,12 @@ function lvlFmt(l: Element, ruleName: string): LvlFmt & { rule?: string } {
   }
   const base = NUMFMT_CSS[fmt] ?? "decimal";
   // A single-counter label ("%1)", "(%2)", "%1.") keeps its punctuation via @counter-style;
-  // a multi-counter one ("%1.%2.") falls back to its own counter with the default suffix.
+  // any other multi-counter one falls back to its own counter with the default suffix.
+  // "%1.%2." (every level decimal-like, in order): the nested counters joined by dots.
+  const ml = /^%1((?:\.%[2-9])+)([^%]*)$/.exec(text);
+  if (ml && base === "decimal" && ml[1]!.split(".%").slice(1).every((n, k) => Number(n) === k + 2)) {
+    return { ordered: true, cls: ruleName, rule: `.docxedit-doc ol.${ruleName}>li::marker{content:counters(list-item,".") ${cssStr(ml[2]! === "." ? ". " : ml[2]! + " ")}}\n` };
+  }
   const m = /^([^%]*)%[1-9]([^%]*)$/.exec(text);
   if (!m || (m[1] === "" && m[2] === ".")) return { ordered: true, listStyle: base === "decimal" ? undefined : base };
   const rule = `@counter-style ${ruleName}{system:extends ${base};prefix:${cssStr(m[1]!)};suffix:${cssStr(m[2]! + " ")};}\n`;
@@ -798,6 +974,7 @@ interface PInfo {
   isList: boolean;
   ordered: boolean;
   listStyle?: string; // the level's CSS list-style-type, when not the browser default
+  listCls?: string; // the level's marker class (multi-level labels)
   numId?: string; // the list's numId (to track restart/continue across lists)
   level: number; // list nesting level (w:ilvl), 0 = top
   align?: string; // CSS text-align
@@ -809,6 +986,8 @@ interface PInfo {
   shading?: string; // CSS background-color from w:shd (paragraph shading)
   styleId?: string; // a named paragraph style (w:pStyle val) that is not a heading
   pageBreakBefore: boolean;
+  keepNext?: boolean; // w:keepNext: paginate with the next paragraph
+  styleNum?: string; // "numId:level" when the numbering comes from the paragraph style
   revPara?: "ins" | "del"; // paragraph-mark revision (split/merge)
   revAuthor?: string;
   revDate?: string;
@@ -843,9 +1022,12 @@ function paragraphInfo(p: Element, numbering: Map<string, boolean>, numLevels?: 
   const styleVal = rawStyle.replace(/\s+/g, "");
   const hm = /^heading([1-9])$/i.exec(styleVal);
   if (hm) heading = Number(hm[1]);
-  const numPr = pPr?.getElementsByTagName("w:numPr")[0];
-  const numId = numPr?.getElementsByTagName("w:numId")[0]?.getAttribute("w:val") ?? "";
-  const level = Math.max(0, Math.min(8, Number(numPr?.getElementsByTagName("w:ilvl")[0]?.getAttribute("w:val")) || 0));
+  const directNumPr = pPr?.getElementsByTagName("w:numPr")[0];
+  // Numbering from the paragraph style (not for headings, which stay headings).
+  const styleNum = !directNumPr && !heading ? STYLE_NUM.get(rawStyle) : undefined;
+  const numPr = directNumPr ?? (styleNum ? pPr : undefined);
+  const numId = directNumPr?.getElementsByTagName("w:numId")[0]?.getAttribute("w:val") ?? styleNum?.numId ?? "";
+  const level = styleNum ? styleNum.level : Math.max(0, Math.min(8, Number(numPr?.getElementsByTagName("w:ilvl")[0]?.getAttribute("w:val")) || 0));
   const jc = pPr?.getElementsByTagName("w:jc")[0]?.getAttribute("w:val") ?? "";
   const ind = pPr?.getElementsByTagName("w:ind")[0];
   const indentPx = twipToPx(ind?.getAttribute("w:left") ?? ind?.getAttribute("w:start"));
@@ -864,11 +1046,16 @@ function paragraphInfo(p: Element, numbering: Map<string, boolean>, numLevels?: 
   const sectType = sectEl?.getElementsByTagName("w:type")[0]?.getAttribute("w:val");
   // Custom tab stops (w:pPr/w:tabs); skip "clear" entries. Preserved so an edit keeps them.
   const stops = parseWTabs(pPr);
+  const kn = pPr ? Array.from(pPr.children).find((c) => c.tagName === "w:keepNext") : undefined;
+  const keepNext = !!kn && !/^(0|false|off)$/.test(kn.getAttribute("w:val") ?? "");
   return {
+    keepNext,
+    styleNum: styleNum ? `${styleNum.numId}:${styleNum.level}` : undefined,
     heading,
     isList: !!numPr,
     ordered: numLevels?.get(numId)?.[level]?.ordered ?? numbering.get(numId) ?? false,
     listStyle: numLevels?.get(numId)?.[level]?.listStyle,
+    listCls: numLevels?.get(numId)?.[level]?.cls,
     numId: numId || undefined,
     level,
     align: JC_TO_ALIGN[jc],
@@ -913,10 +1100,10 @@ function blockStyleAttr(info: PInfo): string {
   const secGeomAttr = info.secGeom ? ` data-rdoc-secbreak="${escapeAttr(info.secGeom)}"` : "";
   const secHKey = info.secHeaderRid ? ` data-rdoc-secheaderkey="${escapeAttr(info.secHeaderRid)}"` : "";
   const secFKey = info.secFooterRid ? ` data-rdoc-secfooterkey="${escapeAttr(info.secFooterRid)}"` : "";
-  const tabAttr = info.tabStops ? ` data-rdoc-tabstops="${escapeAttr(info.tabStops)}"` : "";
+  const tabAttr = (info.tabStops ? ` data-rdoc-tabstops="${escapeAttr(info.tabStops)}"` : "") + (info.keepNext ? " data-rdoc-keepnext" : "");
   // Unmodeled paragraph properties + the list's original numbering id, for merge-back on save.
   const pprAttr = info.pPrXml ? ` data-docx-ppr="${escapeAttr(info.pPrXml)}"` : "";
-  const numAttr = info.isList && info.numId ? ` data-docx-numid="${escapeAttr(info.numId)}"` : "";
+  const numAttr = (info.isList && info.numId ? ` data-docx-numid="${escapeAttr(info.numId)}"` : "") + (info.styleNum ? ` data-docx-stylenum="${info.styleNum}"` : "");
   const sec = sectAttr + secGeomAttr + secHKey + secFKey + pprAttr + numAttr;
   if (!info.revPara) return style + styleAttr + sec + tabAttr;
   return `${style}${styleAttr}${sec}${tabAttr} class="docx-para-${info.revPara}" data-rev-para="${info.revPara}" data-rev-author="${escapeAttr(info.revAuthor ?? "")}" data-rev-date="${escapeAttr(info.revDate ?? "")}"`;
@@ -924,7 +1111,7 @@ function blockStyleAttr(info: PInfo): string {
 
 /** Build nested <ul>/<ol> from a flat list of items carrying their nesting level (w:ilvl).
     A deeper item opens new lists inside the current <li>; a shallower one closes them. */
-function buildNestedList(items: { level: number; ordered: boolean; li: string; listStyle?: string }[], rootStart = 1): string {
+function buildNestedList(items: { level: number; ordered: boolean; li: string; listStyle?: string; listCls?: string }[], rootStart = 1): string {
   let html = "";
   const open: string[] = []; // stack of open list tags
   for (const it of items) {
@@ -935,7 +1122,8 @@ function buildNestedList(items: { level: number; ordered: boolean; li: string; l
       const tag = it.ordered ? "ol" : "ul";
       const startAttr = open.length === 0 && tag === "ol" && rootStart > 1 ? ` start="${rootStart}"` : ""; // restart/continue
       const lsAttr = it.listStyle && open.length === it.level && !(open.length === 0 && it.listStyle === "disc") ? ` style="list-style-type:${escapeAttr(it.listStyle)}"` : "";
-      html += `<${tag}${startAttr}${lsAttr}>`;
+      const clsAttr = it.listCls && open.length === it.level ? ` class="${it.listCls}"` : "";
+      html += `<${tag}${startAttr}${lsAttr}${clsAttr}>`;
       open.push(tag);
     }
     html += `<li${it.li}`;
@@ -947,7 +1135,7 @@ function buildNestedList(items: { level: number; ordered: boolean; li: string; l
 /** Render a block container (w:body or a header/footer root) to HTML. */
 function renderBlocks(container: Element, ctx: RenderCtx): string {
   let html = "";
-  let listBuf: { level: number; ordered: boolean; li: string; numId?: string; listStyle?: string }[] = [];
+  let listBuf: { level: number; ordered: boolean; li: string; numId?: string; listStyle?: string; listCls?: string }[] = [];
   // Running count of level-0 items per ordered numId across the document, so a list that
   // continues an earlier one (same numId) gets the right <ol start>, not a fresh 1.
   const numRun = new Map<string, number>();
@@ -984,7 +1172,10 @@ function renderBlocks(container: Element, ctx: RenderCtx): string {
     const info = paragraphInfo(node, ctx.numbering, ctx.numLevels);
     const inner = inlineToHtml(node, ctx);
     if (info.isList) {
-      listBuf.push({ level: info.level, ordered: info.ordered, listStyle: info.listStyle, numId: info.numId, li: `${blockStyleAttr(info)}>${inner || "<br>"}` });
+      // A top-level item of another list (another numId) starts a new list rather than joining.
+      const top = listBuf.find((i) => i.level === 0);
+      if (info.level === 0 && top && info.numId && top.numId && info.numId !== top.numId) flushList();
+      listBuf.push({ level: info.level, ordered: info.ordered, listStyle: info.listStyle, listCls: info.listCls, numId: info.numId, li: `${blockStyleAttr(info)}>${inner || "<br>"}` });
       continue;
     }
     flushList();
@@ -1330,6 +1521,26 @@ function readStyles(stylesXml: Uint8Array | undefined): {
     list.sort((a, b) => a.name.localeCompare(b.name));
     return list;
   };
+  // Plain paragraphs take the document's paragraph defaults (pPrDefault, then the default
+  // "Normal" style): spacing, line height, alignment, colour. Font and size are the page base.
+  {
+    const base: Record<string, string> = {};
+    const pPrDef = doc.getElementsByTagName("w:pPrDefault")[0]?.getElementsByTagName("w:pPr")[0];
+    if (pPrDef) {
+      const sp = pPrDef.getElementsByTagName("w:spacing")[0];
+      const before = twipToPx(wv(sp, "before"));
+      const after = twipToPx(wv(sp, "after"));
+      const line = wv(sp, "line");
+      if (before !== undefined) base["margin-top"] = `${Math.round(before)}px`;
+      if (after !== undefined) base["margin-bottom"] = `${Math.round(after)}px`;
+      if (line && (wv(sp, "lineRule") ?? "auto") === "auto") base["line-height"] = String(Math.round((Number(line) / 240) * 100) / 100);
+    }
+    const defId = [...paraById].find(([, st]) => /^(1|true)$/.test(wv(st, "default") ?? ""))?.[0];
+    const normal = defId ? cssFor(paraById, defId, true, new Set()) : {};
+    for (const k of ["margin-top", "margin-bottom", "line-height", "text-align", "color"]) if (normal[k]) base[k] = normal[k]!;
+    const body = Object.entries(base).map(([k, v]) => `${k}:${v}`).join(";");
+    if (body) css += `.docxedit-doc p{${body}}\n`;
+  }
   const paragraphStyles = collect(paraById, "paragraph", "data-rdoc-style", (id) => /^heading[1-9]$/i.test(id.replace(/\s+/g, "")));
   // Headings render as <h1>..<h6>, not data-rdoc-style: give them their style's look too.
   for (const id of paraById.keys()) {
@@ -1365,6 +1576,8 @@ export function docxToParts(bytes: Uint8Array, preunzipped?: Record<string, Uint
   const empty: DocxParts = { body: "", header: "", footer: "", comments: [] };
   const files = preunzipped ?? unzipSync(bytes);
   THEME = readThemeFonts(files);
+  TBL_STYLES = readTableStyles(files["word/styles.xml"]);
+  STYLE_NUM = readStyleNumbering(files["word/styles.xml"]);
   const docXml = files["word/document.xml"];
   if (!docXml) return empty;
   const doc = new DOMParser().parseFromString(strFromU8(docXml), "application/xml");
@@ -1471,7 +1684,7 @@ export function docxToParts(bytes: Uint8Array, preunzipped?: Record<string, Uint
     paragraphStyles: ps.paragraphStyles,
     characterStyles: ps.characterStyles,
     styleDefs: ps.styleDefs,
-    styleCss: ps.css + num.css,
+    styleCss: ps.css + num.css + [...TBL_STYLES].filter(([, t]) => t.pCss).map(([id, t]) => `.docxedit-doc table[data-rdoc-tstyle="${cssAttrValue(id)}"] p{${t.pCss}}\n`).join(""),
     noteCss: ps.noteCss,
   };
 }

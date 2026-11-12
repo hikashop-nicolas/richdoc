@@ -30,6 +30,15 @@ describe("docx list level formats", () => {
     expect(body).toContain('<ul style="list-style-type:circle">');
   });
 
+  it("labels nested levels 1.1. the way Word's legal-style lists do", () => {
+    const num = `<w:abstractNum w:abstractNumId="3">${lvl(0, "decimal", "%1.")}${lvl(1, "decimal", "%1.%2.")}${lvl(2, "decimal", "%1.%2.%3")}</w:abstractNum><w:num w:numId="1"><w:abstractNumId w:val="3"/></w:num>`;
+    const parts = docxToParts(docx(li(0, "a") + li(1, "b") + li(2, "c"), num));
+    expect(parts.body).toContain('<ol class="rdoc-num-3-1">');
+    expect(parts.body).toContain('<ol class="rdoc-num-3-2">');
+    expect(parts.styleCss).toContain('.docxedit-doc ol.rdoc-num-3-1>li::marker{content:counters(list-item,".") ". "}');
+    expect(parts.styleCss).toContain('.docxedit-doc ol.rdoc-num-3-2>li::marker{content:counters(list-item,".") " "}');
+  });
+
   it("keeps the list's numbering untouched on save", () => {
     const num = `<w:abstractNum w:abstractNumId="0">${lvl(0, "lowerLetter", "(%1)")}</w:abstractNum><w:num w:numId="1"><w:abstractNumId w:val="0"/></w:num>`;
     const d = docx(li(0, "a"), num);
@@ -58,5 +67,106 @@ describe("docx run properties shown from the preserved rPr", () => {
     expect(xml).toContain('<w:position w:val="6"/>');
     expect(xml).toContain('<w:u w:val="wave"/>');
     expect(xml).not.toContain("w:vertAlign");
+  });
+});
+
+describe("docx table display", () => {
+  const STYLES = `<?xml version="1.0"?><w:styles ${NS}>` +
+    `<w:docDefaults><w:pPrDefault><w:pPr><w:spacing w:after="160" w:line="259" w:lineRule="auto"/></w:pPr></w:pPrDefault></w:docDefaults>` +
+    `<w:style w:type="paragraph" w:default="1" w:styleId="Normal"><w:name w:val="Normal"/></w:style>` +
+    `<w:style w:type="table" w:styleId="TableGrid"><w:name w:val="Table Grid"/><w:pPr><w:spacing w:after="0" w:line="240" w:lineRule="auto"/></w:pPr>` +
+    `<w:tblPr><w:tblBorders><w:top w:val="single" w:sz="4" w:color="auto"/><w:left w:val="single" w:sz="4" w:color="auto"/><w:bottom w:val="single" w:sz="4" w:color="auto"/><w:right w:val="single" w:sz="4" w:color="auto"/><w:insideH w:val="single" w:sz="4" w:color="auto"/><w:insideV w:val="single" w:sz="4" w:color="auto"/></w:tblBorders></w:tblPr></w:style>` +
+    `<w:style w:type="table" w:styleId="Grid4"><w:name w:val="Grid Table 4"/><w:basedOn w:val="TableGrid"/>` +
+    `<w:tblStylePr w:type="firstRow"><w:rPr><w:b/><w:color w:val="FFFFFF"/></w:rPr><w:tcPr><w:shd w:val="clear" w:fill="4472C4"/></w:tcPr></w:tblStylePr>` +
+    `<w:tblStylePr w:type="band1Horz"><w:tcPr><w:shd w:val="clear" w:fill="D9E2F3"/></w:tcPr></w:tblStylePr></w:style>` +
+    `</w:styles>`;
+  const withStyles = (body: string) => {
+    const files = unzipSync(docx(body));
+    files["word/styles.xml"] = strToU8(STYLES);
+    return zipSync(files);
+  };
+  const row = (...cells: string[]) => `<w:tr>${cells.map((c) => `<w:tc><w:p><w:r><w:t>${c}</w:t></w:r></w:p></w:tc>`).join("")}</w:tr>`;
+  const table = (style: string, look: string, rows: string) =>
+    `<w:tbl><w:tblPr><w:tblStyle w:val="${style}"/><w:tblW w:w="5000" w:type="pct"/>${look}</w:tblPr><w:tblGrid><w:gridCol w:w="1500"/><w:gridCol w:w="3000"/></w:tblGrid>${rows}</w:tbl>`;
+
+  it("shows grid column widths and the table width", () => {
+    const { body } = docxToParts(withStyles(table("TableGrid", "", row("a", "b"))));
+    expect(body).toContain('style="width:100%"');
+    expect(body).toMatch(/<td[^>]*width:100px[^>]*>.*<td[^>]*width:200px/);
+  });
+
+  it("draws a table style's borders and spacing", () => {
+    const { body, styleCss } = docxToParts(withStyles(table("TableGrid", "", row("a", "b"))));
+    expect(body).toContain('data-rdoc-bt="1px solid #000000"');
+    expect(body).toContain('data-rdoc-tstyle="TableGrid"');
+    expect(styleCss).toContain('.docxedit-doc table[data-rdoc-tstyle="TableGrid"] p{margin-bottom:0px;line-height:1}');
+    expect(styleCss).toContain(".docxedit-doc p{margin-bottom:11px;line-height:1.08}");
+  });
+
+  it("shades the header row and the bands, honouring w:tblLook", () => {
+    const rows = row("H1", "H2") + row("r1", "x") + row("r2", "y") + row("r3", "z");
+    const { body } = docxToParts(withStyles(table("Grid4", '<w:tblLook w:firstRow="1" w:noHBand="0" w:noVBand="1"/>', rows)));
+    expect(body).toMatch(/font-weight:bold;color:#FFFFFF;background-color:#4472C4[^>]*><div[^>]*>.*H1/);
+    expect(body).toMatch(/background-color:#D9E2F3[^>]*><div[^>]*><p>r1/);
+    expect(body).not.toMatch(/background-color:#D9E2F3[^>]*><div[^>]*><p>r2/);
+    expect(body).toMatch(/background-color:#D9E2F3[^>]*><div[^>]*><p>r3/);
+    const off = docxToParts(withStyles(table("Grid4", '<w:tblLook w:firstRow="0" w:noHBand="1"/>', rows))).body;
+    expect(off).not.toContain("4472C4");
+    expect(off).not.toContain("D9E2F3");
+  });
+
+  it("leaves the saved table untouched by its display styles", () => {
+    const d = withStyles(table("Grid4", "", row("H", "x") + row("a", "b")));
+    const xml = strFromU8(unzipSync(htmlToDocx(docxToParts(d).body, d))["word/document.xml"]!);
+    expect(xml).not.toContain("w:tcBorders");
+    expect(xml).not.toContain("4472C4");
+    expect(xml).toContain('<w:gridCol w:w="1500"/>');
+  });
+});
+
+describe("docx keep with next", () => {
+  it("marks a w:keepNext paragraph for pagination and keeps the property on save", () => {
+    const d = docx('<w:p><w:pPr><w:keepNext/></w:pPr><w:r><w:t>caption</w:t></w:r></w:p><w:p><w:pPr><w:keepNext w:val="0"/></w:pPr><w:r><w:t>off</w:t></w:r></w:p>');
+    const { body } = docxToParts(d);
+    expect(body).toMatch(/<p[^>]*data-rdoc-keepnext[^>]*>caption/);
+    expect(body).not.toMatch(/<p[^>]*data-rdoc-keepnext[^>]*>off/);
+    expect(strFromU8(unzipSync(htmlToDocx(body, d))["word/document.xml"]!)).toContain("<w:keepNext/>");
+  });
+});
+
+describe("docx numbering from a paragraph style", () => {
+  const STYLES = `<?xml version="1.0"?><w:styles ${NS}>` +
+    `<w:style w:type="paragraph" w:default="1" w:styleId="Normal"><w:name w:val="Normal"/></w:style>` +
+    `<w:style w:type="paragraph" w:styleId="ListNumber"><w:name w:val="List Number"/><w:basedOn w:val="Normal"/><w:pPr><w:numPr><w:numId w:val="5"/></w:numPr></w:pPr></w:style>` +
+    `<w:style w:type="paragraph" w:styleId="MyList"><w:name w:val="My List"/><w:basedOn w:val="ListNumber"/></w:style>` +
+    `</w:styles>`;
+  const NUM = `<w:abstractNum w:abstractNumId="0">${lvl(0, "decimal", "%1.")}${lvl(1, "lowerLetter", "%2.")}</w:abstractNum><w:num w:numId="5"><w:abstractNumId w:val="0"/></w:num>`;
+  const make = (body: string) => {
+    const files = unzipSync(docx(body, NUM));
+    files["word/styles.xml"] = strToU8(STYLES);
+    return zipSync(files);
+  };
+  const sp = (style: string, t: string) => `<w:p><w:pPr><w:pStyle w:val="${style}"/></w:pPr><w:r><w:t>${t}</w:t></w:r></w:p>`;
+
+  it("renders style-numbered paragraphs as a list, inheriting along basedOn", () => {
+    const { body } = docxToParts(make(sp("ListNumber", "one") + sp("MyList", "two")));
+    expect(body).toMatch(/^<ol><li[^>]*data-rdoc-style="ListNumber"[^>]*>one<\/li><li[^>]*data-rdoc-style="MyList"[^>]*>two<\/li><\/ol>$/);
+  });
+
+  it("starts a new list for a top-level item of another list", () => {
+    const { body } = docxToParts(docx(li(0, "one", "1") + li(0, "dot", "2"), `<w:abstractNum w:abstractNumId="0">${lvl(0, "decimal", "%1.")}</w:abstractNum><w:abstractNum w:abstractNumId="1">${lvl(0, "bullet", "\uF0B7")}</w:abstractNum><w:num w:numId="1"><w:abstractNumId w:val="0"/></w:num><w:num w:numId="2"><w:abstractNumId w:val="1"/></w:num>`));
+    expect(body).toMatch(/^<ol><li[^>]*>one<\/li><\/ol><ul><li[^>]*>dot<\/li><\/ul>$/);
+  });
+
+  it("saves them with their style only, adding a direct numPr once the level changes", () => {
+    const d = make(sp("ListNumber", "one") + sp("ListNumber", "two"));
+    const html = docxToParts(d).body;
+    const same = strFromU8(unzipSync(htmlToDocx(html, d))["word/document.xml"]!);
+    expect(same).not.toContain("w:numPr");
+    expect(same.match(/<w:pStyle w:val="ListNumber"\/>/g)).toHaveLength(2);
+    // Indent the second item: it now needs its own level.
+    const nested = html.replace(/<\/li><li([^>]*)>two<\/li>/, "<ol><li$1>two</li></ol></li>");
+    const xml = strFromU8(unzipSync(htmlToDocx(nested, d))["word/document.xml"]!);
+    expect(xml).toMatch(/<w:ilvl w:val="1"\/><w:numId w:val="5"\/>/);
   });
 });

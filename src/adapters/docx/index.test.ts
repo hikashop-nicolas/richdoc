@@ -177,7 +177,7 @@ describe("docx <-> html", () => {
     const doc = `<?xml version="1.0"?>
 <w:document xmlns:w="http://schemas.openxmlformats.org/wordprocessingml/2006/main"><w:body>${tbl}</w:body></w:document>`;
     const html = docxToHtml(makeDocx(doc));
-    expect(html).toContain('style="background-color:#4F46E5"');
+    expect(html).toContain('style="background-color:#4F46E5;width:300px"');
     expect(html.match(/background-color:#/g)?.length, "fill=auto paints nothing").toBe(1);
     const xml = strFromU8(unzipSync(htmlToDocx(html, makeDocx(doc)))["word/document.xml"]);
     expect(xml).toContain('w:fill="4F46E5"');
