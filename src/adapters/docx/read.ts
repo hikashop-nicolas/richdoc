@@ -11,12 +11,14 @@ import { SYMBOL, WEBDINGS, WINGDINGS2, WINGDINGS3 } from "./dingbats";
 import type { Fmt } from "./shared";
 import { readLayout } from "./image-layout";
 import { metafileToSvgUrl } from "./metafile";
-import { readDocDefaults, readThemeFonts, rFontsLatin } from "./fonts";
+import { readDocDefaults, readThemeColors, readThemeFonts, rFontsLatin, themeColor, modColor } from "./fonts";
+import { shapeHtml } from "./shapes";
 import type { ThemeFonts } from "./fonts";
 
 // The theme fonts of the document being read, so run and style fonts given as a theme
 // reference (w:asciiTheme="minorHAnsi") resolve to a real typeface. Set by docxToParts.
 let THEME: ThemeFonts = {};
+let THEME_COLORS: Record<string, string> = {};
 
 
 interface Reaction {
@@ -202,6 +204,20 @@ const emuToPx = (v: string | null): number | undefined => {
 
 /** Render an image-bearing run (w:drawing / w:pict) to an <img>, preserving the run. */
 function imageHtml(run: Element, ctx: RenderCtx): string {
+  // A shape, text box or group: drawn read-only (its run is preserved verbatim).
+  if (run.getElementsByTagName("wps:wsp").length || run.getElementsByTagName("wpg:wgp").length || run.getElementsByTagName("w:txbxContent").length) {
+    const sh = shapeHtml(run, passthroughAttr(run), {
+      colors: THEME_COLORS,
+      blocks: (txbx) => renderBlocks(txbx, ctx),
+      imageSrc: (rid) => {
+        const tgt = ctx.rels.get(rid);
+        const b = tgt ? resolveMedia(tgt, ctx.files) : undefined;
+        const mime = IMG_MIME[(tgt?.split(".").pop() ?? "").toLowerCase()];
+        return b && mime ? `data:${mime};base64,${bytesToBase64(b)}` : undefined;
+      },
+    });
+    if (sh) return sh;
+  }
   const blip = run.getElementsByTagName("a:blip")[0] ?? run.getElementsByTagName("pic:blipFill")[0]?.getElementsByTagName("a:blip")[0];
   let rid = blip?.getAttribute("r:embed") ?? blip?.getAttribute("r:link") ?? undefined;
   if (!rid) rid = run.getElementsByTagName("v:imagedata")[0]?.getAttribute("r:id") ?? undefined;
@@ -566,6 +582,12 @@ function readNumbering(file: Uint8Array | undefined): { ordered: Map<string, boo
   const absFmt = new Map<string, boolean>(); // abstractNumId -> ordered
   const absStart = new Map<string, number>(); // abstractNumId -> level-0 start
   const absLevels = new Map<string, LvlFmt[]>(); // abstractNumId -> per-level format
+  const levelOf = (l: Element, ruleName: string): LvlFmt => {
+    const f = lvlFmt(l, ruleName);
+    if (f.rule) css += f.rule;
+    const kidVal = (tag: string) => Array.from(l.children).find((c) => c.tagName === tag)?.getAttribute("w:val") ?? undefined;
+    return { ordered: f.ordered, listStyle: f.listStyle, cls: f.cls, fmt: kidVal("w:numFmt") ?? "decimal", text: kidVal("w:lvlText") ?? "", start: Number(kidVal("w:start") ?? "1") || 0, lgl: !!Array.from(l.children).find((c) => c.tagName === "w:isLgl"), suff: kidVal("w:suff") ?? "tab" };
+  };
   for (const an of Array.from(doc.getElementsByTagName("w:abstractNum"))) {
     const id = an.getAttributeNS(W, "abstractNumId") ?? an.getAttribute("w:abstractNumId");
     if (id) {
@@ -573,11 +595,7 @@ function readNumbering(file: Uint8Array | undefined): { ordered: Map<string, boo
       for (const l of Array.from(an.getElementsByTagName("w:lvl"))) {
         const i = Number(l.getAttribute("w:ilvl") ?? "0");
         if (!(i >= 0 && i <= 8)) continue;
-        const ruleName = `rdoc-num-${id.replace(/[^\w-]/g, "_")}-${i}`;
-        const f = lvlFmt(l, ruleName);
-        if (f.rule) css += f.rule;
-        const kidVal = (tag: string) => Array.from(l.children).find((c) => c.tagName === tag)?.getAttribute("w:val") ?? undefined;
-        lv[i] = { ordered: f.ordered, listStyle: f.listStyle, cls: f.cls, fmt: kidVal("w:numFmt") ?? "decimal", text: kidVal("w:lvlText") ?? "", start: Number(kidVal("w:start") ?? "1") || 0, lgl: !!Array.from(l.children).find((c) => c.tagName === "w:isLgl"), suff: kidVal("w:suff") ?? "tab" };
+        lv[i] = levelOf(l, `rdoc-num-${id.replace(/[^\w-]/g, "_")}-${i}`);
       }
       absLevels.set(id, lv);
     }
@@ -594,9 +612,15 @@ function readNumbering(file: Uint8Array | undefined): { ordered: Map<string, boo
     if (!numId) continue;
     ordered.set(numId, absFmt.get(abs) ?? false);
     const lv = absLevels.get(abs);
-    if (lv) levels.set(numId, lv);
+    // A w:lvlOverride with its own w:lvl redefines that level for this list only.
+    const own = Array.from(num.getElementsByTagName("w:lvlOverride")).flatMap((o) => Array.from(o.children).filter((c) => c.tagName === "w:lvl").map((l) => [Number(o.getAttribute("w:ilvl") ?? "0"), l] as const));
+    if (own.length) {
+      const merged = [...(lv ?? [])];
+      for (const [i, l] of own) if (i >= 0 && i <= 8) merged[i] = levelOf(l, `rdoc-num-o${numId.replace(/[^\w-]/g, "_")}-${i}`);
+      levels.set(numId, merged);
+    } else if (lv) levels.set(numId, lv);
     const ov = Array.from(num.getElementsByTagName("w:lvlOverride")).find((o) => (o.getAttribute("w:ilvl") ?? "0") === "0");
-    const so = Number(ov?.getElementsByTagName("w:startOverride")[0]?.getAttribute("w:val"));
+    const so = Number(ov?.getElementsByTagName("w:startOverride")[0]?.getAttribute("w:val") ?? ov?.getElementsByTagName("w:lvl")[0]?.getElementsByTagName("w:start")[0]?.getAttribute("w:val"));
     start.set(numId, Number.isFinite(so) ? so : absStart.get(abs) ?? 1);
   }
   return { ordered, start, levels, css };
@@ -770,7 +794,14 @@ function pPrHasUnmodeled(pPr: Element): boolean {
 
 /** Read a w:rPr element into a Fmt (used for the run's props and rPrChange's old props). */
 function readFmt(rPr: Element | undefined): Fmt {
-  const color = attrVal(rPr, "w:color");
+  const colorEl = rPr?.getElementsByTagName("w:color")[0];
+  let color = attrVal(rPr, "w:color");
+  if ((!color || color === "auto") && colorEl?.getAttribute("w:themeColor")) {
+    const base = themeColor(THEME_COLORS, colorEl.getAttribute("w:themeColor"));
+    const byte = (a: string) => { const v = colorEl.getAttribute(a); return v && /^[0-9a-f]{2}$/i.test(v) ? parseInt(v, 16) : undefined; };
+    const shade = byte("w:themeShade"), tint = byte("w:themeTint");
+    if (base) color = modColor(base, { shade: shade !== undefined ? (shade / 255) * 100000 : undefined, tint: tint !== undefined ? (tint / 255) * 100000 : undefined });
+  }
   const highlight = attrVal(rPr, "w:highlight");
   const sz = attrVal(rPr, "w:sz");
   const shd = rPr?.getElementsByTagName("w:shd")[0]?.getAttribute("w:fill");
@@ -1049,6 +1080,7 @@ interface PInfo {
   keepNext?: boolean; // w:keepNext: paginate with the next paragraph
   styleNum?: string; // "numId:level" when the numbering comes from the paragraph style
   dropCap?: string; // w:framePr/@w:dropCap: "drop" (in the text) or "margin"
+  frame?: { side: "left" | "right" | "center"; widthPx?: number }; // a w:framePr text frame (not a drop cap)
   revPara?: "ins" | "del"; // paragraph-mark revision (split/merge)
   revAuthor?: string;
   revDate?: string;
@@ -1109,8 +1141,13 @@ function paragraphInfo(p: Element, numbering: Map<string, boolean>, numLevels?: 
   const stops = parseWTabs(pPr);
   const kn = pPr ? Array.from(pPr.children).find((c) => c.tagName === "w:keepNext") : undefined;
   const keepNext = !!kn && !/^(0|false|off)$/.test(kn.getAttribute("w:val") ?? "");
-  const dc = pPr ? Array.from(pPr.children).find((c) => c.tagName === "w:framePr")?.getAttribute("w:dropCap") : undefined;
+  const fp = pPr ? Array.from(pPr.children).find((c) => c.tagName === "w:framePr") : undefined;
+  const dc = fp?.getAttribute("w:dropCap");
+  const xAlign = fp?.getAttribute("w:xAlign");
+  const fw = twipToPx(fp?.getAttribute("w:w"));
+  const frame = fp && (!dc || dc === "none") ? { side: (xAlign === "right" || xAlign === "outside" ? "right" : xAlign === "center" ? "center" : "left") as "left" | "right" | "center", widthPx: fw && fw > 0 ? Math.round(fw) : undefined } : undefined;
   return {
+    frame,
     dropCap: dc === "drop" || dc === "margin" ? dc : undefined,
     keepNext,
     styleNum: styleNum ? `${styleNum.numId}:${styleNum.level}` : undefined,
@@ -1157,13 +1194,14 @@ function blockStyleAttr(info: PInfo): string {
   if (info.spaceAfterPx !== undefined) parts.push(`margin-bottom:${info.spaceAfterPx}px`);
   if (info.shading) parts.push(`background-color:${info.shading}`);
   if (info.border) parts.push(info.border);
+  if (info.frame?.widthPx) parts.push(`width:${info.frame.widthPx}px`); // display only: the writer keeps the framePr
   const style = parts.length ? ` style="${parts.join(";")}"` : "";
   const styleAttr = info.styleId ? ` data-rdoc-style="${escapeAttr(info.styleId)}"` : "";
   const sectAttr = info.sectPr ? ` data-docx-sectpr="${escapeAttr(info.sectPr)}"` : "";
   const secGeomAttr = info.secGeom ? ` data-rdoc-secbreak="${escapeAttr(info.secGeom)}"` : "";
   const secHKey = info.secHeaderRid ? ` data-rdoc-secheaderkey="${escapeAttr(info.secHeaderRid)}"` : "";
   const secFKey = info.secFooterRid ? ` data-rdoc-secfooterkey="${escapeAttr(info.secFooterRid)}"` : "";
-  const tabAttr = (info.tabStops ? ` data-rdoc-tabstops="${escapeAttr(info.tabStops)}"` : "") + (info.keepNext ? " data-rdoc-keepnext" : "") + (info.dropCap ? ` data-rdoc-dropcap="${info.dropCap}"` : "");
+  const tabAttr = (info.tabStops ? ` data-rdoc-tabstops="${escapeAttr(info.tabStops)}"` : "") + (info.keepNext ? " data-rdoc-keepnext" : "") + (info.dropCap ? ` data-rdoc-dropcap="${info.dropCap}"` : "") + (info.frame ? ` data-rdoc-frame="${info.frame.side}"` : "");
   // Unmodeled paragraph properties + the list's original numbering id, for merge-back on save.
   const pprAttr = info.pPrXml ? ` data-docx-ppr="${escapeAttr(info.pPrXml)}"` : "";
   const numAttr = (info.isList && info.numId ? ` data-docx-numid="${escapeAttr(info.numId)}"` : "") + (info.styleNum ? ` data-docx-stylenum="${info.styleNum}"` : "");
@@ -1639,6 +1677,7 @@ export function docxToParts(bytes: Uint8Array, preunzipped?: Record<string, Uint
   const empty: DocxParts = { body: "", header: "", footer: "", comments: [] };
   const files = preunzipped ?? unzipSync(bytes);
   THEME = readThemeFonts(files);
+  THEME_COLORS = readThemeColors(files);
   TBL_STYLES = readTableStyles(files["word/styles.xml"]);
   STYLE_NUM = readStyleNumbering(files["word/styles.xml"]);
   const docXml = files["word/document.xml"];

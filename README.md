@@ -52,6 +52,8 @@ A full word-processor surface in the browser, the same for both formats unless n
   on-select toolbar. A wrapped image's exact offset round-trips per axis.
   EMF / WMF pictures (charts, clip art, pasted drawings) are drawn as SVG in the browser
   and saved untouched.
+- **Shapes and text boxes** are shown read-only with their fill, outline, simple geometry
+  and text (DrawingML and the older VML), floated like images, and saved untouched.
 - **Furigana / ruby**, rendered natively (reading above in horizontal text, to the
   right in vertical).
 - **Tabs & tab stops:** real tab characters plus custom tab stops with left / center /

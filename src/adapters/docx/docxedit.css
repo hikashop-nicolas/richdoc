@@ -653,3 +653,26 @@
 .docx-img-ph.docx-img-meta { padding: 0; border: 0; line-height: 0; }
 .docx-img-ph.docx-img-meta img { max-width: 100%; }
 .docx-img-ph.docx-img-vector { box-sizing: border-box; display: inline-flex; align-items: center; justify-content: center; max-width: 100%; background: #f6f6f6; }
+/* Shapes and text boxes (read-only): a box of the shape's size, its text inside, floated or
+   placed like an image. Text box blocks are spans (docx-tb-*) given back their display. */
+.docx-shape { display: inline-block; vertical-align: top; position: relative; text-indent: 0; }
+.docx-shape-box { position: relative; display: block; box-sizing: border-box; overflow: hidden; }
+.docx-shape-body { display: flex; flex-direction: column; box-sizing: border-box; height: 100%; }
+.docxedit-doc .docx-shape[data-shape-wrap="square"], .docxedit-doc .docx-shape[data-shape-wrap="tight"] { float: left; margin: 2px 14px 6px 0; }
+.docxedit-doc .docx-shape[data-shape-wrap="square"][data-shape-align="right"], .docxedit-doc .docx-shape[data-shape-wrap="tight"][data-shape-align="right"] { float: right; margin: 2px 0 6px 14px; }
+.docxedit-doc .docx-shape[data-shape-wrap="topbottom"] { display: block; clear: both; margin: 8px 0; }
+.docxedit-doc .docx-shape[data-shape-wrap="topbottom"][data-shape-align="center"] > .docx-shape-box { margin: 0 auto; }
+.docxedit-doc .docx-shape[data-shape-wrap="behind"], .docxedit-doc .docx-shape[data-shape-wrap="front"] { position: absolute; }
+.docxedit-doc .docx-shape[data-shape-wrap="behind"] { z-index: -1; }
+.docxedit-doc .docx-shape[data-shape-wrap="front"] { z-index: 4; }
+.docx-shape .docx-tb-p, .docx-shape .docx-tb-h1, .docx-shape .docx-tb-h2, .docx-shape .docx-tb-h3, .docx-shape .docx-tb-h4, .docx-shape .docx-tb-h5, .docx-shape .docx-tb-h6, .docx-shape .docx-tb-div { display: block; margin: 0; }
+.docx-shape .docx-tb-h1 { font-size: 1.6em; font-weight: bold; } .docx-shape .docx-tb-h2 { font-size: 1.3em; font-weight: bold; } .docx-shape .docx-tb-h3 { font-size: 1.1em; font-weight: bold; }
+.docx-shape .docx-tb-ul, .docx-shape .docx-tb-ol { display: block; padding-left: 1.4em; margin: 0; }
+.docx-shape .docx-tb-li { display: list-item; }
+.docx-shape .docx-tb-ul > .docx-tb-li { list-style-type: disc; } .docx-shape .docx-tb-ol > .docx-tb-li { list-style-type: decimal; }
+.docx-shape .docx-tb-table { display: table; border-collapse: collapse; } .docx-shape .docx-tb-tbody { display: table-row-group; }
+.docx-shape .docx-tb-tr { display: table-row; } .docx-shape .docx-tb-td, .docx-shape .docx-tb-th { display: table-cell; border: 1px solid #999; padding: 2px 4px; }
+/* A text frame (w:framePr): a paragraph set beside the text at its own width. */
+.docxedit-doc [data-rdoc-frame="left"] { float: left; margin-right: 12px; }
+.docxedit-doc [data-rdoc-frame="right"] { float: right; margin-left: 12px; }
+.docxedit-doc [data-rdoc-frame="center"] { margin-left: auto; margin-right: auto; }

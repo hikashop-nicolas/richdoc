@@ -208,3 +208,22 @@ describe("docx drop caps", () => {
     expect(xml).toContain('w:lines="3"');
   });
 });
+
+describe("docx text frames and list overrides", () => {
+  it("floats a framed paragraph at its width and keeps the frame on save", () => {
+    const d = docx('<w:p><w:pPr><w:framePr w:w="2880" w:hSpace="180" w:wrap="around" w:vAnchor="text" w:hAnchor="margin" w:xAlign="right" w:y="1"/></w:pPr><w:r><w:t>side note</w:t></w:r></w:p><w:p><w:r><w:t>body</w:t></w:r></w:p>');
+    const { body } = docxToParts(d);
+    expect(body).toMatch(/<p style="width:192px"[^>]*data-rdoc-frame="right"[^>]*>side note/);
+    const xml = strFromU8(unzipSync(htmlToDocx(body, d))["word/document.xml"]!);
+    expect(xml).toContain('w:xAlign="right"');
+    expect(xml).not.toContain("w:ind");
+  });
+
+  it("applies a list's own level override", () => {
+    const num = `<w:abstractNum w:abstractNumId="0">${lvl(0, "decimal", "%1.")}</w:abstractNum><w:num w:numId="1"><w:abstractNumId w:val="0"/></w:num><w:num w:numId="2"><w:abstractNumId w:val="0"/><w:lvlOverride w:ilvl="0"><w:lvl w:ilvl="0"><w:start w:val="3"/><w:numFmt w:val="upperLetter"/><w:lvlText w:val="%1)"/></w:lvl></w:lvlOverride></w:num>`;
+    const parts = docxToParts(docx(li(0, "plain", "1") + "<w:p/>" + li(0, "over", "2"), num));
+    expect(parts.body).toContain('<ol start="3" style="list-style-type:rdoc-num-o2-0">');
+    expect(parts.body).toMatch(/^<ol><li/);
+    expect(parts.styleCss).toContain("@counter-style rdoc-num-o2-0{system:extends upper-alpha;");
+  });
+});
