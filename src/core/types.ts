@@ -434,7 +434,7 @@ export interface RichEditor {
    * instead and takes this over.
    */
   setPrintHandler(handler: (() => void) | null): void;
-  /** Reading mode, for a host's fullscreen: no toolbars, rulers, caret or selection, and two-finger pinch zooms. */
+  /** Reading mode, for a host's fullscreen: no toolbars, rulers, caret or selection. */
   setReadingMode(on: boolean): void;
   /**
    * A clean copy of the pages, for a host that prints them itself.

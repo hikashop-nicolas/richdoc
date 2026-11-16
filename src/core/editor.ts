@@ -581,7 +581,7 @@ export function createRichEditor(container: HTMLElement, adapter: Adapter, optio
     mark();
     reflow();
   };
-  const { applyZoom, effectiveZoom, setZoom, setPinch, zoomSlider, zoomLabel, pageSetupBtn, sectionBreakBtn, teardown: teardownPageView } = setupPageView({
+  const { applyZoom, effectiveZoom, setZoom, zoomSlider, zoomLabel, pageSetupBtn, sectionBreakBtn, teardown: teardownPageView } = setupPageView({
     page, pagebox, canvas, leftSpacer, rightArea, scroll, geometry, options, caps,
     getVertical: () => isVertical(),
     applyGeometry, mark, positionCards, reflow: () => reflow(), scheduleReflow: () => scheduleReflow(),
@@ -619,7 +619,6 @@ export function createRichEditor(container: HTMLElement, adapter: Adapter, optio
   let frozen: HTMLElement[] = [];
   const setReadingMode = (on: boolean): void => {
     wrap.classList.toggle("docxedit-reading", on);
-    setPinch(on);
     labelFs(on);
     if (on) {
       (document.activeElement as HTMLElement | null)?.blur?.();

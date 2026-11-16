@@ -535,12 +535,12 @@ export function setupPageView(deps: PageViewDeps) {
   // Capture the document point at the viewport centre (as a fraction of the scaled page rect,
   // real screen px so it is robust to the CSS transform) so a user zoom can keep it fixed;
   // otherwise pagebox height changes while scrollTop stays and the view jumps to another page.
-  const zoomAnchor = (): { cy: number; cx: number; fy: number; fx: number } | null => {
+  const zoomAnchor = (at?: { x: number; y: number }): { cy: number; cx: number; fy: number; fx: number } | null => {
     const pr = page.getBoundingClientRect();
     if (!pr.height || !pr.width) return null;
     const sr = scroll.getBoundingClientRect();
-    const cy = sr.top + scroll.clientHeight / 2;
-    const cx = sr.left + scroll.clientWidth / 2;
+    const cy = at ? at.y : sr.top + scroll.clientHeight / 2;
+    const cx = at ? at.x : sr.left + scroll.clientWidth / 2;
     return { cy, cx, fy: (cy - pr.top) / pr.height, fx: (cx - pr.left) / pr.width };
   };
   const restoreAnchor = (a: { cy: number; cx: number; fy: number; fx: number } | null): void => {
@@ -549,8 +549,9 @@ export function setupPageView(deps: PageViewDeps) {
     scroll.scrollTop += pr.top + a.fy * pr.height - a.cy;
     scroll.scrollLeft += pr.left + a.fx * pr.width - a.cx;
   };
-  const setZoom = (z: number | null) => {
-    const a = zoomAnchor();
+  /** Set the user zoom (null: fit), keeping the point under `at` (else the view's centre) in place. */
+  const setZoom = (z: number | null, at?: { x: number; y: number }) => {
+    const a = zoomAnchor(at);
     userZoom = z == null ? null : Math.max(0.3, Math.min(2.5, Math.round(z * 100) / 100));
     applyZoom();
     restoreAnchor(a);
@@ -806,31 +807,29 @@ export function setupPageView(deps: PageViewDeps) {
     });
   }
 
-  // Two-finger pinch zoom, on only while reading (the browser's own is off in the app).
-  let pinchOn = false;
+  // Two-finger pinch zooms the pages about the point between the fingers. The scroller claims
+  // the gesture (touch-action), so the browser never zooms the whole page and the host's UI.
   let pinch: { dist: number; zoom: number } | null = null;
   let pinchRaf = 0;
   let pinchTo = 1;
+  let pinchAt = { x: 0, y: 0 };
   const touchDist = (e: TouchEvent): number => Math.hypot(e.touches[0]!.clientX - e.touches[1]!.clientX, e.touches[0]!.clientY - e.touches[1]!.clientY) || 1;
-  scroll.addEventListener("touchstart", (e) => { pinch = pinchOn && e.touches.length === 2 ? { dist: touchDist(e), zoom: effectiveZoom() } : null; }, { passive: true });
+  scroll.style.touchAction = "pan-x pan-y";
+  scroll.addEventListener("touchstart", (e) => { pinch = e.touches.length === 2 ? { dist: touchDist(e), zoom: effectiveZoom() } : null; }, { passive: true });
   scroll.addEventListener("touchmove", (e) => {
     if (!pinch || e.touches.length !== 2) return;
-    e.preventDefault();
+    if (e.cancelable) e.preventDefault();
     pinchTo = pinch.zoom * (touchDist(e) / pinch.dist);
-    if (!pinchRaf) pinchRaf = requestAnimationFrame(() => { pinchRaf = 0; setZoom(pinchTo); });
+    pinchAt = { x: (e.touches[0]!.clientX + e.touches[1]!.clientX) / 2, y: (e.touches[0]!.clientY + e.touches[1]!.clientY) / 2 };
+    if (!pinchRaf) pinchRaf = requestAnimationFrame(() => { pinchRaf = 0; setZoom(pinchTo, pinchAt); });
   }, { passive: false });
   const endPinch = (e: TouchEvent): void => { if (e.touches.length < 2) pinch = null; };
   scroll.addEventListener("touchend", endPinch, { passive: true });
   scroll.addEventListener("touchcancel", endPinch, { passive: true });
-  const setPinch = (on: boolean): void => {
-    pinchOn = on;
-    pinch = null;
-    scroll.style.touchAction = on ? "pan-x pan-y" : "";
-  };
 
   const teardown = () => {
     document.removeEventListener("selectionchange", onSelForRuler);
     window.clearTimeout(rulerSyncTimer);
   };
-  return { applyZoom, effectiveZoom, setZoom, setPinch, zoomSlider, zoomLabel, pageSetupBtn, sectionBreakBtn, teardown };
+  return { applyZoom, effectiveZoom, setZoom, zoomSlider, zoomLabel, pageSetupBtn, sectionBreakBtn, teardown };
 }
