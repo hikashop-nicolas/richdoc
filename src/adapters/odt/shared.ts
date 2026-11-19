@@ -26,11 +26,13 @@ export interface Fmt {
   bg?: string; // highlight, 6-hex
   font?: string; // family name
   sizePt?: number; // font size in points
+  eaFont?: string; // East Asian typeface family (display only; the stash keeps the XML)
+  eaSizePt?: number; // East Asian font size (style:font-size-asian), in points
   cStyle?: string; // named character style id (text:style-name)
 }
 export const FMT0: Fmt = { b: false, i: false, u: false };
 export const fmtKey = (f: Fmt): string =>
-  [f.b ? "b" : "", f.i ? "i" : "", f.u ? "u" : "", f.strike ? "k" : "", f.vertAlign ? "v" + f.vertAlign : "", f.color ? "c" + f.color : "", f.bg ? "g" + f.bg : "", f.font ? "f" + f.font : "", f.sizePt ? "s" + f.sizePt : ""].join("");
+  [f.b ? "b" : "", f.i ? "i" : "", f.u ? "u" : "", f.strike ? "k" : "", f.vertAlign ? "v" + f.vertAlign : "", f.color ? "c" + f.color : "", f.bg ? "g" + f.bg : "", f.font ? "f" + f.font : "", f.sizePt ? "s" + f.sizePt : "", f.eaSizePt ? "e" + f.eaSizePt : ""].join("");
 
 /** Paragraph-level formatting (text alignment), kept separate from run formatting. */
 export interface PFmt {

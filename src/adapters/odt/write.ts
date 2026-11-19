@@ -112,10 +112,12 @@ function styleFor(doc: Document, auto: Element, created: Map<string, string>, f:
   if (f.sizePt) {
     tp.setAttributeNS(NS.fo, "fo:font-size", `${f.sizePt}pt`);
     if (stashXml) {
-      tp.setAttributeNS(NS.style, "style:font-size-asian", `${f.sizePt}pt`);
+      tp.setAttributeNS(NS.style, "style:font-size-asian", `${f.eaSizePt ?? f.sizePt}pt`);
       tp.setAttributeNS(NS.style, "style:font-size-complex", `${f.sizePt}pt`);
     }
   }
+  // The East Asian size, kept apart from the Western one (East Asian text renders at it).
+  if (f.eaSizePt) tp.setAttributeNS(NS.style, "style:font-size-asian", `${f.eaSizePt}pt`);
   const reused = equivalentStyleName(auto, st);
   if (reused) {
     created.set(ckey, reused);
@@ -388,6 +390,11 @@ function buildEquationFrame(span: HTMLElement, ctx: OdfCtx): Element | null {
   return frame;
 }
 
+const ptValue = (v: string): number | undefined => {
+  const m = /^\s*([\d.]+)pt\s*$/.exec(v);
+  return m ? parseFloat(m[1]!) : undefined;
+};
+
 /** Append the inline content of an HTML node to an ODF block element. */
 function htmlInlineToOdf(node: Node, parent: Element, f: Fmt, ctx: OdfCtx, rprStash: string | null = null): void {
   for (const child of Array.from(node.childNodes)) {
@@ -591,6 +598,7 @@ function htmlInlineToOdf(node: Node, parent: Element, f: Fmt, ctx: OdfCtx, rprSt
       bg: toHex6(el.style.backgroundColor) ?? f.bg,
       font: firstFontFamily(el.style.fontFamily) ?? f.font,
       sizePt: hp ? hp / 2 : f.sizePt,
+      eaSizePt: ptValue(el.style.getPropertyValue("--rdoc-ea-size")) ?? f.eaSizePt,
       cStyle: el.getAttribute("data-rdoc-cstyle") || f.cStyle,
     };
     htmlInlineToOdf(el, parent, next, ctx, stash4);

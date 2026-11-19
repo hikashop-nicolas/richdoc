@@ -8,6 +8,8 @@ import { ODF_ALIGN, escapeHtml, escapeAttr, inlinePass, blockPass, passthroughAt
 import type { Fmt, PFmt } from "./shared";
 import { collectGraphicStyles, readOdtLayout } from "./image-layout";
 import type { GraphicStyleInfo } from "./image-layout";
+import { EA_ATTR, asianFont, asianSizePt, collectFontFaces, eaFontCss, leadingScript, odtBaseCss, readOdtDefaults, splitScripts, textPropsCss, westernFont } from "./fonts";
+import type { FontFaces } from "./fonts";
 
 
 const hex6 = (v: string | null | undefined): string | undefined => {
@@ -85,6 +87,9 @@ interface RCtx {
   masterGeoms: Map<string, string>; // master-page name -> JSON page geometry (for per-section rendering)
   masterBands?: Map<string, { header: string; footer: string; headerLeft?: string; footerLeft?: string; headerFirst?: string; footerFirst?: string }>; // master-page name -> its header/footer HTML (left = even, first = first page)
   notes?: { id: string; kind: "footnote" | "endnote"; html: string }[]; // footnote/endnote bodies, collected inline
+  paraText: Map<string, string[]>; // paragraph style-name -> its run font/size CSS (incl. East Asian)
+  eaSplit: boolean; // the document sets East Asian fonts/sizes: wrap East Asian text runs
+  script: { script: "a" | "l" }; // running script of the current paragraph (weak chars follow it)
 }
 
 /** Page geometry (compact JSON) from a style:page-layout-properties element, for per-section
@@ -325,7 +330,7 @@ function collectStyleStashes(doc: Document, family: "text" | "paragraph"): Map<s
 }
 
 /** Map text:style-name -> run formatting, read from the automatic/text styles. */
-function collectTextStyles(doc: Document): Map<string, Fmt> {
+function collectTextStyles(doc: Document, faces: FontFaces): Map<string, Fmt> {
   const map = new Map<string, Fmt>();
   for (const st of Array.from(doc.getElementsByTagName("style:style"))) {
     if (st.getAttribute("style:family") !== "text") continue;
@@ -346,12 +351,32 @@ function collectTextStyles(doc: Document): Map<string, Fmt> {
       })(tp?.getAttribute("style:text-position")),
       color: hex6(tp?.getAttribute("fo:color")),
       bg: hex6(tp?.getAttribute("fo:background-color")),
-      font: tp?.getAttribute("fo:font-family")?.replace(/^['"]|['"]$/g, "") || tp?.getAttribute("style:font-name") || undefined,
+      font: westernFont(tp, faces),
       sizePt: sizePt(tp?.getAttribute("fo:font-size")),
+      eaFont: asianFont(tp, faces),
+      eaSizePt: asianSizePt(tp),
     });
   }
   return map;
 }
+
+/** Map paragraph style-name -> the CSS of its own style:text-properties (font, size, weight,
+    colour, East Asian font/size), so a paragraph renders in its style's run formatting. */
+function collectParaTextCss(doc: Document, faces: FontFaces): Map<string, string[]> {
+  const map = new Map<string, string[]>();
+  for (const st of Array.from(doc.getElementsByTagName("style:style"))) {
+    if (st.getAttribute("style:family") !== "paragraph") continue;
+    const name = st.getAttribute("style:name");
+    const tp = Array.from(st.children).find((c) => c.tagName === "style:text-properties");
+    const css = textPropsCss(tp, faces);
+    if (name && css.length) map.set(name, css);
+  }
+  return map;
+}
+
+/** True when any style sets an East Asian font or size, so East Asian runs need their own span. */
+const hasAsianProps = (...xml: (Uint8Array | undefined)[]): boolean =>
+  xml.some((x) => !!x && /style:(font-name|font-family|font-size)-asian=/.test(strFromU8(x)));
 
 /** Map paragraph style-name -> alignment, read from the paragraph styles. */
 function collectParaStyles(doc: Document): Map<string, PFmt> {
@@ -475,7 +500,7 @@ const cssAttrValue = (v: string): string => v.replace(/[\\"]/g, "\\$&");
 /** Read named paragraph and character styles from styles.xml into picker lists, the CSS giving
     each its appearance (data-rdoc-style / data-rdoc-cstyle), and the named-id sets, resolving
     style:parent-style-name. Character (family "text") styles contribute run properties only. */
-function readOdtStyles(stylesXml: Uint8Array | undefined): {
+function readOdtStyles(stylesXml: Uint8Array | undefined, faces: FontFaces = new Map()): {
   paragraphStyles: { id: string; name: string }[];
   characterStyles: { id: string; name: string }[];
   styleDefs: { id: string; kind: "paragraph" | "character"; css: Record<string, string> }[];
@@ -549,8 +574,15 @@ function readOdtStyles(stylesXml: Uint8Array | undefined): {
     if (color && /^#[0-9a-f]{6}$/i.test(color)) out["color"] = color;
     const sz = tp?.getAttribute("fo:font-size");
     if (sz && sz.endsWith("pt")) out["font-size"] = sz;
-    const font = tp?.getAttribute("fo:font-family") ?? tp?.getAttribute("style:font-name");
+    const font = westernFont(tp, faces);
     if (font) out["font-family"] = `'${font.replace(/'/g, "")}'`;
+    if (!own) {
+      // East Asian font/size, read by the East Asian script spans (not an editable style prop).
+      const ef = asianFont(tp, faces);
+      if (ef) out["--rdoc-ea-font"] = eaFontCss(ef);
+      const es = asianSizePt(tp);
+      if (es) out["--rdoc-ea-size"] = `${es}pt`;
+    }
     return out;
   };
   let css = "";
@@ -621,6 +653,8 @@ const wrapFmt = (inner: string, f: Fmt): string => {
   if (f.bg) css.push(`background-color:#${f.bg}`);
   if (f.font) css.push(`font-family:'${f.font.replace(/'/g, "")}'`);
   if (f.sizePt) css.push(`font-size:${f.sizePt}pt`);
+  if (f.eaFont) css.push(`--rdoc-ea-font:${eaFontCss(f.eaFont)}`);
+  if (f.eaSizePt) css.push(`--rdoc-ea-size:${f.eaSizePt}pt`);
   if (css.length) s = `<span style="${css.join(";")}">${s}</span>`;
   if (f.vertAlign === "super") s = `<sup>${s}</sup>`;
   else if (f.vertAlign === "sub") s = `<sub>${s}</sub>`;
@@ -637,7 +671,9 @@ function inlineToHtml(el: Element, ctx: RCtx): string {
   for (const id of ctx.openComment) html += `<span class="docx-comment" data-comment-id="${escapeAttr(id)}">`;
   for (const node of Array.from(el.childNodes)) {
     if (node.nodeType === 3) {
-      html += escapeHtml(node.textContent ?? "");
+      const txt = node.textContent ?? "";
+      if (!ctx.eaSplit) html += escapeHtml(txt);
+      else for (const seg of splitScripts(txt, ctx.script)) html += seg.ea ? `<span ${EA_ATTR}="ea">${escapeHtml(seg.text)}</span>` : escapeHtml(seg.text);
       continue;
     }
     if (node.nodeType !== 1) continue;
@@ -816,7 +852,10 @@ function listToHtml(el: Element, ctx: RCtx, level = 1, styleName = ""): string {
     let inner = "";
     for (const block of Array.from(li.children)) {
       if (block.tagName === "text:list") inner += listToHtml(block, ctx, level + 1, style);
-      else inner += inlineToHtml(block, ctx);
+      else {
+        ctx.script.script = leadingScript(block.textContent ?? "");
+        inner += inlineToHtml(block, ctx);
+      }
     }
     items += `<li>${inner || "<br>"}</li>`;
   }
@@ -864,8 +903,9 @@ function odtTableHtml(el: Element, ctx: RCtx): string {
 function blockToHtml(el: Element, ctx: RCtx): string {
   const alignAttr = (): string => {
     const pf = ctx.paras.get(el.getAttribute("text:style-name") ?? "");
-    if (!pf) return "";
-    const css: string[] = [];
+    // The paragraph style's own run font/size (the writer ignores these; the style stash keeps them).
+    const css: string[] = [...(ctx.paraText.get(el.getAttribute("text:style-name") ?? "") ?? [])];
+    if (!pf) return css.length ? ` style="${escapeAttr(css.join(";"))}"` : "";
     if (pf.align && pf.align !== "left") css.push(`text-align:${pf.align}`);
     if (pf.indentPx) css.push(`margin-left:${pf.indentPx}px`);
     if (pf.lineHeight) css.push(`line-height:${pf.lineHeight}`);
@@ -873,7 +913,7 @@ function blockToHtml(el: Element, ctx: RCtx): string {
     if (pf.spaceAfterPx !== undefined) css.push(`margin-bottom:${pf.spaceAfterPx}px`);
     if (pf.shading) css.push(`background-color:${pf.shading}`);
     if (pf.border) css.push(pf.border);
-    return css.length ? ` style="${css.join(";")}"` : "";
+    return css.length ? ` style="${escapeAttr(css.join(";"))}"` : "";
   };
   // The named paragraph style behind this block: a direct reference, or the parent of an
   // automatic style. Recorded as data-rdoc-style so it round-trips and drives the style CSS.
@@ -912,6 +952,7 @@ function blockToHtml(el: Element, ctx: RCtx): string {
   const pprAttr = pstash ? ` data-odt-ppr="${escapeAttr(pstash)}"` : "";
   switch (el.tagName) {
     case "text:h": {
+      ctx.script.script = leadingScript(el.textContent ?? "");
       const lvl = Math.min(3, Math.max(1, parseInt(el.getAttribute("text:outline-level") ?? "1", 10) || 1));
       const inner = inlineToHtml(el, ctx);
       return `${before}<h${lvl}${alignAttr()}${breakAttr}${tabAttr}${pprAttr}>${inner || "<br>"}</h${lvl}>${after}`;
@@ -921,6 +962,7 @@ function blockToHtml(el: Element, ctx: RCtx): string {
     case "table:table":
       return odtTableHtml(el, ctx);
     case "text:p": {
+      ctx.script.script = leadingScript(el.textContent ?? "");
       const inner = inlineToHtml(el, ctx);
       // A paragraph carrying a caption sequence field is a figure/table/equation caption (type from the seq name).
       const capKind = /data-seq="[^"]*[Tt]able/.test(inner) ? "table" : /data-seq="[^"]*[Ee]quation/.test(inner) ? "equation" : "figure";
@@ -940,7 +982,8 @@ function collectMasterBands(files: Record<string, Uint8Array>): Map<string, { he
   const raw = files["styles.xml"];
   if (!raw) return out;
   const doc = new DOMParser().parseFromString(strFromU8(raw), "application/xml");
-  const ctx: RCtx = { files, styles: collectTextStyles(doc), paras: collectParaStyles(doc), cellStyles: collectCellStyles(doc), tableMargins: collectTableMargins(doc), listStyles: collectListStyles(doc), namedStyles: new Set(), autoParent: new Map(), namedCharStyles: new Set(), textAutoParent: new Map(), threads: [], rangedNames: new Set(), openComment: new Set(), changes: new Map(), openIns: new Set(), graphicStyles: collectGraphicStyles(doc, lenToPx), paraBreaks: collectParaBreaks(doc), listStarts: collectListStarts(doc), listRun: { last: 0 }, tabStops: collectTabStops(doc, lenToPx), textStash: collectStyleStashes(doc, "text"), paraStash: collectStyleStashes(doc, "paragraph"), masterGeoms: collectMasterGeoms(files["styles.xml"], lenToPx) };
+  const faces = collectFontFaces(doc);
+  const ctx: RCtx = { files, styles: collectTextStyles(doc, faces), paras: collectParaStyles(doc), cellStyles: collectCellStyles(doc), tableMargins: collectTableMargins(doc), listStyles: collectListStyles(doc), namedStyles: new Set(), autoParent: new Map(), namedCharStyles: new Set(), textAutoParent: new Map(), threads: [], rangedNames: new Set(), openComment: new Set(), changes: new Map(), openIns: new Set(), graphicStyles: collectGraphicStyles(doc, lenToPx), paraBreaks: collectParaBreaks(doc), listStarts: collectListStarts(doc), listRun: { last: 0 }, tabStops: collectTabStops(doc, lenToPx), textStash: collectStyleStashes(doc, "text"), paraStash: collectStyleStashes(doc, "paragraph"), masterGeoms: collectMasterGeoms(files["styles.xml"], lenToPx), paraText: collectParaTextCss(doc, faces), eaSplit: hasAsianProps(raw), script: { script: "l" } };
   const render = (master: Element, tag: string): string => {
     const el = master.getElementsByTagName(tag)[0];
     if (!el) return "";
@@ -998,7 +1041,7 @@ function parsePageGeometry(files: Record<string, Uint8Array>): PageGeometry | un
   return { widthPx: Math.round(w), heightPx: Math.round(h), margin: { top: m("top"), right: m("right"), bottom: m("bottom"), left: m("left") }, vertical, rtl, columns, columnGapPx: columns ? Math.round(lenToPx(gapAttr) ?? 36) : undefined, pageBorder, pageNumFormat: odtNumFormat(props), lineNumbers, lineNumberInterval, lineNumberRestart };
 }
 
-export function odtToParts(bytes: Uint8Array, preunzipped?: Record<string, Uint8Array>): { body: string; comments: CommentThread[]; header: string; footer: string; headerEven?: { html: string; path?: string }; footerEven?: { html: string; path?: string }; headerFirst?: { html: string; path?: string }; footerFirst?: { html: string; path?: string }; sectionBands?: Record<string, { html: string; path: string }>; notes?: { id: string; kind: "footnote" | "endnote"; html: string }[]; page?: PageGeometry; paragraphStyles?: { id: string; name: string }[]; characterStyles?: { id: string; name: string }[]; styleDefs?: { id: string; kind: "paragraph" | "character"; css: Record<string, string> }[]; styleCss?: string; noteCss?: string } {
+export function odtToParts(bytes: Uint8Array, preunzipped?: Record<string, Uint8Array>): { body: string; comments: CommentThread[]; header: string; footer: string; headerEven?: { html: string; path?: string }; footerEven?: { html: string; path?: string }; headerFirst?: { html: string; path?: string }; footerFirst?: { html: string; path?: string }; sectionBands?: Record<string, { html: string; path: string }>; notes?: { id: string; kind: "footnote" | "endnote"; html: string }[]; page?: PageGeometry; paragraphStyles?: { id: string; name: string }[]; characterStyles?: { id: string; name: string }[]; styleDefs?: { id: string; kind: "paragraph" | "character"; css: Record<string, string> }[]; styleCss?: string; noteCss?: string; defaultFont?: string; defaultFontEastAsia?: string; defaultSizeHalfPt?: number; fontFaces?: FontFaces } {
   const files = preunzipped ?? unzipSync(bytes);
   const { header, footer } = readHeaderFooter(files);
   // Per-master header/footer HTML, so a section that switches master shows its own. Keyed for the
@@ -1019,12 +1062,17 @@ export function odtToParts(bytes: Uint8Array, preunzipped?: Record<string, Uint8
   const footerFirst = defBand?.footerFirst ? { html: defBand.footerFirst, path: `footer-first@${defName}` } : undefined;
   if (page && (headerEven || footerEven)) page.evenOdd = true;
   if (page && (headerFirst || footerFirst)) page.titlePage = true;
-  const ps = readOdtStyles(files["styles.xml"]);
   const content = files["content.xml"];
-  if (!content) return { body: "", comments: [], header, footer, page };
-  const doc = new DOMParser().parseFromString(strFromU8(content), "application/xml");
+  const doc = content ? new DOMParser().parseFromString(strFromU8(content), "application/xml") : undefined;
+  const stylesDoc = files["styles.xml"] ? new DOMParser().parseFromString(strFromU8(files["styles.xml"]), "application/xml") : undefined;
+  const fontFaces = collectFontFaces(stylesDoc, doc);
+  const defs = readOdtDefaults(files["styles.xml"], fontFaces);
+  const fontDefaults = { defaultFont: defs.font, defaultFontEastAsia: defs.eaFont, defaultSizeHalfPt: defs.sizePt ? Math.round(defs.sizePt * 2) : undefined, fontFaces };
+  const ps = readOdtStyles(files["styles.xml"], fontFaces);
+  const styleCss = odtBaseCss(defs) + ps.css;
+  if (!content || !doc) return { body: "", comments: [], header, footer, page, styleCss, ...fontDefaults };
   const body = doc.getElementsByTagName("office:text")[0];
-  if (!body) return { body: "", comments: [], header, footer, page };
+  if (!body) return { body: "", comments: [], header, footer, page, styleCss, ...fontDefaults };
   const rangedNames = new Set(
     Array.from(doc.getElementsByTagName("office:annotation-end"))
       .map((e) => e.getAttribute("office:name"))
@@ -1044,13 +1092,13 @@ export function odtToParts(bytes: Uint8Array, preunzipped?: Record<string, Uint8
     for (const [k, v] of collectListStarts(sdoc)) if (!listStarts.has(k)) listStarts.set(k, v);
     for (const [k, v] of collectTabStops(sdoc, lenToPx)) if (!tabStops.has(k)) tabStops.set(k, v);
   }
-  const ctx: RCtx = { files, styles: collectTextStyles(doc), paras: collectParaStyles(doc), cellStyles: collectCellStyles(doc), tableMargins: collectTableMargins(doc), listStyles: collectListStyles(doc), namedStyles: ps.namedPara, autoParent: collectAutoParents(doc, "paragraph"), namedCharStyles: ps.namedChar, textAutoParent: collectAutoParents(doc, "text"), threads: [], rangedNames, openComment: new Set(), changes: readChanges(body), openIns: new Set(), graphicStyles, paraBreaks, listStarts, listRun: { last: 0 }, tabStops, textStash: collectStyleStashes(doc, "text"), paraStash: collectStyleStashes(doc, "paragraph"), masterGeoms: collectMasterGeoms(files["styles.xml"], lenToPx), masterBands, notes: [] };
+  const ctx: RCtx = { files, styles: collectTextStyles(doc, fontFaces), paras: collectParaStyles(doc), cellStyles: collectCellStyles(doc), tableMargins: collectTableMargins(doc), listStyles: collectListStyles(doc), namedStyles: ps.namedPara, autoParent: collectAutoParents(doc, "paragraph"), namedCharStyles: ps.namedChar, textAutoParent: collectAutoParents(doc, "text"), threads: [], rangedNames, openComment: new Set(), changes: readChanges(body), openIns: new Set(), graphicStyles, paraBreaks, listStarts, listRun: { last: 0 }, tabStops, textStash: collectStyleStashes(doc, "text"), paraStash: collectStyleStashes(doc, "paragraph"), masterGeoms: collectMasterGeoms(files["styles.xml"], lenToPx), masterBands, notes: [], paraText: collectParaTextCss(doc, fontFaces), eaSplit: hasAsianProps(files["styles.xml"], content), script: { script: "l" } };
   let html = "";
   for (const block of Array.from(body.children)) {
     if (block.tagName === "text:tracked-changes") continue; // metadata, parsed into ctx.changes
     html += blockToHtml(block, ctx);
   }
-  return { body: html || "<p><br></p>", comments: ctx.threads, header, footer, headerEven, footerEven, headerFirst, footerFirst, sectionBands, notes: ctx.notes, page, paragraphStyles: ps.paragraphStyles, characterStyles: ps.characterStyles, styleDefs: ps.styleDefs, styleCss: ps.css, noteCss: ps.noteCss };
+  return { body: html || "<p><br></p>", comments: ctx.threads, header, footer, headerEven, footerEven, headerFirst, footerFirst, sectionBands, notes: ctx.notes, page, paragraphStyles: ps.paragraphStyles, characterStyles: ps.characterStyles, styleDefs: ps.styleDefs, styleCss, noteCss: ps.noteCss, ...fontDefaults };
 }
 
 /** Convert an .odt's body to HTML. Returns "" if there is no editable text body. */

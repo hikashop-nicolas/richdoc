@@ -1357,7 +1357,7 @@ describe("odt preserve-by-default (unmodeled style content survives saves)", () 
 
   it("removing bold keeps the run's other unmodeled properties", () => {
     const odt = makeOdt(PRESERVE);
-    const html = odtToHtml(odt).replace("<strong>spaced</strong>", "spaced");
+    const html = odtToHtml(odt).replace(/<strong>([^]*?spaced[^]*?)<\/strong>/, "$1");
     const out = strFromU8(unzipSync(htmlToOdt(html, odt))["content.xml"]);
     const st = styleOfRun(out, "spaced");
     expect(st).toContain('fo:letter-spacing="0.1cm"');

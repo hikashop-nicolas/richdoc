@@ -109,6 +109,8 @@ export function setupToolbar(deps: ToolbarDeps) {
     if (range.collapsed) return;
     const span = document.createElement("span");
     (span.style as unknown as Record<string, string>)[prop] = val;
+    // A size set here applies to East Asian text too (its own size otherwise wins, see odt).
+    if (prop === "fontSize") span.style.setProperty("--rdoc-ea-size", val);
     try {
       span.appendChild(range.extractContents());
       range.insertNode(span);

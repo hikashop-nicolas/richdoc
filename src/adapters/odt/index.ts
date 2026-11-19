@@ -5,8 +5,10 @@
 // rebuilds the archive on save, preserving every other part byte-for-byte.
 import { createRichEditor } from "../../core/editor";
 import { unzipAsync } from "../../core/zip";
+import { unzipSync } from "fflate";
 import type { Adapter, CommentEdits, CommentMarkers, EditorOptions, NewCommentMeta, NewStyle, Note, PageGeometry, RichDoc, RichEditor } from "../../core/types";
 import { odtToParts } from "./read";
+import { loadOdtEmbeddedFonts } from "./fonts";
 import { htmlToOdtAsync } from "./write";
 
 // Public surface (also consumed by the tests).
@@ -25,8 +27,16 @@ export function createOdtAdapter(bytes: Uint8Array, preunzipped?: Record<string,
     read(): RichDoc {
       // Let a parse failure propagate: the engine latches the editor read-only so a
       // blank surface can never overwrite the real file on save.
-      const p = odtToParts(bytes, preunzipped);
+      const files = preunzipped ?? unzipSync(bytes);
+      const p = odtToParts(bytes, files);
       const parts = { ...p, body: p.body || "<p><br></p>" };
+      // Fonts embedded in the package (Fonts/, via svg:font-face-uri), registered for display.
+      let fonts = { css: "", urls: [] as string[] };
+      try {
+        if (p.fontFaces) fonts = loadOdtEmbeddedFonts(files, p.fontFaces);
+      } catch {
+        /* no usable embedded fonts */
+      }
       return {
         body: parts.body,
         header: parts.header,
@@ -46,6 +56,11 @@ export function createOdtAdapter(bytes: Uint8Array, preunzipped?: Record<string,
         styleDefs: parts.styleDefs,
         styleCss: parts.styleCss,
         noteCss: parts.noteCss,
+        fontCss: fonts.css,
+        fontUrls: fonts.urls,
+        defaultFont: parts.defaultFont,
+        defaultFontEastAsia: parts.defaultFontEastAsia,
+        defaultSizeHalfPt: parts.defaultSizeHalfPt,
       };
     },
     write(bodyHtml: string, parts: { path: string; html: string }[], edits: CommentEdits, page?: PageGeometry, newStyles?: NewStyle[], notes?: Note[]): Promise<Uint8Array> {
