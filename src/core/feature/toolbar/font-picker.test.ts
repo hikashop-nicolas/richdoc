@@ -38,7 +38,7 @@ describe("font picker", () => {
     expect(apply).not.toHaveBeenCalled();
     expect(p.select.value).toBe("Calibri");
     const consent = wrap.querySelector(".fontshelf-consent"); // consent comes first, inside the editor
-    expect(consent?.textContent).toContain("GitHub");
+    expect(consent?.textContent).toContain("Google Fonts");
   });
   it("ignores an action reached by arrowing through a closed select", () => {
     const { p, wrap } = mount({ remote: { provider: "google" } });
