@@ -79,19 +79,17 @@ function styleFor(doc: Document, auto: Element, created: Map<string, string>, f:
     tp = doc.createElementNS(NS.style, "style:text-properties");
     st.appendChild(tp);
   }
+  // Bold/italic apply to every script, as LibreOffice's own buttons do; with only the fo:*
+  // attribute, East Asian text in the run lost its bold on save.
   if (f.b) {
     tp.setAttributeNS(NS.fo, "fo:font-weight", "bold");
-    if (stashXml) {
-      tp.setAttributeNS(NS.style, "style:font-weight-asian", "bold");
-      tp.setAttributeNS(NS.style, "style:font-weight-complex", "bold");
-    }
+    tp.setAttributeNS(NS.style, "style:font-weight-asian", "bold");
+    tp.setAttributeNS(NS.style, "style:font-weight-complex", "bold");
   }
   if (f.i) {
     tp.setAttributeNS(NS.fo, "fo:font-style", "italic");
-    if (stashXml) {
-      tp.setAttributeNS(NS.style, "style:font-style-asian", "italic");
-      tp.setAttributeNS(NS.style, "style:font-style-complex", "italic");
-    }
+    tp.setAttributeNS(NS.style, "style:font-style-asian", "italic");
+    tp.setAttributeNS(NS.style, "style:font-style-complex", "italic");
   }
   if (f.u && !keptU) {
     tp.setAttributeNS(NS.style, "style:text-underline-style", "solid");
@@ -917,6 +915,20 @@ function buildNewOdtTable(tableEl: HTMLElement, ctx: OdfCtx): Element {
   return tbl;
 }
 
+/** Remove a block's trailing <br>: the editor's placeholder that keeps a line open, not a real
+    line break (saved as text:line-break it made every empty paragraph two lines tall). */
+function dropPlaceholderBr(el: Element): void {
+  let n: Node | null = el.lastChild;
+  while (n) {
+    if (n.nodeType === 3 && !(n.textContent ?? "")) { n = n.previousSibling; continue; }
+    if (n.nodeType !== 1) return;
+    const e = n as Element;
+    if (e.tagName.toLowerCase() === "br") { e.remove(); return; }
+    if (e.hasAttribute("data-odt-xml") || !e.lastChild) return;
+    n = e.lastChild;
+  }
+}
+
 function htmlBlockToOdf(node: Node, ctx: OdfCtx): Element | null {
   if (node.nodeType === 3) {
     if (!(node.textContent ?? "").trim()) return null;
@@ -963,9 +975,11 @@ function htmlBlockToOdf(node: Node, ctx: OdfCtx): Element | null {
     const h = ctx.doc.createElementNS(NS.text, "text:h");
     h.setAttributeNS(NS.text, "text:outline-level", String(Math.min(3, Number(m[1]))));
     applyAlign(h);
+    dropPlaceholderBr(el);
     htmlInlineToOdf(el, h, FMT0, ctx);
     return h;
   }
+  dropPlaceholderBr(el);
   // p, div, and anything else become a paragraph
   const p = ctx.doc.createElementNS(NS.text, "text:p");
   applyAlign(p);

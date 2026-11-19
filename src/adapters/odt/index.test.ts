@@ -1374,3 +1374,13 @@ describe("odt preserve-by-default (unmodeled style content survives saves)", () 
     expect(styleOfRun(out2, "waved")).not.toContain("text-underline");
   });
 });
+
+describe("odt writer: scripts and placeholders", () => {
+  it("writes bold for every script and no line break into an empty paragraph", () => {
+    const odt = makeOdt();
+    const out = strFromU8(unzipSync(htmlToOdt("<p><strong>太字</strong></p><p><br></p><p>a<br>b<br></p>", odt))["content.xml"]);
+    expect(out).toContain('style:font-weight-asian="bold"');
+    expect(out).toMatch(/<text:p[^>]*\/>|<text:p[^>]*><\/text:p>/);
+    expect(out.match(/text:line-break/g)).toHaveLength(1); // the real break between a and b
+  });
+});
