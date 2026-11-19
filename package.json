@@ -41,6 +41,7 @@
   },
   "dependencies": {
     "fflate": "^0.8.2",
+    "fontshelf": "github:hikashop-nicolas/fontshelf",
     "localml": "github:hikashop-nicolas/localml",
     "temml": "^0.13.3"
   },

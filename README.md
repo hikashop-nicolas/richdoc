@@ -103,10 +103,12 @@ The package root also exports `createDocxEditor`, `createOdtEditor`,
 exports its low-level parse/serialize functions (`docxToParts` / `htmlToDocx`,
 `odtToHtml` / `htmlToOdt`).
 
-Fonts: "Show my fonts" lists the fonts installed on the device (the Local Font Access API
-where the browser has it, otherwise a local probe of common font names; nothing leaves the
-device). "Get more fonts" downloads families from Google Fonts after an in-app consent; it is
-off unless the host turns it on:
+Fonts come from [fontshelf](https://github.com/hikashop-nicolas/fontshelf), shared with the
+other editors on the page. "Show my fonts" lists the fonts installed on the device (the Local
+Font Access API where the browser has it, otherwise a local probe of common font names;
+nothing leaves the device). "Get more fonts" downloads families from Google Fonts (and font
+files from Google's collection on GitHub) after an in-app consent; it is off unless the host
+turns it on:
 
 ```js
 createEditor(container, bytes, { fonts: { remote: { provider: "google" } } });

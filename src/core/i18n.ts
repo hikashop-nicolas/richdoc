@@ -9,6 +9,7 @@
 // t() is synchronous (the UI is built synchronously), so it reads whatever dict is active and
 // falls back to English per key. setLocale()/initLocale() are async because they fetch a chunk;
 // a host should `await` one before creating an editor if it wants a non-English first paint.
+import { setFontLocale } from "fontshelf";
 import en from "./locales/en";
 
 export type Dict = Record<string, string>;
@@ -52,6 +53,11 @@ export function detectLocale(): string {
 /** Force a locale (host escape hatch). Loads the language chunk if needed; unknown codes and
     failed loads fall back to English. Resolves once the active dict is in place. */
 export async function setLocale(code: string): Promise<void> {
+  await applyLocale(code);
+  setFontLocale(activeCode); // the font picker and its dialogs follow
+}
+
+async function applyLocale(code: string): Promise<void> {
   const base = code.toLowerCase().split("-")[0]!;
   if (base === "en" || !LOADERS[base]) {
     active = en;
