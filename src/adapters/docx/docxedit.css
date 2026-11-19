@@ -239,6 +239,18 @@
 .docxedit-eq-preview math { font-size: 1.25em; }
 /* Special-character picker: a wrapping grid of glyph buttons. */
 .docxedit-dialog.docxedit-symbols { max-width: 392px; }
+/* Font picker dialogs: consent text and the searchable web font catalog. */
+.docxedit-fonts-note { margin: 0; line-height: 1.45; opacity: .9; }
+.docxedit-dialog.docxedit-fonts-consent { max-width: 400px; }
+.docxedit-dialog.docxedit-fonts-catalog { width: min(440px, calc(100vw - 32px)); max-width: none; max-height: calc(100vh - 32px); }
+.docxedit-fonts-list { display: flex; flex-direction: column; gap: 2px; min-height: 120px; max-height: 50vh; overflow-y: auto; overscroll-behavior: contain; }
+.docxedit-fonts-group { position: sticky; top: 0; padding: 6px 4px 2px; font-size: 11px; font-weight: 600; text-transform: uppercase; letter-spacing: .04em; opacity: .75; background: var(--rdoc-chrome, #2b2f36); }
+.docxedit-fonts-group[hidden], .docxedit-fonts-item[hidden] { display: none; }
+.docxedit-fonts-item { display: flex; align-items: baseline; gap: 10px; min-height: 36px; padding: 4px 8px; border: 1px solid transparent; border-radius: 6px; background: none; color: inherit; font-size: 17px; text-align: left; cursor: pointer; }
+.docxedit-fonts-item:hover { background: var(--rdoc-chrome2, #1f2329); border-color: var(--rdoc-btn-border, #4a4f57); }
+.docxedit-fonts-item:focus-visible { outline: 2px solid var(--rdoc-accent, #6e7bff); outline-offset: -2px; }
+.docxedit-fonts-sample { margin-left: auto; opacity: .8; }
+.docxedit-fonts-status { min-height: 1.3em; font-size: 12px; }
 .docxedit-symbol-grid { display: grid; grid-template-columns: repeat(10, 1fr); gap: 4px; max-height: 280px; overflow-y: auto; }
 .docxedit-symbol { height: 32px; border: 1px solid var(--rdoc-btn-border, #4a4f57); border-radius: 6px; background: var(--rdoc-chrome2, #1f2329); color: var(--rdoc-canvas, #e6e8ec); cursor: pointer; font-size: 16px; line-height: 1; padding: 0; }
 .docxedit-symbol:hover { background: var(--rdoc-accent, #6e7bff); border-color: var(--rdoc-accent, #6e7bff); color: #fff; }

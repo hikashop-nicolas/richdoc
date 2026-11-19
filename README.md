@@ -103,6 +103,16 @@ The package root also exports `createDocxEditor`, `createOdtEditor`,
 exports its low-level parse/serialize functions (`docxToParts` / `htmlToDocx`,
 `odtToHtml` / `htmlToOdt`).
 
+Fonts: "Show my fonts" lists the fonts installed on the device (the Local Font Access API
+where the browser has it, otherwise a local probe of common font names; nothing leaves the
+device). "Get more fonts" downloads families from Google Fonts after an in-app consent; it is
+off unless the host turns it on:
+
+```js
+createEditor(container, bytes, { fonts: { remote: { provider: "google" } } });
+// fonts: { local: false } hides "Show my fonts".
+```
+
 ## Architecture
 
 The engine knows nothing about OOXML or ODF; an adapter knows nothing about the

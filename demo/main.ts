@@ -23,6 +23,7 @@ fileInput.addEventListener("change", async () => {
   editor = createEditor(mount, bytes, {
     author: "Demo User",
     fileName: f.name,
+    fonts: { remote: { provider: "google" } }, // the demo offers "Get more fonts"
     onChange: () => { info.textContent = `${fmt} — ${f.name} — edited`; },
   });
   info.textContent = `${fmt} — ${f.name} (${bytes.length} bytes)`;

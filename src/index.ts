@@ -3,6 +3,7 @@ import { unzipAsync } from "./core/zip";
 import { createDocxEditor, createDocxEditorAsync, type DocxEditor } from "./adapters/docx";
 import { createOdtEditor, createOdtEditorAsync, type OdtEditor } from "./adapters/odt";
 import { createDocEditor, createDocEditorAsync, isCfb, type DocEditor } from "./adapters/doc";
+import type { EditorOptions } from "./core/types";
 
 // richdoc: one rich-document editor for both .docx and .odt. Today each format is a
 // self-contained adapter; the shared engine (UI, comments, track changes, passthrough)
@@ -30,11 +31,7 @@ export function sniffFormat(bytes: Uint8Array): EditorFormat {
   return "docx";
 }
 
-export interface EditorOptions {
-  onChange?: () => void;
-  author?: string;
-  now?: string;
-}
+export type { EditorOptions, FontOptions } from "./core/types";
 
 /** Mount the right editor for the document's format. */
 export function createEditor(container: HTMLElement, bytes: Uint8Array, options: EditorOptions = {}): RichEditor {

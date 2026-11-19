@@ -345,6 +345,15 @@ export interface UndoHandler {
   canRedo(): boolean;
 }
 
+/** Font picker options. */
+export interface FontOptions {
+  /** Offer "Show my fonts" (installed fonts, found on the device; nothing is sent). Default true. */
+  local?: boolean;
+  /** Offer "Get more fonts" from a web font provider, after an in-app consent. Default off, as
+      it downloads from a third party that receives each request. */
+  remote?: false | { provider: "google" };
+}
+
 export interface EditorOptions {
   onChange?: () => void;
   /** Author name stamped on comments and tracked changes added in the editor. */
@@ -364,6 +373,8 @@ export interface EditorOptions {
   /** On-device writing assist (translate / elaborate / shorten / write) via localml. Default
       on; set false to hide the toolbar control (and never load the models). */
   assist?: boolean;
+  /** Font picker sources: installed fonts and (opt-in) web fonts. */
+  fonts?: FontOptions;
 }
 
 export interface RichEditor {

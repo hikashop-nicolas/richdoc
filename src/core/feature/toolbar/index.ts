@@ -13,6 +13,7 @@ import { setupShortcuts } from "./shortcuts";
 import { setupReferences } from "./references";
 import { setupEquation } from "../equation";
 import { setupSymbols } from "../symbols";
+import { setupFontPicker } from "./font-picker";
 import {
   alignIcon, indentIcon, bulletIcon, numberIcon, linkIcon, pbIcon, imgIcon, cmtIcon,
   supIcon, subIcon, lineSpacingIcon, tableIcon, fieldIcon, furiganaIcon, footnoteIcon, bookmarkIcon, xrefIcon, captionIcon, equationIcon, symbolIcon, borderIcon, undoIcon, redoIcon, caret, styleGroupSvg, insertGroupSvg,
@@ -196,7 +197,6 @@ export function setupToolbar(deps: ToolbarDeps) {
 
   // Fonts/sizes the document actually uses but that are not in the defaults are added to
   // the pickers, so the caret-sync can show them instead of falling back to the placeholder.
-  const BASE_FONTS = ["Arial", "Calibri", "Century", "Courier New", "Georgia", "Times New Roman", "Verdana"];
   const BASE_SIZES = ["8", "9", "10", "11", "12", "14", "16", "18", "20", "24", "28", "32", "48"];
   const docFonts = new Set<string>();
   const docSizes = new Set<string>();
@@ -207,12 +207,19 @@ export function setupToolbar(deps: ToolbarDeps) {
     if (hp) docSizes.add(String(Math.round(hp / 2)));
   }
   if (parts.defaultFont) docFonts.add(parts.defaultFont);
-  const FONTS = [...BASE_FONTS, ...[...docFonts].filter((f) => !BASE_FONTS.includes(f)).sort()];
+  // A new (empty) document starts in its default font, or Arial.
+  const isNewDoc = caps.fontControls && !doc.textContent?.trim();
+  const defFont = parts.defaultFont || "Arial";
+  if (isNewDoc) docFonts.add(defFont);
   const SIZES = [...new Set([...BASE_SIZES, ...docSizes])].sort((a, b) => Number(a) - Number(b));
-  const fontSel = pickerSelect(t("font"), FONTS.map((f) => [f, f] as [string, string]), (v) => {
-    beginFormatChange();
-    exec("fontName", v);
+  const fontPicker = setupFontPicker({
+    wrap, docFonts: [...docFonts], fontOptions: options.fonts, getActiveEl, captureSel, restoreSel,
+    apply: (v) => {
+      beginFormatChange();
+      exec("fontName", v);
+    },
   });
+  const fontSel = fontPicker.select;
 
   const sizeSel = pickerSelect(t("size"), SIZES.map((s) => [s, s] as [string, string]), (v) => {
     beginFormatChange();
@@ -221,10 +228,9 @@ export function setupToolbar(deps: ToolbarDeps) {
 
   // A new (empty) document gets a default font + size, shown in the pickers and applied so
   // typing starts in them. Existing documents keep their own fonts; the pickers stay blank.
-  if (caps.fontControls && !doc.textContent?.trim()) {
-    const defFont = parts.defaultFont && FONTS.includes(parts.defaultFont) ? parts.defaultFont : "Arial";
+  if (isNewDoc) {
     const defSize = parts.defaultSizeHalfPt ? String(parts.defaultSizeHalfPt / 2) : "11";
-    fontSel.value = defFont;
+    fontPicker.set(defFont);
     sizeSel.value = defSize;
     doc.style.fontFamily = `'${defFont}', sans-serif`;
     doc.style.fontSize = `${defSize}pt`;
@@ -940,7 +946,7 @@ export function setupToolbar(deps: ToolbarDeps) {
     const cs = getComputedStyle(el);
     if (caps.fontControls) {
       const fam = firstFontFamily(cs.fontFamily);
-      fontSel.value = fam && FONTS.includes(fam) ? fam : "";
+      fontPicker.set(fam && fontPicker.has(fam) ? fam : "");
       const hp = fontSizeToHalfPt(cs.fontSize);
       const pt = hp ? String(Math.round(hp / 2)) : "";
       sizeSel.value = SIZES.includes(pt) ? pt : "";
@@ -971,7 +977,7 @@ export function setupToolbar(deps: ToolbarDeps) {
 
   // Named paragraph / character styles: the two bottom-bar dropdowns + the authoring dialog.
   styles = setupStyles({
-    wrap, regions, parts, styleBar, newStyles, newStyleCss, fonts: FONTS,
+    wrap, regions, parts, styleBar, newStyles, newStyleCss, fonts: fontPicker.fonts,
     getActiveEl, mark, exec, selectedBlocks, queryState, captureSel, restoreSel,
     resync: syncToolbarState, sc,
   });
@@ -1197,6 +1203,7 @@ export function setupToolbar(deps: ToolbarDeps) {
     equation?.teardown();
     symbols.teardown();
     window.clearTimeout(syncTimer);
+    fontPicker.teardown();
   };
   return { updateChangeButtons, teardown };
 }

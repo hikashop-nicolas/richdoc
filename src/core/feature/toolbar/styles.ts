@@ -16,7 +16,7 @@ export interface StylesDeps {
   styleBar: HTMLElement; // the bottom-bar slot the two dropdowns live in
   newStyles: NewStyle[];
   newStyleCss: HTMLStyleElement;
-  fonts: string[]; // the document's font list, for the dialog's font picker
+  fonts: () => string[]; // the picker's current font list, for the dialog's font picker
   getActiveEl: () => HTMLElement;
   mark: () => void;
   exec: (cmd: string, val?: string) => void;
@@ -311,7 +311,6 @@ export function setupStyles(deps: StylesDeps) {
   const dFont = document.createElement("select");
   dFont.className = "docxedit-dialog-font";
   dFont.title = t("font");
-  let dFontFilled = false; // populated lazily from FONTS
   bgRow.append(dFont, bgLabel);
   // Paragraph border (paragraph styles only): a side preset + colour, line style and width.
   const borderRow = document.createElement("div");
@@ -390,11 +389,8 @@ export function setupStyles(deps: StylesDeps) {
   };
   // Fill the dialog controls from a CSS map; stash the un-controlled props for passthrough.
   const fillDialog = (pre: Record<string, string>): void => {
-    if (!dFontFilled) {
-      dFont.add(new Option(t("defaultFont"), ""));
-      for (const f of FONTS) dFont.add(new Option(f, f));
-      dFontFilled = true;
-    }
+    // Refilled on each open: the picker gains fonts after mount (installed, downloaded).
+    dFont.replaceChildren(new Option(t("defaultFont"), ""), ...FONTS().map((f) => new Option(f, f)));
     dB.classList.toggle("is-on", pre["font-weight"] === "bold");
     dI.classList.toggle("is-on", pre["font-style"] === "italic");
     dU.classList.toggle("is-on", /underline/.test(pre["text-decoration"] ?? ""));
