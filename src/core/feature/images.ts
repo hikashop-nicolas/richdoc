@@ -12,10 +12,25 @@ export interface ImagesDeps {
   getActiveEl: () => HTMLElement;
   /** Notified when the selected image changes (null = deselected), for the layout toolbar. */
   onSelect?: (img: HTMLImageElement | null) => void;
+  /** The host's converter for pictures the document cannot keep as picked (see EditorOptions). */
+  convertPicture?: (file: File) => Promise<{ name: string; bytes: Uint8Array; mime: string }>;
 }
 
 export function setupImages(deps: ImagesDeps) {
-  const { wrap, scroll, regions, mark, getActiveEl, onSelect } = deps;
+  const { wrap, scroll, regions, mark, getActiveEl, onSelect, convertPicture } = deps;
+
+  /** A picked or dropped picture as a data URL, through the host's converter when there is one. */
+  const pictureUrl = async (file: File): Promise<string | null> => {
+    if (convertPicture) {
+      try {
+        const p = await convertPicture(file);
+        return `data:${p.mime};base64,${bytesToBase64(p.bytes)}`;
+      } catch {
+        return null;
+      }
+    }
+    return `data:${file.type};base64,${bytesToBase64(new Uint8Array(await file.arrayBuffer()))}`;
+  };
 
   // Image select: click an image to select it, drag the corner handle to resize, and use
   // the delete button (top-right) or the Delete/Backspace key to remove it.
@@ -125,8 +140,8 @@ export function setupImages(deps: ImagesDeps) {
   // (stopPropagation keeps a host's global "open this file" drop handler out).
   const insertAt = (file: File, x: number, y: number) => {
     void (async () => {
-      const buf = new Uint8Array(await file.arrayBuffer());
-      const dataUrl = `data:${file.type};base64,${bytesToBase64(buf)}`;
+      const dataUrl = await pictureUrl(file);
+      if (!dataUrl) return;
       const probe = new Image();
       probe.onload = () => {
         const maxW = 600;
@@ -175,12 +190,12 @@ export function setupImages(deps: ImagesDeps) {
     const savedRange = sel && sel.rangeCount ? sel.getRangeAt(0).cloneRange() : null;
     const fileInput = document.createElement("input");
     fileInput.type = "file";
-    fileInput.accept = "image/png,image/jpeg,image/gif,image/bmp,image/webp";
+    fileInput.accept = convertPicture ? "image/*" : "image/png,image/jpeg,image/gif,image/bmp,image/webp";
     fileInput.addEventListener("change", async () => {
       const file = fileInput.files && fileInput.files[0];
       if (!file) return;
-      const buf = new Uint8Array(await file.arrayBuffer());
-      const dataUrl = `data:${file.type};base64,${bytesToBase64(buf)}`;
+      const dataUrl = await pictureUrl(file);
+      if (!dataUrl) return;
       const probe = new Image();
       probe.onload = () => {
         const maxW = 600;

@@ -375,6 +375,11 @@ export interface EditorOptions {
   assist?: boolean;
   /** Font picker sources: installed fonts and (opt-in) web fonts. */
   fonts?: FontOptions;
+  /**
+   * Turns an inserted or dropped picture into one the document can keep (say a phone's HEIC
+   * photo into JPEG). Without it the picture goes in as picked. A rejection cancels the insert.
+   */
+  convertPicture?: (file: File) => Promise<{ name: string; bytes: Uint8Array; mime: string }>;
 }
 
 export interface RichEditor {

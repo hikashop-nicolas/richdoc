@@ -1997,7 +1997,7 @@ export function createRichEditor(container: HTMLElement, adapter: Adapter, optio
   const imageLayout = caps.images
     ? setupImageLayout({ wrap, doc, scroll, mark, getZoom: effectiveZoom, reposition: () => images.repositionHandles() })
     : null;
-  images = setupImages({ wrap, scroll, regions, mark, getActiveEl: () => activeEl, onSelect: imageLayout?.onSelect });
+  images = setupImages({ wrap, scroll, regions, mark, getActiveEl: () => activeEl, onSelect: imageLayout?.onSelect, convertPicture: options.convertPicture });
   const { insertImage } = images;
   // Shapes and text boxes: their text is edited in place; the bar edits look and size.
   const shapeEdit = caps.shapes ? setupShapeEdit({ wrap, regions, mark, getActiveEl: () => activeEl }) : null;
