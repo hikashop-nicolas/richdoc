@@ -404,6 +404,9 @@ function setShapePaint(spPr: Element, look: ReturnType<typeof shapeLookOf>): voi
   const doc = spPr.ownerDocument;
   const a = (tag: string) => doc.createElementNS(NS_A, tag);
   const solid = (hex: string) => { const f = a("a:solidFill"); const c = a("a:srgbClr"); c.setAttribute("val", hex); f.appendChild(c); return f; };
+  // Line ends, dash and joins survive a recolour; only the line's fill and width are rewritten.
+  const oldLn = Array.from(spPr.children).find((c) => c.tagName === "a:ln");
+  const keep = oldLn ? Array.from(oldLn.children).filter((c) => !/^a:(noFill|solidFill|gradFill|pattFill)$/.test(c.tagName)) : [];
   for (const c of Array.from(spPr.children)) if (/^a:(noFill|solidFill|gradFill|blipFill|pattFill|grpFill|ln)$/.test(c.tagName)) c.remove();
   // Schema order in spPr: xfrm, geometry, fill, ln, effects...
   const after = Array.from(spPr.children).find((c) => !/^a:(xfrm|prstGeom|custGeom)$/.test(c.tagName)) ?? null;
@@ -411,6 +414,7 @@ function setShapePaint(spPr: Element, look: ReturnType<typeof shapeLookOf>): voi
   const ln = a("a:ln");
   if (look.line) { ln.setAttribute("w", String(look.line.w)); ln.appendChild(solid(look.line.hex)); }
   else ln.appendChild(a("a:noFill"));
+  for (const c of keep) ln.appendChild(c);
   spPr.insertBefore(ln, after);
 }
 

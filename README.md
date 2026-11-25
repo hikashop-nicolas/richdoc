@@ -54,7 +54,9 @@ A full word-processor surface in the browser, the same for both formats unless n
   and saved untouched.
 - **Shapes and text boxes:** text box content is edited in place; a selected shape's fill,
   outline and size are set from its bar; new text boxes, rectangles and ellipses can be inserted.
-  Untouched shapes save byte for byte.
+  Word's 187 preset shapes (arrows, stars, callouts, flowchart symbols ...) and freeform shapes
+  are drawn from their geometry, lines and connectors with their arrowheads; odt drawings are
+  drawn too, LibreOffice's ready-made shapes included. Untouched shapes save byte for byte.
 - **Charts:** drawn from their data (bar, column, line, area, pie, doughnut, scatter, radar).
   Double-click to edit the title and the data grid; Word charts get their values written to their
   caches and embedded workbook. Insert > Chart adds a chart whose type, legend and data are free.

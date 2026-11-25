@@ -5,6 +5,8 @@ import { drawingColor, themeColor } from "./fonts";
 import { escapeAttr } from "./shared";
 import { readLayout } from "./image-layout";
 import { wordArtSvg } from "./wordart";
+import { customGeometry, presetGeometry, type GeomPath } from "./drawingml-geom";
+import { SHADE, shadeColor } from "../../core/feature/shape-geom";
 
 const EMU_PER_PX = 9525;
 const emu = (v: string | null | undefined): number | undefined => {
@@ -86,10 +88,80 @@ function bodyHtml(txbx: Element | undefined, bodyPr: Element | undefined, ctx: S
   return `<span class="docx-shape-body" contenteditable="true" style="${css.join(";")}">${inlineBlocks(ctx.blocks(txbx)) || '<span class="docx-tb-p"><br></span>'}</span>`;
 }
 
+// Line ends (a:headEnd / a:tailEnd): sizes are multiples of the line width.
+const END_SIZE: Record<string, number> = { sm: 2, med: 3, lg: 5 };
+
+/** An arrowhead at `tip`, pointing away from `from`. */
+function lineEnd(end: Element | undefined, from: [number, number], tip: [number, number], lw: number): string {
+  const type = end?.getAttribute("type");
+  if (!type || type === "none") return "";
+  const k = Math.max(lw, 2.65); // thin lines get heads sized for a 0.7 mm line, as Word and LibreOffice do
+  const hw = (END_SIZE[end!.getAttribute("w") ?? "med"] ?? 3) * k / 2, len = (END_SIZE[end!.getAttribute("len") ?? "med"] ?? 3) * k;
+  let dx = tip[0] - from[0], dy = tip[1] - from[1];
+  const n = Math.hypot(dx, dy) || 1;
+  dx /= n; dy /= n;
+  // Points in the head's frame: u along the line toward the tip, v across it.
+  const at = (u: number, v: number) => `${r2(tip[0] + dx * u - dy * v)},${r2(tip[1] + dy * u + dx * v)}`;
+  const p = (d: string, kind = "solid") => `<path data-head="${kind}" d="${d}"/>`;
+  if (type === "triangle") return p(`M${at(0, 0)} L${at(-len, hw)} L${at(-len, -hw)} Z`);
+  if (type === "stealth") return p(`M${at(0, 0)} L${at(-len, hw)} L${at(-len * 0.6, 0)} L${at(-len, -hw)} Z`);
+  if (type === "diamond") return p(`M${at(len / 2, 0)} L${at(0, hw)} L${at(-len / 2, 0)} L${at(0, -hw)} Z`);
+  const rot = r2((Math.atan2(dy, dx) * 180) / Math.PI);
+  if (type === "oval") return p(`M${at(len / 2, 0)} A${r2(len / 2)},${r2(hw)} ${rot} 1 0 ${at(-len / 2, 0)} A${r2(len / 2)},${r2(hw)} ${rot} 1 0 ${at(len / 2, 0)} Z`);
+  if (type === "arrow") return p(`M${at(-len, hw)} L${at(0, 0)} L${at(-len, -hw)}`, "open");
+  return "";
+}
+
+const BOX_PRESETS = new Set(["rect", "ellipse", "flowChartConnector", "flowChartProcess"]);
+const ROUND_PRESETS = new Set(["roundRect", "flowChartAlternateProcess"]);
+
+/** The outline of a shape that is not a plain rectangle, as an SVG over the box, painted from the
+ *  look (the box keeps the look as CSS for the shape bar and the writer). */
+function geomSvg(spPr: Element | undefined, w: number, h: number, look: Look): string | undefined {
+  const prstEl = kid(spPr, "a:prstGeom"), cust = kid(spPr, "a:custGeom");
+  const prst = prstEl?.getAttribute("prst");
+  let paths: GeomPath[] | undefined;
+  if (cust) paths = customGeometry(cust, w, h);
+  else if (prst) {
+    const adj: Record<string, string> = {};
+    for (const g of Array.from(kid(prstEl, "a:avLst")?.children ?? [])) if (g.getAttribute("name")) adj[g.getAttribute("name")!] = g.getAttribute("fmla") ?? "";
+    // Boxes CSS draws exactly stay CSS boxes.
+    if (BOX_PRESETS.has(prst) || (ROUND_PRESETS.has(prst) && !Object.keys(adj).length)) return undefined;
+    paths = presetGeometry(prst, w, h, adj);
+  }
+  if (!paths) return undefined;
+  const bw = look.line ? Math.round(Math.max(0.5, look.lineW ?? 1) * 100) / 100 : 0;
+  const line = look.line ? `#${look.line}` : "none";
+  let body = "";
+  for (const g of paths) {
+    const fill = g.fill === "none" || !look.fill ? "none" : shadeColor(`#${look.fill}`, SHADE[g.fill] ?? 0);
+    const stroke = g.stroke && look.line ? ` stroke="${line}" stroke-width="${bw}"` : ` stroke="none"`;
+    body += `<path d="${g.d}" data-fill="${g.fill}" data-stroke="${g.stroke ? 1 : 0}" fill="${fill}"${stroke}/>`;
+  }
+  // Arrowheads go on the first open, stroked path (a line, a connector, an arc).
+  const ln = kid(spPr, "a:ln");
+  const open = paths.find((g) => g.stroke && !g.closed && g.start && g.end);
+  if (open && look.line) {
+    const heads = lineEnd(kid(ln, "a:headEnd"), open.start![1], open.start![0], bw) + lineEnd(kid(ln, "a:tailEnd"), open.end![0], open.end![1], bw);
+    body += heads.replace(/data-head="(\w+)"/g, (_m, kind: string) => `data-head="${kind}" ${kind === "open" ? `fill="none" stroke="${line}" stroke-width="${bw}"` : `fill="${line}" stroke="none"`}`);
+  }
+  const xfrm = kid(spPr, "a:xfrm");
+  const fh = xfrm?.getAttribute("flipH") === "1" || xfrm?.getAttribute("flipH") === "true";
+  const fv = xfrm?.getAttribute("flipV") === "1" || xfrm?.getAttribute("flipV") === "true";
+  const flip = fh || fv ? ` transform="translate(${fh ? r2(w) : 0},${fv ? r2(h) : 0}) scale(${fh ? -1 : 1},${fv ? -1 : 1})"` : "";
+  return `<svg class="rdoc-shape-geom" xmlns="http://www.w3.org/2000/svg" viewBox="0 0 ${r2(w)} ${r2(h)}" preserveAspectRatio="none" aria-hidden="true" style="left:${-bw}px;top:${-bw}px;width:calc(100% + ${2 * bw}px);height:calc(100% + ${2 * bw}px)" stroke-linejoin="round"><g${flip}>${body}</g></svg>`;
+}
+const r2 = (n: number) => String(Math.round(n * 100) / 100);
+
 function wspHtml(sp: Element, w: number | undefined, h: number | undefined, ctx: ShapeCtx, extraCss: string[] = []): string {
   const txbx = kid(kid(sp, "wps:txbx"), "w:txbxContent");
-  const css = [...extraCss, ...(w ? [`width:${px(w)}`] : []), ...(h ? [`height:${px(h)}`] : []), ...boxCss(wspLook(sp, ctx))];
-  return `<span class="docx-shape-box" style="${css.join(";")}">${bodyHtml(txbx, kid(sp, "wps:bodyPr"), ctx)}</span>`;
+  const look = wspLook(sp, ctx);
+  const geom = w !== undefined && h !== undefined ? geomSvg(kid(sp, "wps:spPr"), w, h, look) : undefined;
+  if (geom) look.radius = undefined;
+  // A line has no height (or width): its box keeps that size, the outline overflows it.
+  const size = geom ? [`width:${px(w!)}`, `height:${px(h!)}`] : [...(w ? [`width:${px(w)}`] : []), ...(h ? [`height:${px(h)}`] : [])];
+  const css = [...extraCss, ...size, ...boxCss(look)];
+  return `<span class="docx-shape-box"${geom ? " data-geom" : ""} style="${css.join(";")}">${geom ?? ""}${bodyHtml(txbx, kid(sp, "wps:bodyPr"), ctx)}</span>`;
 }
 
 /** A wpg:wgp group: each member placed in the group's box, scaled from its child coordinates. */

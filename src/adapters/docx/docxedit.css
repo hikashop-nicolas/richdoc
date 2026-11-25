@@ -714,3 +714,7 @@
 .docxedit-chart-cell { width: 96px; padding: 4px 6px; border: 1px solid var(--rdoc-btn-border, #4a4f57); border-radius: 4px; background: var(--rdoc-chrome2, #1f2329); color: var(--rdoc-canvas, #e6e8ec); font: 12px system-ui, sans-serif; }
 .docxedit-chart-num { width: 72px; text-align: right; }
 .docxedit-chart-x { border: 0; background: transparent; color: var(--rdoc-muted, #aeb4bd); cursor: pointer; padding: 0 3px; }
+/* A drawn outline (arrow, star, callout ...): the SVG paints it; the box's fill and border stay as the model. */
+.docx-shape-box[data-geom] { overflow: visible; background-color: transparent !important; border-color: transparent !important; }
+.docx-shape-box[data-geom] > .rdoc-shape-geom { position: absolute; overflow: visible; pointer-events: none; }
+.docx-shape-box[data-geom] > .docx-shape-body { position: relative; }

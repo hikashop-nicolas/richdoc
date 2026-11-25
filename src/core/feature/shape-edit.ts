@@ -3,6 +3,7 @@
 // shapes are inserted at the caret. Edits are flagged on the shape (data-shape-dirty: "text",
 // "look") so the adapter rewrites only what changed; untouched shapes save byte for byte.
 import { t } from "../i18n";
+import { paintShapeGeom } from "./shape-geom";
 
 export type ShapeKind = "textbox" | "rect" | "roundRect" | "ellipse";
 
@@ -180,6 +181,7 @@ export function setupShapeEdit(deps: ShapeEditDeps) {
     const b = box();
     if (!b || !shape) return;
     fn(b);
+    paintShapeGeom(b);
     markShapeDirty(shape, "look");
     mark();
     place();

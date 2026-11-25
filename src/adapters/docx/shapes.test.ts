@@ -139,4 +139,54 @@ describe("editing shapes and text boxes", () => {
     expect(back).toContain("background-color:#FFFFFF;border:1px solid #000000");
     expect(back).toContain("<strong>box</strong>");
   });
+
+  describe("drawn outlines", () => {
+    const fill = '<a:solidFill><a:srgbClr val="DBE9F6"/></a:solidFill><a:ln w="12700"><a:solidFill><a:srgbClr val="1F4E79"/></a:solidFill></a:ln>';
+    const red = (ends: string) => `<a:noFill/><a:ln w="19050"><a:solidFill><a:srgbClr val="C00000"/></a:solidFill>${ends}</a:ln>`;
+
+    it("draws a preset from its guides, keeping the look on the box for the shape bar", () => {
+      const { body } = docxToParts(docx(drawing(wsp(`<a:prstGeom prst="rightArrow"><a:avLst/></a:prstGeom>${fill}`))));
+      expect(body).toContain('class="docx-shape-box" data-geom style="width:200px;height:100px;background-color:#DBE9F6;border:1.33px solid #1F4E79"');
+      // The default arrow: a shaft half the height, a head as long as half the height.
+      expect(body).toContain('<path d="M0,25 L150,25 L150,0 L200,50 L150,100 L150,75 L0,75 Z" data-fill="norm" data-stroke="1" fill="#DBE9F6" stroke="#1F4E79" stroke-width="1.33"/>');
+    });
+
+    it("takes adjust values from the file", () => {
+      const { body } = docxToParts(docx(drawing(wsp(`<a:prstGeom prst="rightArrow"><a:avLst><a:gd name="adj1" fmla="val 20000"/><a:gd name="adj2" fmla="val 20000"/></a:avLst></a:prstGeom>${fill}`))));
+      expect(body).toContain('d="M0,40 L180,40 L180,0 L200,50 L180,100 L180,60 L0,60 Z"');
+    });
+
+    it("shades 3-D faces and mirrors a flipped shape", () => {
+      const { body } = docxToParts(docx(drawing(wsp(`<a:xfrm flipH="1"/><a:prstGeom prst="cube"><a:avLst/></a:prstGeom>${fill}`))));
+      expect(body).toContain('data-fill="darkenLess" data-stroke="0" fill="#afbac5"');
+      expect(body).toContain('transform="translate(200,0) scale(-1,1)"');
+    });
+
+    it("puts the line ends on a line, sized from its width", () => {
+      const { body } = docxToParts(docx(drawing(wsp(`<a:prstGeom prst="straightConnector1"><a:avLst/></a:prstGeom>${red('<a:headEnd type="oval"/><a:tailEnd type="triangle"/>')}`))));
+      expect(body).toContain('<path d="M0,0 L200,100"');
+      expect(body).toMatch(/data-head="solid" fill="#C00000" stroke="none" d="M200,100 L/);
+      expect((body.match(/data-head=/g) ?? []).length).toBe(2);
+    });
+
+    it("keeps a line's arrowheads when its colour is edited", () => {
+      const d = docx(drawing(wsp(`<a:prstGeom prst="straightConnector1"><a:avLst/></a:prstGeom>${red('<a:prstDash val="dash"/><a:tailEnd type="triangle"/>')}`)));
+      const html = docxToParts(d).body.replace("<span class=\"docx-shape\"", '<span class="docx-shape" data-shape-dirty="look"').replace("border:2px solid #C00000", "border:2px solid #0000FF");
+      const xml = strFromU8(unzipSync(htmlToDocx(html, d))["word/document.xml"]!);
+      expect(xml).toMatch(/<a:ln w="19050"><a:solidFill><a:srgbClr val="0000FF"\/><\/a:solidFill><a:prstDash val="dash"\/><a:tailEnd type="triangle"\/><\/a:ln>/);
+    });
+
+    it("draws a custom geometry scaled from its path box", () => {
+      const cust = '<a:custGeom><a:avLst/><a:gdLst/><a:pathLst><a:path w="100" h="100"><a:moveTo><a:pt x="0" y="100"/></a:moveTo><a:lnTo><a:pt x="50" y="0"/></a:lnTo><a:arcTo wR="25" hR="25" stAng="10800000" swAng="10800000"/><a:close/></a:path></a:pathLst></a:custGeom>';
+      const { body } = docxToParts(docx(drawing(wsp(cust + fill))));
+      expect(body).toMatch(/d="M0,100 L100,0 C[^"]+ 200,0 Z"/);
+    });
+
+    it("keeps plain boxes, ellipses and default rounded rectangles as CSS boxes", () => {
+      for (const prst of ["rect", "ellipse", "roundRect"]) {
+        const { body } = docxToParts(docx(drawing(wsp(`<a:prstGeom prst="${prst}"><a:avLst/></a:prstGeom>${fill}`))));
+        expect(body).not.toContain("data-geom");
+      }
+    });
+  });
 });
