@@ -5,6 +5,7 @@
 // paragraph or character it is anchored to, or the page).
 
 import { evaluateGeometry, type Geometry } from "./geometry";
+import { groupBox } from "./shape-edit";
 import { escapeAttr, escapeHtml, passthroughAttr } from "./shared";
 
 type LenToPx = (v: string | null | undefined) => number | undefined;
@@ -39,8 +40,6 @@ export interface ShapeCtx {
   looks: Map<string, Look>;
   markers: Map<string, Marker>;
   lenToPx: LenToPx;
-  /** The page height, to place a shape anchored to a later page. The doc box is the page, margins included. */
-  page?: { height: number };
 }
 
 const SHAPE_TAGS = new Set([
@@ -56,7 +55,7 @@ const DEFAULT_LOOK: Look = {
 
 /** Every graphic style (content.xml automatic + styles.xml) resolved through its parents, plus
  *  the arrowhead markers the documents define. */
-export function collectShapeStyles(docs: (Document | undefined)[], lenToPx: LenToPx, page?: ShapeCtx["page"]): ShapeCtx {
+export function collectShapeStyles(docs: (Document | undefined)[], lenToPx: LenToPx): ShapeCtx {
   const raw = new Map<string, Element>();
   let defaults: Element | undefined;
   const markers = new Map<string, Marker>();
@@ -124,7 +123,7 @@ export function collectShapeStyles(docs: (Document | undefined)[], lenToPx: LenT
   const base = { ...DEFAULT_LOOK };
   apply(base, defaults);
   looks.set("", base);
-  return { looks, markers, lenToPx, page };
+  return { looks, markers, lenToPx };
 }
 
 function percent(v: string | null): number | undefined {
@@ -334,7 +333,8 @@ function modelAttrs(el: Element, look: Look, ctx: ShapeCtx): string {
     const kids = Array.from(el.getElementsByTagName("*")).filter((c) => isShapeTag(c.tagName) && c.tagName !== "draw:g");
     const looks = kids.map((c) => ctx.looks.get(c.getAttribute("draw:style-name") ?? "") ?? look);
     const first = looks.find((l) => l.fill) ?? looks[0];
-    return ` data-shape-group=""${first ? paint(first) : ""}${zAttr}`;
+    const b = groupBox(el);
+    return ` data-shape-group=""${first ? paint(first) : ""}${b ? ` data-shape-w="${fmt(b.w)}" data-shape-h="${fmt(b.h)}"` : ""}${zAttr}`;
   }
   return `${paint(look)} data-shape-w="${fmt(ext.w)}" data-shape-h="${fmt(ext.h)}"${zAttr}`;
 }
@@ -365,6 +365,8 @@ function drawShape(el: Element, ctx: ShapeCtx, look: Look, acc: { svg: string[];
     if (paint) {
       const shaded = paint.shade ? ` fill="${escapeAttr(shadeColor(look.fillColor, paint.shade))}"` : fill;
       acc.svg.push(`<path d="${m.d}"${paint.fill ? shaded : ` fill="none"`}${paint.stroke ? strokeAttrs(look) : ` stroke="none"`}/>`);
+      // An open outline (a connector drawn as a custom shape) takes the line's ends too.
+      if (!closed && paint.stroke) acc.svg.push(hitPath(m.d), ends(look, ctx, m.start, m.end, acc.box));
       return;
     }
     if (!closed) acc.svg.push(hitPath(m.d));
@@ -419,7 +421,7 @@ function drawShape(el: Element, ctx: ShapeCtx, look: Look, acc: { svg: string[];
   }
   if (!kind || !(w > 0 && h > 0)) return;
   if (kind === "path" && geom) {
-    for (const sub of geom.paths) pathOut(sub.d, true, { vb: geom.vb }, { fill: sub.fill && look.fill, stroke: sub.stroke, shade: sub.shade });
+    for (const sub of geom.paths) pathOut(sub.d, /z\s*$/i.test(sub.d), { vb: geom.vb }, { fill: sub.fill && look.fill, stroke: sub.stroke, shade: sub.shade });
   } else {
     const corners: Pt[] = [place([0, 0]), place([w, 0]), place([w, h]), place([0, h])];
     for (const p of corners) grow(acc.box, p, pad);
@@ -465,20 +467,18 @@ export function shapeHtml(el: Element, ctx: ShapeCtx, level: "inline" | "block")
     return `<span class="odt-shape" data-shape-wrap="${wrapped}" data-shape-align="${align}" contenteditable="false"${model}${passthroughAttr(el)} style="width:${fmt(bw)}px;height:${fmt(bh)}px${margin}"><span class="odt-shape-box" style="position:relative;width:${fmt(bw)}px;height:${fmt(bh)}px">${img}</span></span>`;
   }
   const wrap = look.wrap === "run-through" && look.runThrough === "background" ? "behind" : "front";
-  let left = x0, top = y0;
-  if (anchor === "page" && ctx.page) {
-    const pageNo = Number(el.getAttribute("text:anchor-page-number")) || 1;
-    top += (pageNo - 1) * ctx.page.height;
-  }
+  const left = x0, top = y0;
   const style = `left:${fmt(left)}px;top:${fmt(top)}px;width:${fmt(bw)}px;height:${fmt(bh)}px`;
   const box = `<span class="odt-shape-box" style="${style}">${img}</span>`;
   // Its offsets are from the page or its margins when the style says so (the editor places it
   // from there); otherwise from its paragraph.
   const rel = (v: string | undefined, content: string) => (!v || !/^page/.test(v) ? "para" : v === content ? "margin" : "page");
-  const placed = level === "inline" ? ` data-shape-relh="${rel(look.hrel, "page-content")}" data-shape-relv="${rel(look.vrel, "page-content")}" data-shape-bx="${fmt(left)}" data-shape-by="${fmt(top)}"` : "";
+  // A drawing anchored to the page is placed from the page it names.
+  const onPage = anchor === "page" ? ` data-shape-page="${Number(el.getAttribute("text:anchor-page-number")) || 1}"` : "";
+  const placed = ` data-shape-relh="${anchor === "page" && !look.hrel ? "page" : rel(look.hrel, "page-content")}" data-shape-relv="${anchor === "page" && !look.vrel ? "page" : rel(look.vrel, "page-content")}" data-shape-bx="${fmt(left)}" data-shape-by="${fmt(top)}"${onPage}`;
   // A page-anchored shape sits in the body between paragraphs: a zero-height block placed from the
   // document's corner. One anchored to a paragraph or character is placed from that paragraph.
   return level === "block"
-    ? `<div class="odt-shape odt-shape-page" data-shape-wrap="${wrap}" contenteditable="false"${model}${passthroughAttr(el)}>${box}</div>`
+    ? `<div class="odt-shape odt-shape-page" data-shape-wrap="${wrap}"${placed} contenteditable="false"${model}${passthroughAttr(el)}>${box}</div>`
     : `<span class="odt-shape" data-shape-wrap="${wrap}"${placed} contenteditable="false"${model}${passthroughAttr(el)}>${box}</span>`;
 }

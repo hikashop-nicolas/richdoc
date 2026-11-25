@@ -6,7 +6,7 @@
 import { t } from "../i18n";
 import { paintShapeGeom } from "./shape-geom";
 import { ALIGN_ICONS, ORDER_ICONS, WRAP_ICONS } from "./image-layout";
-import { behindAt as floatBehind, markShapeDirty, originOf, restack as restackFloat, setZ, stack, topZ } from "./stacking";
+import { behindAt as floatBehind, dropWrapped, ghostOf, markShapeDirty, originOf, restack as restackFloat, setZ, stack, topZ } from "./stacking";
 import type { ShapeHooks, ShapeLook, ShapeModel, ShapeWrap } from "../types";
 
 export { markShapeDirty };
@@ -146,8 +146,8 @@ export function setupShapeEdit(deps: ShapeEditDeps) {
     return b;
   };
   const del = btn("✕", t("shapeDelete"));
-  // A floating shape (behind or in front of the text) moves by dragging it, or this handle when
-  // its text fills it; shapes in the text flow move with the text.
+  // A floating or wrapped shape moves by dragging it, or this handle; one in line with the text
+  // moves with the text.
   const move = btn("✥", t("shapeMove"), "docxedit-shapebar-move");
   // Layout: how the shape sits in the text, its alignment and its stacking order, in a menu.
   const layoutBtn = btn(WRAP_ICONS.inline, t("shapeLayout"), "docxedit-shapebar-layout");
@@ -262,7 +262,7 @@ export function setupShapeEdit(deps: ShapeEditDeps) {
       if (isGroup(b)) {
         const ms = members(b);
         const first = ms.find((m) => lookOf(m).fill) ?? ms[0];
-        return { ...(first ? lookOf(first) : { fill: null, line: null, lineW: 0 }), w: b.offsetWidth, h: b.offsetHeight, group: true, groupLook: ms.length > 0, fixedSize: true };
+        return { ...(first ? lookOf(first) : { fill: null, line: null, lineW: 0 }), w: b.offsetWidth, h: b.offsetHeight, group: true, groupLook: ms.length > 0 };
       }
       return { ...lookOf(b), w: b.offsetWidth, h: b.offsetHeight };
     },
@@ -271,6 +271,21 @@ export function setupShapeEdit(deps: ShapeEditDeps) {
       if (!b) return;
       if (isGroup(b)) {
         for (const m of members(b)) paint(m, patch);
+        if (patch.w || patch.h) {
+          // Its members stretch with it (their places and sizes), and are drawn again.
+          const sx = patch.w ? patch.w / (parseFloat(b.style.width) || b.offsetWidth || patch.w) : 1;
+          const sy = patch.h ? patch.h / (parseFloat(b.style.height) || b.offsetHeight || patch.h) : 1;
+          for (const m of Array.from(b.querySelectorAll<HTMLElement>(".docx-shape-box, img"))) {
+            if (m.style.position !== "absolute") continue;
+            for (const [k, f] of [["left", sx], ["top", sy], ["width", sx], ["height", sy]] as const) {
+              const v = parseFloat(m.style[k]);
+              if (Number.isFinite(v)) m.style[k] = `${Math.round(v * f * 100) / 100}px`;
+            }
+          }
+          if (patch.w) b.style.width = `${Math.round(patch.w)}px`;
+          if (patch.h) b.style.height = `${Math.round(patch.h)}px`;
+          hooks?.redraw?.(s);
+        }
         return;
       }
       paint(b, patch);
@@ -342,7 +357,7 @@ export function setupShapeEdit(deps: ShapeEditDeps) {
     lineW.value = !lk.line || !lk.lineW ? "0" : String(Math.round((lk.lineW / PX_PT) * 100) / 100);
     wIn.value = (lk.w / PX_CM).toFixed(1);
     hIn.value = (lk.h / PX_CM).toFixed(1);
-    move.hidden = !floating(shape);
+    move.hidden = !floating(shape) && !wrapped(shape);
     for (const el of [fillIn, noFill, lineIn, lineW]) (el as HTMLInputElement).disabled = !!lk.group && !lk.groupLook;
     for (const el of [wIn, hIn]) el.disabled = !!lk.fixedSize;
     const w = wrapOf(shape), can = new Set(m.wraps(shape));
@@ -447,10 +462,17 @@ export function setupShapeEdit(deps: ShapeEditDeps) {
     mark();
   };
 
-  let drag: { s: HTMLElement; el: HTMLElement; x0: number; y0: number; left: number; top: number; id: number; moved: boolean; text?: { x: number; y: number } } | null = null;
+  // A floating shape moves itself; a wrapped one (square, tight, top and bottom) shows where it
+  // will land (flow) and moves on the drop, to the paragraph there.
+  let drag: { s: HTMLElement; el: HTMLElement; x0: number; y0: number; left: number; top: number; id: number; moved: boolean; text?: { x: number; y: number }; flow?: ReturnType<typeof ghostOf> | null } | null = null;
+  const wrapped = (s: HTMLElement) => /^(square|tight|topbottom)$/.test(s.getAttribute("data-shape-wrap") ?? "");
   const startDrag = (s: HTMLElement, e: PointerEvent) => {
     e.preventDefault(); // no text selection while dragging; this also stops the mousedown that selects
     select(s);
+    if (wrapped(s)) {
+      drag = { s, el: s, x0: e.clientX, y0: e.clientY, left: 0, top: 0, id: e.pointerId, moved: false, flow: null };
+      return;
+    }
     const el = modelOf(s).posEl(s);
     if (!el) return;
     const pos = shapePos(el);
@@ -458,14 +480,14 @@ export function setupShapeEdit(deps: ShapeEditDeps) {
   };
   const onPointerDown = (e: PointerEvent) => {
     const el = e.target as HTMLElement;
-    if (el === move && shape && floating(shape)) return startDrag(shape, e);
+    if (el === move && shape && (floating(shape) || wrapped(shape))) return startDrag(shape, e);
     if (bar.contains(el) || menu.contains(el)) return;
     if (!menu.hidden) closeMenu();
     if (e.button !== 0) return;
     const s = el.closest?.(SEL) as HTMLElement | null;
     // A press on a floating shape picks it up to drag it; a click in its text without moving
     // places the caret there instead (on the pointer's release).
-    if (s && inRegion(s) && floating(s)) {
+    if (s && inRegion(s) && (floating(s) || wrapped(s))) {
       startDrag(s, e);
       if (drag && el.closest?.(".docx-shape-body")) drag.text = { x: e.clientX, y: e.clientY };
       return;
@@ -492,6 +514,11 @@ export function setupShapeEdit(deps: ShapeEditDeps) {
     const dx = (e.clientX - drag.x0) / z, dy = (e.clientY - drag.y0) / z;
     if (!drag.moved && Math.hypot(dx, dy) < 3) return;
     drag.moved = true;
+    if (drag.flow !== undefined) {
+      drag.flow ??= ghostOf(drag.s);
+      drag.flow.move(e.clientX - drag.x0, e.clientY - drag.y0);
+      return;
+    }
     setShapePos(drag.el, Math.round(drag.left + dx), Math.round(drag.top + dy));
     place();
   };
@@ -499,8 +526,22 @@ export function setupShapeEdit(deps: ShapeEditDeps) {
     if (!drag || e.pointerId !== drag.id) return;
     const d = drag;
     drag = null;
+    d.flow?.remove();
     if (!d.moved) {
       if (d.text) caretAt(d.text.x, d.text.y);
+      return;
+    }
+    if (d.flow !== undefined) {
+      // Dropped where its outline's corner is: it leads that paragraph, aligned as dropped.
+      const box = (d.s.querySelector<HTMLElement>(":scope > .docx-shape-box, :scope > .odt-shape-box") ?? d.s).getBoundingClientRect();
+      const align = dropWrapped(d.s, box.left + e.clientX - d.x0, box.top + e.clientY - d.y0, box.width, regions);
+      if (!align) return;
+      modelOf(d.s).setWrap(d.s, wrapOf(d.s), align);
+      markShapeDirty(d.s, "wrap");
+      layout();
+      mark();
+      sync();
+      place();
       return;
     }
     modelOf(d.s).moved(d.s);

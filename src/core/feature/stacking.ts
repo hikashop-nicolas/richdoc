@@ -110,9 +110,18 @@ export function originOf(el: HTMLElement, zoom: number): { x: number; y: number 
     const r = el.getAttribute(`${pre}-rel${axis}`) ?? (axis === "h" ? "margin" : "para");
     return r === "page" ? page : r === "para" ? para : margin;
   };
+  // In page view, the page its anchor is on (or the one it names): its top, from the doc's.
+  const step = Number(docEl.dataset.rdocPageStep) || 0;
+  let pageTop = 0;
+  if (step) {
+    const named = Number(el.getAttribute("data-shape-page"));
+    const anchorTop = ((el.parentElement ?? el).getBoundingClientRect().top - dr.top) / z;
+    pageTop = (named ? named - 1 : Math.max(0, Math.floor(anchorTop / step))) * step;
+  }
+  const marginTop = docEl.dataset.rdocMarginTop ? Number(docEl.dataset.rdocMarginTop) : parseFloat(ds.paddingTop) || 0;
   return {
     x: ref("h", 0, parseFloat(ds.paddingLeft) || 0, cbX) - cbX,
-    y: ref("v", 0, parseFloat(ds.paddingTop) || 0, cbY) - cbY,
+    y: ref("v", pageTop, pageTop + marginTop, cbY) - cbY,
   };
 }
 
@@ -122,4 +131,44 @@ export function placeImg(img: HTMLElement, zoom: number): void {
   const o = originOf(img, zoom);
   img.style.left = `${Math.round((Number(img.getAttribute("data-rdoc-x")) || 0) + o.x)}px`;
   img.style.top = `${Math.round((Number(img.getAttribute("data-rdoc-y")) || 0) + o.y)}px`;
+}
+
+/** A dashed outline of a float, following the pointer while a wrapped one is dragged. */
+export function ghostOf(el: HTMLElement): { move(dx: number, dy: number): void; remove(): void } {
+  const r = (el.querySelector<HTMLElement>(":scope > .docx-shape-box, :scope > .odt-shape-box") ?? el).getBoundingClientRect();
+  const g = document.createElement("div");
+  g.className = "rdoc-float-ghost";
+  Object.assign(g.style, { left: `${r.left}px`, top: `${r.top}px`, width: `${r.width}px`, height: `${r.height}px` });
+  document.body.appendChild(g);
+  return {
+    move: (dx, dy) => { g.style.transform = `translate(${dx}px, ${dy}px)`; },
+    remove: () => g.remove(),
+  };
+}
+
+const FLOW_BLOCK = "p, h1, h2, h3, h4, h5, h6, li";
+
+/** Drop a wrapped float where its outline's top-left lands: it leads the paragraph there (its
+ *  float starts with it) and is aligned by where across that paragraph it was dropped. Returns
+ *  the alignment, or null when there is no paragraph there. */
+export function dropWrapped(el: HTMLElement, x: number, y: number, w: number, regions: HTMLElement[]): "left" | "center" | "right" | null {
+  const inRegion = (n: Element) => regions.some((r) => r.contains(n));
+  let block: HTMLElement | null = null;
+  for (const hit of document.elementsFromPoint(x + 2, y + 2)) {
+    if (el.contains(hit)) continue;
+    const b = hit.closest<HTMLElement>(FLOW_BLOCK);
+    if (b && inRegion(b) && !b.closest(".docx-shape, .odt-shape")) { block = b; break; }
+  }
+  if (!block) {
+    const c = document.caretRangeFromPoint?.(x + 2, y + 2);
+    const n = c?.startContainer;
+    block = (n?.nodeType === 1 ? (n as Element) : n?.parentElement)?.closest<HTMLElement>(FLOW_BLOCK) ?? null;
+    if (block && (!inRegion(block) || el.contains(block))) block = null;
+  }
+  if (!block) return null;
+  const br = block.getBoundingClientRect();
+  const mid = x + w / 2 - br.left;
+  const align = mid < br.width / 3 ? "left" : mid > (2 * br.width) / 3 ? "right" : "center";
+  if (block.firstChild !== el) block.insertBefore(el, block.firstChild);
+  return align;
 }

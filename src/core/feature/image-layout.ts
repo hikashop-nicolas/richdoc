@@ -6,7 +6,7 @@ import { t } from "../i18n";
 import { makeDialogAccessible } from "./dialog-a11y";
 import type { ImageWrap } from "../types";
 import { applyCaption, captionAfter, captionText, topBlock } from "./caption";
-import { behindAt, placeImg, restack, setZ, stack, topZ } from "./stacking";
+import { behindAt, dropWrapped, ghostOf, placeImg, restack, setZ, stack, topZ } from "./stacking";
 
 /** Bring forward / send back: the same pictures as the shape bar's. */
 export const ORDER_ICONS = {
@@ -243,18 +243,28 @@ export function setupImageLayout(deps: ImageLayoutDeps) {
 
   // Drag a behind/front image to reposition it (offsets are in the doc's own px, so divide the
   // screen delta by the zoom). Other wrap modes flow with the text and are not draggable.
-  let drag: { startX: number; startY: number; baseX: number; baseY: number } | null = null;
+  // A wrapped picture (square, tight, top and bottom) shows where it will land instead, and moves
+  // on the drop to the paragraph there, aligned as dropped.
+  let drag: { startX: number; startY: number; baseX: number; baseY: number; flow?: ReturnType<typeof ghostOf> | null; moved?: boolean } | null = null;
   const onDown = (e: PointerEvent): void => {
     // A selected picture behind the text is also picked up from the gaps between the letters.
     if (!img || (img !== e.target && behindAt(e.clientX, e.clientY, [doc]) !== img)) return;
     const mode = img.getAttribute("data-rdoc-wrap");
-    if (mode !== "behind" && mode !== "front") return;
+    if (mode !== "behind" && mode !== "front" && mode !== "square" && mode !== "tight" && mode !== "topbottom") return;
     e.preventDefault();
     drag = { startX: e.clientX, startY: e.clientY, baseX: Number(img.getAttribute("data-rdoc-x")) || 0, baseY: Number(img.getAttribute("data-rdoc-y")) || 0 };
+    if (mode !== "behind" && mode !== "front") drag.flow = null;
     try { img.setPointerCapture(e.pointerId); } catch { /* no pointer */ }
   };
   const onMove = (e: PointerEvent): void => {
     if (!drag || !img) return;
+    if (drag.flow !== undefined) {
+      if (!drag.moved && Math.hypot(e.clientX - drag.startX, e.clientY - drag.startY) < 3) return;
+      drag.moved = true;
+      drag.flow ??= ghostOf(img);
+      drag.flow.move(e.clientX - drag.startX, e.clientY - drag.startY);
+      return;
+    }
     const z = getZoom() || 1;
     const x = Math.round(drag.baseX + (e.clientX - drag.startX) / z);
     const y = Math.round(drag.baseY + (e.clientY - drag.startY) / z);
@@ -265,8 +275,19 @@ export function setupImageLayout(deps: ImageLayoutDeps) {
   };
   const onUp = (e: PointerEvent): void => {
     if (!drag) return;
+    const d = drag;
     drag = null;
     try { img?.releasePointerCapture(e.pointerId); } catch { /* not captured */ }
+    d.flow?.remove();
+    if (d.flow !== undefined) {
+      if (!d.moved || !img) return;
+      const r = img.getBoundingClientRect();
+      const align = dropWrapped(img, r.left + e.clientX - d.startX, r.top + e.clientY - d.startY, r.width, [doc]);
+      if (!align) return;
+      img.setAttribute("data-rdoc-align", align);
+      for (const at of ["data-rdoc-absx", "data-rdoc-absy", "data-rdoc-x", "data-rdoc-y"]) img.removeAttribute(at); // placed by its alignment now
+      sync();
+    }
     reposition();
     mark();
   };

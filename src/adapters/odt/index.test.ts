@@ -1484,6 +1484,27 @@ describe("odt drawing shapes (lines, paths, boxes)", () => {
       expect(xml).toContain('draw:style-name="gr1"'); // the look was not touched
     });
 
+    it("stretches a group's members to its new size", () => {
+      const g = '<draw:g text:anchor-type="paragraph"><draw:rect draw:style-name="gr2" svg:x="1cm" svg:y="1cm" svg:width="2cm" svg:height="1cm"/><draw:line draw:style-name="gr1" svg:x1="1cm" svg:y1="2cm" svg:x2="3cm" svg:y2="3cm"/></draw:g>';
+      const { d, html } = read(g);
+      expect(html).toMatch(/data-shape-group=""[^>]*data-shape-w="75\.59" data-shape-h="75\.59"/);
+      const edit = JSON.stringify({ w: 151.18, h: 37.8 }).replace(/"/g, "&quot;");
+      const xml = strFromU8(unzipSync(htmlToOdt(html.replace('class="odt-shape"', `class="odt-shape" data-shape-edit="${edit}"`), d))["content.xml"]!);
+      expect(xml).toContain('svg:x="1cm" svg:y="1cm" svg:width="4cm" svg:height="0.5cm"');
+      expect(xml).toContain('svg:x1="1cm" svg:y1="1.5cm" svg:x2="5cm" svg:y2="2cm"');
+    });
+
+    it("puts a line and a group in line with the text from 0,0", () => {
+      const save = (shape: string) => {
+        const { d, html } = read(shape);
+        const edit = JSON.stringify({ wrap: "inline" }).replace(/"/g, "&quot;");
+        return strFromU8(unzipSync(htmlToOdt(html.replace('class="odt-shape"', `class="odt-shape" data-shape-edit="${edit}"`), d))["content.xml"]!);
+      };
+      expect(save(lineXml)).toMatch(/<draw:line text:anchor-type="as-char"[^>]*svg:x1="0cm" svg:y1="0cm" svg:x2="2cm" svg:y2="1cm"/);
+      const g = save('<draw:g text:anchor-type="paragraph"><draw:rect draw:style-name="gr2" svg:x="1cm" svg:y="2cm" svg:width="2cm" svg:height="1cm"/></draw:g>');
+      expect(g).toMatch(/<draw:g text:anchor-type="as-char"[^>]*><draw:rect [^>]*svg:x="0cm" svg:y="0cm"/);
+    });
+
     it("saves a new wrap, alignment and stacking order", () => {
       const { d, html } = read(rectXml);
       const edit = (e: object) => JSON.stringify(e).replace(/"/g, "&quot;");

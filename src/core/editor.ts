@@ -1166,6 +1166,8 @@ export function createRichEditor(container: HTMLElement, adapter: Adapter, optio
     const contentWidth = geometry.widthPx - geometry.margin.left - geometry.margin.right;
     const pageStep = geometry.heightPx + PAGE_GAP;
     const interPage = contentBottomInset + PAGE_GAP + contentTop; // gap between consecutive wrappers
+    doc.dataset.rdocPageStep = String(pageStep);
+    doc.dataset.rdocMarginTop = String(geometry.margin.top);
     doc.style.height = ""; // clear any inline height left by a prior vertical layout
     doc.style.padding = `${contentTop}px ${geometry.margin.right}px ${contentBottomInset}px ${geometry.margin.left}px`;
 
@@ -1601,6 +1603,9 @@ export function createRichEditor(container: HTMLElement, adapter: Adapter, optio
     const contentBottomInset = geometry.margin.bottom + footerH;
     const contentHeight = geometry.heightPx - contentTop - contentBottomInset;
     const pageStep = geometry.heightPx + PAGE_GAP;
+    // Floats placed from the page find their page's top from these.
+    doc.dataset.rdocPageStep = String(pageStep);
+    doc.dataset.rdocMarginTop = String(geometry.margin.top);
 
     // place the body inside each page's content box (overrides the CSS-var padding)
     doc.style.height = ""; // clear any inline height left by a prior vertical layout

@@ -380,6 +380,7 @@ function importPassthrough(ctx: DocxCtx, xml: string): Element | null {
 
 const NS_MC = "http://schemas.openxmlformats.org/markup-compatibility/2006";
 const NS_WPS = "http://schemas.microsoft.com/office/word/2010/wordprocessingShape";
+const NS_WPG = "http://schemas.microsoft.com/office/word/2010/wordprocessingGroup";
 const NS_A = "http://schemas.openxmlformats.org/drawingml/2006/main";
 const NS_WP = "http://schemas.openxmlformats.org/drawingml/2006/wordprocessingDrawing";
 const PX_EMU = 9525;
@@ -468,7 +469,11 @@ function shapeRun(ctx: DocxCtx, el: HTMLElement): Element | null {
       if (aExt && look.w && look.h) { aExt.setAttribute("cx", String(look.w)); aExt.setAttribute("cy", String(look.h)); }
       if (spPr) setShapePaint(spPr, look);
     } else if (sps.length > 1) {
-      // A group: each member box carries its own look, in the members' order.
+      // A group: its new size goes on the group (its members keep their child coordinates, which
+      // Word stretches to it); each member box carries its own look, in the members' order.
+      const gExt = run.getElementsByTagNameNS(NS_WPG, "grpSpPr")[0]?.getElementsByTagNameNS(NS_A, "xfrm")[0];
+      const aExt = gExt && Array.from(gExt.children).find((c) => c.localName === "ext");
+      if (aExt && look.w && look.h) { aExt.setAttribute("cx", String(look.w)); aExt.setAttribute("cy", String(look.h)); }
       const outer = el.querySelector<HTMLElement>(":scope > .docx-shape-box");
       const boxes = outer ? Array.from(outer.querySelectorAll<HTMLElement>(".docx-shape-box")).filter((m) => !m.querySelector(":scope > .docx-shape-box, :scope > img")) : [];
       if (boxes.length === sps.length) {

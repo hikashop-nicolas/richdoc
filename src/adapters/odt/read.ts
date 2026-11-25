@@ -1101,7 +1101,7 @@ export function odtToParts(bytes: Uint8Array, preunzipped?: Record<string, Uint8
     for (const [k, v] of collectListStarts(sdoc)) if (!listStarts.has(k)) listStarts.set(k, v);
     for (const [k, v] of collectTabStops(sdoc, lenToPx)) if (!tabStops.has(k)) tabStops.set(k, v);
   }
-  const ctx: RCtx = { files, styles: collectTextStyles(doc, fontFaces), paras: collectParaStyles(doc), cellStyles: collectCellStyles(doc), tableMargins: collectTableMargins(doc), listStyles: collectListStyles(doc), namedStyles: ps.namedPara, autoParent: collectAutoParents(doc, "paragraph"), namedCharStyles: ps.namedChar, textAutoParent: collectAutoParents(doc, "text"), threads: [], rangedNames, openComment: new Set(), changes: readChanges(body), openIns: new Set(), graphicStyles, paraBreaks, listStarts, listRun: { last: 0 }, tabStops, textStash: collectStyleStashes(doc, "text"), paraStash: collectStyleStashes(doc, "paragraph"), masterGeoms: collectMasterGeoms(files["styles.xml"], lenToPx), masterBands, notes: [], paraText: collectParaTextCss(doc, fontFaces), eaSplit: hasAsianProps(files["styles.xml"], content), script: { script: "l" }, shapes: collectShapeStyles([doc, stylesDoc], lenToPx, page ? { height: page.heightPx } : undefined) };
+  const ctx: RCtx = { files, styles: collectTextStyles(doc, fontFaces), paras: collectParaStyles(doc), cellStyles: collectCellStyles(doc), tableMargins: collectTableMargins(doc), listStyles: collectListStyles(doc), namedStyles: ps.namedPara, autoParent: collectAutoParents(doc, "paragraph"), namedCharStyles: ps.namedChar, textAutoParent: collectAutoParents(doc, "text"), threads: [], rangedNames, openComment: new Set(), changes: readChanges(body), openIns: new Set(), graphicStyles, paraBreaks, listStarts, listRun: { last: 0 }, tabStops, textStash: collectStyleStashes(doc, "text"), paraStash: collectStyleStashes(doc, "paragraph"), masterGeoms: collectMasterGeoms(files["styles.xml"], lenToPx), masterBands, notes: [], paraText: collectParaTextCss(doc, fontFaces), eaSplit: hasAsianProps(files["styles.xml"], content), script: { script: "l" }, shapes: collectShapeStyles([doc, stylesDoc], lenToPx) };
   let html = "";
   for (const block of Array.from(body.children)) {
     if (block.tagName === "text:tracked-changes") continue; // metadata, parsed into ctx.changes
@@ -1119,6 +1119,5 @@ export function odtToHtml(bytes: Uint8Array): string {
 /** The drawing styles and geometry a shape is drawn with, for redrawing an edited shape. */
 export function odtShapeContext(files: Record<string, Uint8Array>): ShapeCtx {
   const parse = (k: string) => (files[k] ? new DOMParser().parseFromString(strFromU8(files[k]!), "application/xml") : undefined);
-  const page = parsePageGeometry(files);
-  return collectShapeStyles([parse("content.xml"), parse("styles.xml")], lenToPx, page ? { height: page.heightPx } : undefined);
+  return collectShapeStyles([parse("content.xml"), parse("styles.xml")], lenToPx);
 }

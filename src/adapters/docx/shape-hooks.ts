@@ -44,16 +44,21 @@ function spPrFor(e: Entry): Element {
   return new DOMParser().parseFromString(xml, "application/xml").documentElement;
 }
 
-/** The spPr a shape is drawn from: a gallery shape's preset, or the preserved run's first shape. */
-function spPrOf(shape: HTMLElement): Element | undefined {
+/** The spPr each drawn box of a shape is drawn from, with its box: a gallery shape's preset, the
+ *  preserved run's shape, or a group's members in order. */
+function drawnBoxes(shape: HTMLElement): [HTMLElement, Element][] {
+  const box = shape.querySelector<HTMLElement>(":scope > .docx-shape-box");
+  if (!box) return [];
   const id = shape.getAttribute("data-shape-prst");
-  if (id) return spPrFor(entry(id));
+  if (id) return [[box, spPrFor(entry(id))]];
   const xml = shape.getAttribute("data-docx-xml");
-  if (!xml) return undefined;
+  if (!xml) return [];
   const run = new DOMParser().parseFromString(xml, "application/xml");
-  const wsps = run.getElementsByTagName("wps:wsp");
-  if (wsps.length !== 1) return undefined; // groups are drawn member by member and not redrawn
-  return Array.from(wsps[0]!.children).find((c) => c.tagName === "wps:spPr");
+  const spPrs = Array.from(run.getElementsByTagName("wps:wsp")).map((w) => Array.from(w.children).find((c) => c.tagName === "wps:spPr"));
+  if (spPrs.length === 1) return spPrs[0] ? [[box, spPrs[0]]] : [];
+  // A group: its member boxes (not its sub-groups' boxes) are its shapes, in order.
+  const boxes = Array.from(box.querySelectorAll<HTMLElement>(".docx-shape-box")).filter((m) => !m.querySelector(":scope > .docx-shape-box, :scope > img"));
+  return boxes.length === spPrs.length ? boxes.flatMap((b, i) => (spPrs[i] ? [[b, spPrs[i]!] as [HTMLElement, Element]] : [])) : [];
 }
 
 const hex = (c: string): string | undefined => {
@@ -62,18 +67,19 @@ const hex = (c: string): string | undefined => {
   return /^#[0-9a-f]{6}$/i.test(c) ? c.slice(1).toUpperCase() : undefined;
 };
 
+/** Draw a shape's outline (each member's, for a group) again at its box's current size. */
 function redraw(shape: HTMLElement): void {
-  const box = shape.querySelector<HTMLElement>(":scope > .docx-shape-box");
-  if (!box || !box.hasAttribute("data-geom")) return;
-  const spPr = spPrOf(shape);
-  const w = parseFloat(box.style.width), h = parseFloat(box.style.height);
-  if (!spPr || !(w >= 0 && h >= 0)) return;
-  const bw = box.style.borderTopStyle && box.style.borderTopStyle !== "none" ? parseFloat(box.style.borderTopWidth) || 0 : 0;
-  const svg = geomSvg(spPr, w, h, { fill: hex(box.style.backgroundColor), line: bw ? hex(box.style.borderTopColor) ?? "000000" : undefined, lineW: bw });
-  if (!svg) return;
-  box.querySelector(":scope > svg.rdoc-shape-geom")?.remove();
-  box.insertAdjacentHTML("afterbegin", svg);
-  paintShapeGeom(box);
+  for (const [box, spPr] of drawnBoxes(shape)) {
+    if (!box.hasAttribute("data-geom")) continue;
+    const w = parseFloat(box.style.width), h = parseFloat(box.style.height);
+    if (!(w >= 0 && h >= 0)) continue;
+    const bw = box.style.borderTopStyle && box.style.borderTopStyle !== "none" ? parseFloat(box.style.borderTopWidth) || 0 : 0;
+    const svg = geomSvg(spPr, w, h, { fill: hex(box.style.backgroundColor), line: bw ? hex(box.style.borderTopColor) ?? "000000" : undefined, lineW: bw });
+    if (!svg) continue;
+    box.querySelector(":scope > svg.rdoc-shape-geom")?.remove();
+    box.insertAdjacentHTML("afterbegin", svg);
+    paintShapeGeom(box);
+  }
 }
 
 function icon(id: string): string {

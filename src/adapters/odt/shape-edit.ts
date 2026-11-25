@@ -58,8 +58,63 @@ function move(el: Element, dx: number, dy: number): void {
   setLen(el, "svg:y", lenPx(el.getAttribute("svg:y")) + dy);
 }
 
+const isMember = (c: Element) => c.namespaceURI === DRAW && c.tagName !== "draw:glue-point" && c.tagName !== "draw:enhanced-geometry";
+const translateOf = (el: Element): [number, number] | undefined => {
+  const m = /translate\s*\(\s*([^\s,)]+)[\s,]+([^\s,)]+)\s*\)/.exec(el.getAttribute("draw:transform") ?? "");
+  return m ? [lenPx(m[1]!), lenPx(m[2]!)] : undefined;
+};
+
+/** A group's box (px): its members' places and sizes, their rotation aside. */
+export function groupBox(g: Element): { x: number; y: number; w: number; h: number } | undefined {
+  let x0 = Infinity, y0 = Infinity, x1 = -Infinity, y1 = -Infinity;
+  const add = (x: number, y: number) => { x0 = Math.min(x0, x); y0 = Math.min(y0, y); x1 = Math.max(x1, x); y1 = Math.max(y1, y); };
+  const walk = (el: Element) => {
+    for (const c of Array.from(el.children)) {
+      if (!isMember(c)) continue;
+      if (c.tagName === "draw:g") { walk(c); continue; }
+      if (c.hasAttribute("svg:x1")) {
+        add(lenPx(c.getAttribute("svg:x1")), lenPx(c.getAttribute("svg:y1")));
+        add(lenPx(c.getAttribute("svg:x2")), lenPx(c.getAttribute("svg:y2")));
+        continue;
+      }
+      const [x, y] = translateOf(c) ?? [lenPx(c.getAttribute("svg:x")), lenPx(c.getAttribute("svg:y"))];
+      add(x, y);
+      add(x + lenPx(c.getAttribute("svg:width")), y + lenPx(c.getAttribute("svg:height")));
+    }
+  };
+  walk(g);
+  return x1 > x0 || y1 > y0 ? { x: x0, y: y0, w: x1 - x0, h: y1 - y0 } : undefined;
+}
+
+/** Stretch a group's members by sx, sy from its corner (ox, oy). */
+function scaleMembers(g: Element, ox: number, oy: number, sx: number, sy: number): void {
+  const at = (v: number, o: number, k: number) => o + (v - o) * k;
+  for (const c of Array.from(g.children)) {
+    if (!isMember(c)) continue;
+    if (c.tagName === "draw:g") { scaleMembers(c, ox, oy, sx, sy); continue; }
+    if (c.hasAttribute("svg:x1")) {
+      for (const [a, o, k] of [["svg:x1", ox, sx], ["svg:x2", ox, sx], ["svg:y1", oy, sy], ["svg:y2", oy, sy]] as const) setLen(c, a, at(lenPx(c.getAttribute(a)), o, k));
+      continue;
+    }
+    const t = translateOf(c);
+    if (t) c.setAttributeNS(DRAW, "draw:transform", (c.getAttribute("draw:transform") ?? "").replace(/translate\s*\([^)]*\)/, `translate (${cm(at(t[0], ox, sx))} ${cm(at(t[1], oy, sy))})`));
+    else {
+      setLen(c, "svg:x", at(lenPx(c.getAttribute("svg:x")), ox, sx));
+      setLen(c, "svg:y", at(lenPx(c.getAttribute("svg:y")), oy, sy));
+    }
+    if (c.hasAttribute("svg:width")) setLen(c, "svg:width", lenPx(c.getAttribute("svg:width")) * sx);
+    if (c.hasAttribute("svg:height")) setLen(c, "svg:height", lenPx(c.getAttribute("svg:height")) * sy);
+  }
+}
+
 function resize(el: Element, w: number | undefined, h: number | undefined): void {
-  if (el.tagName === "draw:g") return;
+  if (el.tagName === "draw:g") {
+    // A group stretches its members to its new box.
+    const b = groupBox(el);
+    if (!b) return;
+    scaleMembers(el, b.x, b.y, w !== undefined && b.w ? w / b.w : 1, h !== undefined && b.h ? h / b.h : 1);
+    return;
+  }
   if (el.hasAttribute("svg:x1")) {
     // A line keeps its start and direction; its extent becomes w x h.
     for (const [a1, a2, size] of [["svg:x1", "svg:x2", w], ["svg:y1", "svg:y2", h]] as const) {
@@ -77,10 +132,19 @@ function resize(el: Element, w: number | undefined, h: number | undefined): void
 export function applyGeometry(el: Element, e: OdtShapeEdit): void {
   if (e.w !== undefined || e.h !== undefined) resize(el, e.w, e.h);
   if (e.wrap === "inline") {
-    // In line: anchored as a character, its place is the text's.
+    // In line: anchored as a character, its place is the text's. A line or a group keeps its own
+    // coordinates, from 0,0.
     el.setAttributeNS(TEXT, "text:anchor-type", "as-char");
-    el.removeAttribute("svg:x");
-    el.removeAttribute("svg:y");
+    if (el.hasAttribute("svg:x1")) {
+      const v = (a: string) => lenPx(el.getAttribute(a));
+      move(el, -Math.min(v("svg:x1"), v("svg:x2")), -Math.min(v("svg:y1"), v("svg:y2")));
+    } else if (el.tagName === "draw:g") {
+      const b = groupBox(el);
+      if (b) move(el, -b.x, -b.y);
+    } else {
+      el.removeAttribute("svg:x");
+      el.removeAttribute("svg:y");
+    }
   } else {
     if (e.wrap && el.getAttribute("text:anchor-type") === "as-char") el.setAttributeNS(TEXT, "text:anchor-type", "paragraph");
     if (e.dx || e.dy) move(el, e.dx ?? 0, e.dy ?? 0);

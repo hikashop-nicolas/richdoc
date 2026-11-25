@@ -46,6 +46,13 @@ describe("docx shapes and text boxes", () => {
     const { body } = docxToParts(docx(drawing(grp, false, "http://schemas.microsoft.com/office/word/2010/wordprocessingGroup")));
     expect(body).toContain("position:absolute;left:0px;top:0px;width:100px;height:100px;background-color:#FF0000");
     expect(body).toContain("position:absolute;left:100px;top:0px;width:100px;height:100px;background-color:#00FF00");
+    // A resized, recoloured group: the group takes the new size, each member its own look.
+    const d = docx(drawing(grp, false, "http://schemas.microsoft.com/office/word/2010/wordprocessingGroup"));
+    const edited = body.replace('<span class="docx-shape"', '<span class="docx-shape" data-shape-dirty="look"').replace('style="width:200px;height:100px"', 'style="width:400px;height:50px"').replace("background-color:#00FF00", "background-color:#0000FF");
+    const xml = strFromU8(unzipSync(htmlToDocx(edited, d))["word/document.xml"]!);
+    expect(xml).toContain('<wp:extent cx="3810000" cy="476250"/>');
+    expect(xml).toContain('<a:ext cx="3810000" cy="476250"/><a:chOff x="0" y="0"/><a:chExt cx="1905000" cy="952500"/>');
+    expect(xml).toMatch(/<a:off x="952500" y="0"\/><a:ext cx="952500" cy="952500"\/><\/a:xfrm><a:prstGeom prst="rect"\/><a:solidFill><a:srgbClr val="0000FF"\/>/);
   });
 
   it("draws an old VML text box", () => {
