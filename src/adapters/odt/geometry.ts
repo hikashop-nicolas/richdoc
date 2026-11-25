@@ -23,7 +23,10 @@ export function evaluateGeometry(g: Element, wPx: number, hPx: number): Geometry
   const path = g.getAttribute("draw:enhanced-path") ?? "";
   if (!path.trim()) return undefined;
   const vbRaw = (g.getAttribute("svg:viewBox") ?? "0 0 21600 21600").trim().split(/[\s,]+/).map(Number);
-  const vb: Geometry["vb"] = vbRaw.length === 4 && vbRaw.every(Number.isFinite) ? (vbRaw as Geometry["vb"]) : [0, 0, 21600, 21600];
+  let vb: Geometry["vb"] = vbRaw.length === 4 && vbRaw.every(Number.isFinite) ? (vbRaw as Geometry["vb"]) : [0, 0, 21600, 21600];
+  // LibreOffice writes Word's preset shapes (draw:type="ooxml-...") with an empty view box: their
+  // paths are in the shape's own 1/100 mm (logwidth x logheight).
+  if (!(vb[2] > 0) || !(vb[3] > 0)) vb = [0, 0, (wPx * 2540) / 96, (hPx * 2540) / 96];
   const modifiers = (g.getAttribute("draw:modifiers") ?? "").trim().split(/[\s,]+/).filter(Boolean).map(Number);
   const formulas = new Map<string, string>();
   for (const eq of Array.from(g.getElementsByTagName("draw:equation"))) {

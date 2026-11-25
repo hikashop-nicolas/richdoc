@@ -15,6 +15,12 @@ describe("odt enhanced geometry", () => {
     expect(g.paths[0]!.d).toBe("M205,4 L21600,21600");
   });
 
+  it("scales a Word preset LibreOffice wrote with an empty view box from its 1/100 mm", () => {
+    const g = evaluateGeometry(geo('svg:viewBox="0 0 0 0" draw:type="ooxml-rect" draw:enhanced-path="M 0 0 L ?f3 0 ?f3 ?f2 0 ?f2 Z N"', { f2: "logheight", f3: "logwidth" }), 96, 48)!;
+    expect(g.vb).toEqual([0, 0, 2540, 1270]);
+    expect(g.paths[0]!.d).toBe("M0,0 L2540,0 L2540,1270 L0,1270 Z");
+  });
+
   it("splits subpaths and keeps their no-fill and no-stroke marks", () => {
     const g = evaluateGeometry(geo('draw:enhanced-path="M 0 0 L 10 0 Z N F M 0 5 L 5 5 N S M 1 1 L 2 2 N"'), 10, 10)!;
     expect(g.paths.map((p) => [p.fill, p.stroke])).toEqual([[true, true], [false, true], [true, false]]);
