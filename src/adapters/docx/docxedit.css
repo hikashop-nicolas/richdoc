@@ -142,6 +142,12 @@
 .docxedit-menu-item { font: 13px/1 system-ui, sans-serif; text-align: left; padding: 6px 10px; border: 0; border-radius: 5px; background: transparent; color: var(--rdoc-canvas, #e6e8ec); cursor: pointer; }
 .docxedit-menu-item:hover { background: var(--rdoc-btn, #3a3f47); }
 .docxedit-menu-item.is-on { background: var(--rdoc-accent, #6e7bff); color: #fff; }
+.docxedit-menu.docxedit-shape-gallery { width: min(336px, calc(100vw - 24px)); max-height: min(60vh, 480px); overflow-y: auto; }
+.docxedit-shape-gallery-head { font: 600 11px/1 system-ui, sans-serif; letter-spacing: .02em; color: var(--rdoc-canvas, #e6e8ec); opacity: .7; padding: 8px 6px 4px; }
+.docxedit-shape-gallery-grid { display: grid; grid-template-columns: repeat(auto-fill, minmax(36px, 1fr)); gap: 2px; }
+.docxedit-shape-gallery-item { display: grid; place-items: center; height: 30px; padding: 0; border: 0; border-radius: 5px; background: transparent; color: var(--rdoc-canvas, #e6e8ec); cursor: pointer; }
+.docxedit-shape-gallery-item:hover, .docxedit-shape-gallery-item:focus-visible { background: var(--rdoc-btn, #3a3f47); outline: none; }
+.docxedit-shape-gallery-item:focus-visible { box-shadow: 0 0 0 2px var(--rdoc-accent, #6e7bff); }
 .docxedit-menu-sep { height: 1px; margin: 4px 2px; background: var(--rdoc-btn-border, #4a4f57); }
 /* New-style dialog */
 .docxedit-dialog-overlay { position: fixed; inset: 0; z-index: 1000; display: flex; align-items: center; justify-content: center; background: rgba(0,0,0,.45); }

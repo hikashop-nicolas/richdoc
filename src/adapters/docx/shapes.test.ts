@@ -176,6 +176,17 @@ describe("editing shapes and text boxes", () => {
       expect(xml).toMatch(/<a:ln w="19050"><a:solidFill><a:srgbClr val="0000FF"\/><\/a:solidFill><a:prstDash val="dash"\/><a:tailEnd type="triangle"\/><\/a:ln>/);
     });
 
+    it("saves a dragged floating shape's new offsets", () => {
+      const anchored = `<w:p><w:r><w:drawing><wp:anchor behindDoc="0"><wp:positionH relativeFrom="page"><wp:align>center</wp:align></wp:positionH><wp:positionV relativeFrom="page"><wp:posOffset>952500</wp:posOffset></wp:positionV><wp:extent cx="1905000" cy="952500"/><wp:wrapNone/><wp:docPr id="1" name="s"/><a:graphic><a:graphicData uri="http://schemas.microsoft.com/office/word/2010/wordprocessingShape">${wsp(`<a:prstGeom prst="star5"><a:avLst/></a:prstGeom>${fill}`)}</a:graphicData></a:graphic></wp:anchor></w:drawing></w:r></w:p>`;
+      const d = docx(anchored);
+      const body = docxToParts(d).body;
+      expect(body).toMatch(/class="docx-shape"[^>]*data-shape-wrap="front"[^>]*style="left:0px;top:100px"/);
+      const html = body.replace('style="left:0px;top:100px"', 'data-shape-dirty="pos" style="left:50px;top:120px"');
+      const xml = strFromU8(unzipSync(htmlToDocx(html, d))["word/document.xml"]!);
+      expect(xml).toContain('<wp:positionH relativeFrom="page"><wp:posOffset>476250</wp:posOffset></wp:positionH>');
+      expect(xml).toContain('<wp:positionV relativeFrom="page"><wp:posOffset>1143000</wp:posOffset></wp:positionV>');
+    });
+
     it("draws a custom geometry scaled from its path box", () => {
       const cust = '<a:custGeom><a:avLst/><a:gdLst/><a:pathLst><a:path w="100" h="100"><a:moveTo><a:pt x="0" y="100"/></a:moveTo><a:lnTo><a:pt x="50" y="0"/></a:lnTo><a:arcTo wR="25" hR="25" stAng="10800000" swAng="10800000"/><a:close/></a:path></a:pathLst></a:custGeom>';
       const { body } = docxToParts(docx(drawing(wsp(cust + fill))));

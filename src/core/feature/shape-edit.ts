@@ -4,6 +4,7 @@
 // "look") so the adapter rewrites only what changed; untouched shapes save byte for byte.
 import { t } from "../i18n";
 import { paintShapeGeom } from "./shape-geom";
+import type { ShapeHooks } from "../types";
 
 export type ShapeKind = "textbox" | "rect" | "roundRect" | "ellipse";
 
@@ -12,12 +13,16 @@ export interface ShapeEditDeps {
   regions: HTMLElement[];
   mark: () => void;
   getActiveEl: () => HTMLElement;
+  /** The view zoom, to turn a pointer's screen move into the document's px. */
+  getZoom?: () => number;
+  /** The adapter's drawn shapes: redrawn after a resize; ready-made ones to insert. */
+  hooks?: ShapeHooks;
 }
 
 const BLOCK_SEL = "[class^='docx-tb-p'], [class^='docx-tb-h'], .docx-tb-li, .docx-tb-div";
 
 /** Flag a shape as edited ("text" / "look"), keeping both flags once set. */
-export function markShapeDirty(shape: Element, kind: "text" | "look"): void {
+export function markShapeDirty(shape: Element, kind: "text" | "look" | "pos"): void {
   const cur = new Set((shape.getAttribute("data-shape-dirty") ?? "").split(/\s+/).filter(Boolean));
   cur.add(kind);
   shape.setAttribute("data-shape-dirty", [...cur].join(" "));
@@ -56,7 +61,7 @@ export function newShapeEl(kind: ShapeKind): HTMLElement {
 }
 
 export function setupShapeEdit(deps: ShapeEditDeps) {
-  const { wrap, regions, mark, getActiveEl } = deps;
+  const { wrap, regions, mark, getActiveEl, getZoom, hooks } = deps;
   const inRegion = (n: Node | null) => !!n && regions.some((r) => r.contains(n));
 
   // Text edits inside a text box flag its shape.
@@ -138,6 +143,15 @@ export function setupShapeEdit(deps: ShapeEditDeps) {
   del.textContent = "✕";
   del.title = t("shapeDelete");
   del.setAttribute("aria-label", t("shapeDelete"));
+  // A floating shape (behind or in front of the text) moves by dragging it, or this handle when
+  // its text fills it; shapes in the text flow move with the text.
+  const move = document.createElement("button");
+  move.type = "button";
+  move.className = "docxedit-imgbar-btn docxedit-shapebar-move";
+  move.textContent = "✥";
+  move.title = t("shapeMove");
+  move.setAttribute("aria-label", t("shapeMove"));
+  bar.append(move);
   bar.append(field(t("shapeFill"), fillIn), field(t("shapeNoFill"), noFill), field(t("shapeOutline"), lineIn), lineW, field(t("shapeWidthCm"), wIn), field(t("shapeHeightCm"), hIn), del);
   wrap.appendChild(bar);
   const PX_CM = 96 / 2.54;
@@ -164,6 +178,7 @@ export function setupShapeEdit(deps: ShapeEditDeps) {
     lineW.value = !b.style.borderTopStyle || b.style.borderTopStyle === "none" || !bw ? "0" : String(Math.min(4, Math.max(1, Math.round(bw))));
     wIn.value = (b.offsetWidth / PX_CM).toFixed(1);
     hIn.value = (b.offsetHeight / PX_CM).toFixed(1);
+    move.hidden = !floating(shape);
     const isGroup = !!b.querySelector(":scope > .docx-shape-box, :scope > img");
     for (const el of [fillIn, noFill, lineIn, lineW]) (el as HTMLInputElement).disabled = isGroup;
   };
@@ -198,6 +213,7 @@ export function setupShapeEdit(deps: ShapeEditDeps) {
     const w = parseFloat(wIn.value), h = parseFloat(hIn.value);
     if (w > 0) b.style.width = `${Math.round(w * PX_CM)}px`;
     if (h > 0) b.style.height = `${Math.round(h * PX_CM)}px`;
+    if (shape) hooks?.redraw(shape); // the outline is worked out again for the new size
   });
   wIn.addEventListener("change", setSize);
   hIn.addEventListener("change", setSize);
@@ -208,6 +224,44 @@ export function setupShapeEdit(deps: ShapeEditDeps) {
     s.remove();
     mark();
   });
+  const floating = (s: HTMLElement | null) => !!s && /^(behind|front)$/.test(s.getAttribute("data-shape-wrap") ?? "");
+  let drag: { s: HTMLElement; x0: number; y0: number; left: number; top: number; id: number; moved: boolean } | null = null;
+  const startDrag = (s: HTMLElement, e: PointerEvent) => {
+    e.preventDefault(); // no text selection while dragging; this also stops the mousedown that selects
+    select(s);
+    const pos = shapePos(s);
+    drag = { s, x0: e.clientX, y0: e.clientY, left: pos.left, top: pos.top, id: e.pointerId, moved: false };
+  };
+  const onPointerDown = (e: PointerEvent) => {
+    const el = e.target as HTMLElement;
+    if (el === move && shape && floating(shape)) return startDrag(shape, e);
+    if (bar.contains(el) || el.closest?.(".docx-shape-body")) return;
+    const s = el.closest?.(".docx-shape") as HTMLElement | null;
+    if (s && inRegion(s) && floating(s) && e.button === 0) startDrag(s, e);
+  };
+  const onPointerMove = (e: PointerEvent) => {
+    if (!drag || e.pointerId !== drag.id) return;
+    const z = getZoom?.() || 1;
+    const dx = (e.clientX - drag.x0) / z, dy = (e.clientY - drag.y0) / z;
+    if (!drag.moved && Math.hypot(dx, dy) < 3) return;
+    drag.moved = true;
+    setShapePos(drag.s, Math.round(drag.left + dx), Math.round(drag.top + dy));
+    place();
+  };
+  const onPointerUp = (e: PointerEvent) => {
+    if (!drag || e.pointerId !== drag.id) return;
+    const d = drag;
+    drag = null;
+    if (!d.moved) return;
+    markShapeDirty(d.s, "pos");
+    mark();
+    place();
+  };
+  document.addEventListener("pointerdown", onPointerDown);
+  document.addEventListener("pointermove", onPointerMove);
+  document.addEventListener("pointerup", onPointerUp);
+  document.addEventListener("pointercancel", onPointerUp);
+
   // Clicking in a shape selects it (the bar shows while its text is edited); elsewhere deselects.
   const onDown = (e: MouseEvent) => {
     const el = e.target as HTMLElement;
@@ -227,13 +281,14 @@ export function setupShapeEdit(deps: ShapeEditDeps) {
   });
 
   /** Insert a new text box or shape at the caret. */
-  const insert = (kind: ShapeKind) => {
+  const insert = (kind: string) => {
     const sel = window.getSelection();
     if (!sel || !sel.rangeCount || !inRegion(sel.anchorNode)) return;
     const range = sel.getRangeAt(0).cloneRange();
     getActiveEl().focus({ preventScroll: true });
     range.deleteContents();
-    const el = newShapeEl(kind);
+    const basic = ["textbox", "rect", "roundRect", "ellipse"].includes(kind);
+    const el = basic || !hooks ? newShapeEl(basic ? (kind as ShapeKind) : "rect") : hooks.create(kind);
     range.insertNode(el);
     range.setStartAfter(el);
     range.collapse(true);
@@ -245,7 +300,21 @@ export function setupShapeEdit(deps: ShapeEditDeps) {
 
   const teardown = () => {
     document.removeEventListener("mousedown", onDown);
+    document.removeEventListener("pointerdown", onPointerDown);
+    document.removeEventListener("pointermove", onPointerMove);
+    document.removeEventListener("pointerup", onPointerUp);
+    document.removeEventListener("pointercancel", onPointerUp);
     bar.remove();
   };
   return { insert, select, teardown };
+}
+
+/** A floating shape's offset (px, as its left / top). */
+export function shapePos(s: HTMLElement): { left: number; top: number } {
+  return { left: parseFloat(s.style.left) || 0, top: parseFloat(s.style.top) || 0 };
+}
+
+export function setShapePos(s: HTMLElement, left: number, top: number): void {
+  s.style.left = `${left}px`;
+  s.style.top = `${top}px`;
 }

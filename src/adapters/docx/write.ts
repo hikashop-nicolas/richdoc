@@ -1,6 +1,7 @@
 // docx WRITE: rebuild a .docx archive from edited HTML, preserving every untouched part.
 // Pure HTML -> XML (body, header/footer, comments, reactions, replies, page margins); the
 // read half lives in ./read.
+import { galleryPreset } from "./shape-hooks";
 import { strFromU8, strToU8, unzipSync, zipSync } from "fflate";
 import { zipAsync } from "../../core/zip";
 import { toHex6, fontSizeToHalfPt, firstFontFamily, imageLayoutFromEl, blockBorders, parseCssBorder } from "../../core/util";
@@ -437,6 +438,19 @@ function shapeRun(ctx: DocxCtx, el: HTMLElement): Element | null {
   for (const fb of Array.from(run.getElementsByTagNameNS(NS_MC, "Fallback"))) fb.remove();
   const txbxs = Array.from(run.getElementsByTagNameNS(W, "txbxContent"));
   bodies.forEach((b, i) => { if (txbxs[i]) fillTxbx(ctx, txbxs[i]!, b); });
+  if (/pos/.test(edit)) {
+    // A dragged floating shape: its offsets become wp:posOffset from the same reference (page,
+    // column, paragraph ...); an aligned axis turns into an offset.
+    const anchor = run.getElementsByTagNameNS(NS_WP, "anchor")[0];
+    for (const [tag, px] of [["positionH", parseFloat(el.style.left)], ["positionV", parseFloat(el.style.top)]] as const) {
+      const pos = anchor?.getElementsByTagNameNS(NS_WP, tag)[0];
+      if (!pos || !Number.isFinite(px)) continue;
+      for (const c of Array.from(pos.children)) if (c.localName === "align" || c.localName === "posOffset") c.remove();
+      const off = pos.ownerDocument.createElementNS(NS_WP, "wp:posOffset");
+      off.textContent = String(Math.round(px * PX_EMU));
+      pos.appendChild(off);
+    }
+  }
   if (/look/.test(edit)) {
     const look = shapeLookOf(el.querySelector(":scope > .docx-shape-box"));
     const ext = run.getElementsByTagNameNS(NS_WP, "extent")[0];
@@ -516,16 +530,29 @@ function newShapeRun(ctx: DocxCtx, el: HTMLElement, body: Element | undefined): 
   const cx = look.w ?? 1828800, cy = look.h ?? 914400;
   const id = 30000 + ++shapeIds;
   const isBox = el.getAttribute("data-shape-new") === "textbox";
+  // A ready-made shape from the gallery: its preset; a line gets its arrowheads and no text.
+  const gid = el.getAttribute("data-shape-prst");
+  const preset = gid ? galleryPreset(gid) : undefined;
+  const prst = preset?.prst ?? look.prst;
+  const isLine = !!preset && !body;
   const xml =
     `<w:r xmlns:w="${W}"><mc:AlternateContent xmlns:mc="${NS_MC}"><mc:Choice xmlns:wps="${NS_WPS}" Requires="wps"><w:drawing>` +
     `<wp:inline xmlns:wp="${NS_WP}" distT="0" distB="0" distL="0" distR="0"><wp:extent cx="${cx}" cy="${cy}"/><wp:effectExtent l="0" t="0" r="0" b="0"/><wp:docPr id="${id}" name="${isBox ? "Text Box" : "Shape"} ${id}"/><wp:cNvGraphicFramePr/>` +
-    `<a:graphic xmlns:a="${NS_A}"><a:graphicData uri="${NS_WPS}"><wps:wsp><wps:cNvSpPr${isBox ? ' txBox="1"' : ""}/><wps:spPr><a:xfrm><a:off x="0" y="0"/><a:ext cx="${cx}" cy="${cy}"/></a:xfrm><a:prstGeom prst="${look.prst}"><a:avLst/></a:prstGeom></wps:spPr>` +
-    `<wps:txbx><w:txbxContent/></wps:txbx><wps:bodyPr rot="0" vert="horz" wrap="square" lIns="91440" tIns="45720" rIns="91440" bIns="45720" anchor="${isBox ? "t" : "ctr"}" anchorCtr="0"><a:noAutofit/></wps:bodyPr></wps:wsp></a:graphicData></a:graphic></wp:inline>` +
+    `<a:graphic xmlns:a="${NS_A}"><a:graphicData uri="${NS_WPS}"><wps:wsp><wps:cNvSpPr${isBox ? ' txBox="1"' : ""}/><wps:spPr><a:xfrm><a:off x="0" y="0"/><a:ext cx="${cx}" cy="${cy}"/></a:xfrm><a:prstGeom prst="${prst}"><a:avLst/></a:prstGeom></wps:spPr>` +
+    `${isLine ? "" : "<wps:txbx><w:txbxContent/></wps:txbx>"}<wps:bodyPr rot="0" vert="horz" wrap="square" lIns="91440" tIns="45720" rIns="91440" bIns="45720" anchor="${isBox ? "t" : "ctr"}" anchorCtr="0"><a:noAutofit/></wps:bodyPr></wps:wsp></a:graphicData></a:graphic></wp:inline>` +
     `</w:drawing></mc:Choice></mc:AlternateContent></w:r>`;
   const run = importPassthrough(ctx, xml);
   if (!run) return null;
   const spPr = run.getElementsByTagNameNS(NS_WPS, "spPr")[0];
   if (spPr) setShapePaint(spPr, look);
+  const ln = spPr?.getElementsByTagNameNS(NS_A, "ln")[0];
+  if (ln && preset?.ends) {
+    for (const end of preset.ends === "both" ? ["headEnd", "tailEnd"] : ["tailEnd"]) {
+      const e = ln.ownerDocument.createElementNS(NS_A, `a:${end}`);
+      e.setAttribute("type", "triangle");
+      ln.appendChild(e);
+    }
+  }
   const txbx = run.getElementsByTagNameNS(W, "txbxContent")[0];
   if (txbx && body) fillTxbx(ctx, txbx, body);
   return run;

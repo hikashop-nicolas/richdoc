@@ -13,6 +13,7 @@ import { W } from "./shared";
 import { docxToParts, loadEmbeddedFonts } from "./read";
 import { readDocDefaults, readThemeColors } from "./fonts";
 import { chartHooks } from "./charts";
+import { docxShapeHooks } from "./shape-hooks";
 import type { DocDefaults } from "./fonts";
 import type { DocxParts } from "./read";
 import { htmlToDocxAsync } from "./write";
@@ -94,6 +95,7 @@ export function createDocxAdapter(bytes: Uint8Array, preunzipped?: Record<string
       if (!themeColors) try { themeColors = readThemeColors(preunzipped ?? unzipSync(original)); } catch { themeColors = {}; }
       return themeColors;
     }),
+    shapes: docxShapeHooks,
     capabilities: {
       comments: true,
       commentReplies: true,

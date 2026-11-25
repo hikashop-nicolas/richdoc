@@ -41,7 +41,7 @@ function inlineBlocks(html: string): string {
   return body.innerHTML;
 }
 
-interface Look { fill?: string; line?: string; lineW?: number; radius?: string; text?: string; rot?: number }
+export interface Look { fill?: string; line?: string; lineW?: number; radius?: string; text?: string; rot?: number }
 /** A wps:wsp's look: spPr fill / outline / geometry, falling back to its wps:style references. */
 function wspLook(sp: Element, ctx: ShapeCtx): Look {
   const spPr = kid(sp, "wps:spPr");
@@ -92,7 +92,7 @@ function bodyHtml(txbx: Element | undefined, bodyPr: Element | undefined, ctx: S
 const END_SIZE: Record<string, number> = { sm: 2, med: 3, lg: 5 };
 
 /** An arrowhead at `tip`, pointing away from `from`. */
-function lineEnd(end: Element | undefined, from: [number, number], tip: [number, number], lw: number): string {
+export function lineEnd(end: Element | undefined, from: [number, number], tip: [number, number], lw: number): string {
   const type = end?.getAttribute("type");
   if (!type || type === "none") return "";
   const k = Math.max(lw, 2.65); // thin lines get heads sized for a 0.7 mm line, as Word and LibreOffice do
@@ -117,7 +117,7 @@ const ROUND_PRESETS = new Set(["roundRect", "flowChartAlternateProcess"]);
 
 /** The outline of a shape that is not a plain rectangle, as an SVG over the box, painted from the
  *  look (the box keeps the look as CSS for the shape bar and the writer). */
-function geomSvg(spPr: Element | undefined, w: number, h: number, look: Look): string | undefined {
+export function geomSvg(spPr: Element | undefined, w: number, h: number, look: Look): string | undefined {
   const prstEl = kid(spPr, "a:prstGeom"), cust = kid(spPr, "a:custGeom");
   const prst = prstEl?.getAttribute("prst");
   let paths: GeomPath[] | undefined;

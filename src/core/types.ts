@@ -275,6 +275,16 @@ export interface ChartHooks {
   create(): HTMLElement;
 }
 
+/** Drawn shapes beyond plain boxes: redrawn after a resize, and offered by Insert > Shape. */
+export interface ShapeHooks {
+  /** Redraw a shape's outline at its box's current size. */
+  redraw(shape: HTMLElement): void;
+  /** Ready-made shapes for the insert menu, by group; each with a small SVG picture of it. */
+  gallery(): { group: string; items: { id: string; label: string; icon: string }[] }[];
+  /** A new shape element for a gallery id. */
+  create(id: string): HTMLElement;
+}
+
 /** The irreducible per-format layer: parse, serialize, comment markers, feature flags. */
 export interface Adapter {
   original: Uint8Array;
@@ -287,6 +297,7 @@ export interface Adapter {
   capabilities: Capabilities;
   /** Chart editing, when the format supports it. */
   charts?: ChartHooks;
+  shapes?: ShapeHooks;
 }
 
 /** One block's identity and current markup. */

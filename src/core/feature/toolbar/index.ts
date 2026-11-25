@@ -45,7 +45,8 @@ export interface ToolbarDeps {
   vertical: boolean; // vertical (tategaki) writing, for the floating bar layout
   insertSectionBreak: (() => void) | null; // section-break action (Ctrl+Shift+Enter), null if unsupported
   insertNote: (kind: "footnote" | "endnote", text: string) => void; // insert a footnote/endnote at the caret
-  insertShape?: (kind: "textbox" | "rect" | "roundRect" | "ellipse") => void; // insert a text box / shape
+  insertShape?: (kind: string) => void; // insert a text box / shape (a basic kind or a gallery id)
+  shapeGallery?: () => { group: string; items: { id: string; label: string; icon: string }[] }[];
   insertChart?: () => void; // insert a chart and open its dialog
 }
 
@@ -53,7 +54,7 @@ export function setupToolbar(deps: ToolbarDeps) {
   const {
     toolbar, wrap, doc, regions, caps, options, parts, adapter, getActiveEl, mark, undo, redo, positionCards,
     addThreadCard, setActiveComment, allocId, freshParaId, insertImage, styleBar,
-    newStyles, newStyleCss, vertical, insertSectionBreak, insertNote, insertShape, insertChart,
+    newStyles, newStyleCss, vertical, insertSectionBreak, insertNote, insertShape, shapeGallery, insertChart,
   } = deps;
 
   // An element counts as an editing host when it is inside the body/header/footer regions, or
@@ -838,21 +839,51 @@ export function setupToolbar(deps: ToolbarDeps) {
   const shapesMenu = document.createElement("div");
   shapesMenu.className = "docxedit-menu";
   shapesMenu.hidden = true;
-  for (const [kind, label] of [["textbox", t("shapeTextBox")], ["rect", t("shapeRect")], ["roundRect", t("shapeRoundRect")], ["ellipse", t("shapeEllipse")]] as const) {
+  const pick = (e: Event, kind: string) => {
+    e.stopPropagation();
+    shapesMenu.hidden = true;
+    for (const m of Array.from(wrap.querySelectorAll<HTMLElement>(".docxedit-tb-groupmenu"))) m.hidden = true;
+    restoreSel();
+    insertShape?.(kind);
+  };
+  const basics = shapeGallery ? ([["textbox", t("shapeTextBox")]] as const) : ([["textbox", t("shapeTextBox")], ["rect", t("shapeRect")], ["roundRect", t("shapeRoundRect")], ["ellipse", t("shapeEllipse")]] as const);
+  for (const [kind, label] of basics) {
     const b = document.createElement("button");
     b.type = "button";
     b.className = "docxedit-menu-item";
     b.textContent = label;
     b.addEventListener("mousedown", (e) => e.preventDefault());
-    b.addEventListener("click", (e) => {
-      e.stopPropagation();
-      shapesMenu.hidden = true;
-      for (const m of Array.from(wrap.querySelectorAll<HTMLElement>(".docxedit-tb-groupmenu"))) m.hidden = true;
-      restoreSel();
-      insertShape?.(kind);
-    });
+    b.addEventListener("click", (e) => pick(e, kind));
     shapesMenu.appendChild(b);
   }
+  // The ready-made shapes, as a grid of pictures per group, built on first open.
+  let galleryBuilt = false;
+  const buildGallery = () => {
+    if (galleryBuilt || !shapeGallery) return;
+    galleryBuilt = true;
+    shapesMenu.classList.add("docxedit-shape-gallery");
+    for (const g of shapeGallery()) {
+      const h = document.createElement("div");
+      h.className = "docxedit-shape-gallery-head";
+      h.textContent = g.group;
+      const grid = document.createElement("div");
+      grid.className = "docxedit-shape-gallery-grid";
+      grid.setAttribute("role", "group");
+      grid.setAttribute("aria-label", g.group);
+      for (const it of g.items) {
+        const b = document.createElement("button");
+        b.type = "button";
+        b.className = "docxedit-shape-gallery-item";
+        b.title = it.label;
+        b.setAttribute("aria-label", it.label);
+        b.innerHTML = it.icon;
+        b.addEventListener("mousedown", (e) => e.preventDefault());
+        b.addEventListener("click", (e) => pick(e, it.id));
+        grid.appendChild(b);
+      }
+      shapesMenu.append(h, grid);
+    }
+  };
   const shapesBtn = insertShape ? iconBtn(shapeIcon, t("insertShape"), () => {}) : null;
   const chartIcon = '<svg width="16" height="16" viewBox="0 0 16 16" fill="currentColor" aria-hidden="true"><rect x="2" y="8" width="3" height="6" rx=".5"/><rect x="6.5" y="4" width="3" height="10" rx=".5"/><rect x="11" y="6" width="3" height="8" rx=".5"/></svg>';
   const chartBtn = insertChart ? iconBtn(chartIcon, t("insertChart"), () => { restoreSel(); insertChart(); }) : null;
@@ -864,7 +895,15 @@ export function setupToolbar(deps: ToolbarDeps) {
     const wr = wrap.getBoundingClientRect();
     shapesMenu.style.left = `${r.left - wr.left}px`;
     shapesMenu.style.top = `${r.bottom - wr.top + 2}px`;
+    buildGallery();
     shapesMenu.hidden = !shapesMenu.hidden;
+    // Keep the menu inside the view (the button may sit in an overflow menu, or near an edge).
+    if (!shapesMenu.hidden) {
+      const m = shapesMenu.getBoundingClientRect();
+      if (m.right > window.innerWidth - 4) shapesMenu.style.left = `${Math.max(4, window.innerWidth - 4 - m.width - wr.left)}px`;
+      if (m.top < wr.top + 4 || m.bottom > window.innerHeight - 4) shapesMenu.style.top = `${Math.max(4, Math.min(r.bottom - wr.top + 2, window.innerHeight - 4 - m.height - wr.top))}px`;
+      if (m.left < 4) shapesMenu.style.left = `${4 - wr.left}px`;
+    }
   });
 
   // --- Ordered-list numbering: restart / continue / start-at on the list at the caret -------

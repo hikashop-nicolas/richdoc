@@ -2001,7 +2001,7 @@ export function createRichEditor(container: HTMLElement, adapter: Adapter, optio
   images = setupImages({ wrap, scroll, regions, mark, getActiveEl: () => activeEl, onSelect: imageLayout?.onSelect, convertPicture: options.convertPicture });
   const { insertImage } = images;
   // Shapes and text boxes: their text is edited in place; the bar edits look and size.
-  const shapeEdit = caps.shapes ? setupShapeEdit({ wrap, regions, mark, getActiveEl: () => activeEl }) : null;
+  const shapeEdit = caps.shapes ? setupShapeEdit({ wrap, regions, mark, getActiveEl: () => activeEl, getZoom: effectiveZoom, hooks: adapter.shapes }) : null;
   // Charts: double-click to edit; Insert > Chart adds one (when the adapter supports charts).
   const chartEdit = adapter.charts ? setupChartEdit({ wrap, regions, mark, getActiveEl: () => activeEl, hooks: adapter.charts }) : null;
   // External clipboard HTML is normalized onto the editor vocabulary (see feature/paste.ts).
@@ -2135,6 +2135,7 @@ export function createRichEditor(container: HTMLElement, adapter: Adapter, optio
     insertSectionBreak: sectionBreakBtn ? () => sectionBreakBtn.click() : null,
     insertNote: (kind, text) => insertNote(kind, text),
     insertShape: shapeEdit?.insert,
+    shapeGallery: adapter.shapes ? () => adapter.shapes!.gallery() : undefined,
     insertChart: chartEdit?.insert,
   });
   // Find/replace lives at the right end of the top toolbar (its own margin
