@@ -87,7 +87,7 @@ export function onText(x: number, y: number): boolean {
 /** The float behind the text under a point that is not on a letter: what a click there picks. */
 export function behindAt(x: number, y: number, regions: HTMLElement[]): HTMLElement | null {
   if (onText(x, y)) return null;
-  for (const hit of document.elementsFromPoint(x, y)) {
+  for (const hit of document.elementsFromPoint?.(x, y) ?? []) {
     const el = (hit.tagName === "IMG" ? hit : hit.closest(".docx-shape, .odt-shape")) as HTMLElement | null;
     if (el && regions.some((r) => r.contains(el)) && layerOf(el) === "behind") return el;
   }
@@ -154,7 +154,7 @@ const FLOW_BLOCK = "p, h1, h2, h3, h4, h5, h6, li";
 export function dropWrapped(el: HTMLElement, x: number, y: number, w: number, regions: HTMLElement[]): "left" | "center" | "right" | null {
   const inRegion = (n: Element) => regions.some((r) => r.contains(n));
   let block: HTMLElement | null = null;
-  for (const hit of document.elementsFromPoint(x + 2, y + 2)) {
+  for (const hit of document.elementsFromPoint?.(x + 2, y + 2) ?? []) {
     if (el.contains(hit)) continue;
     const b = hit.closest<HTMLElement>(FLOW_BLOCK);
     if (b && inRegion(b) && !b.closest(".docx-shape, .odt-shape")) { block = b; break; }
