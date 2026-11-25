@@ -5,7 +5,8 @@
 // rewrites only what changed; untouched shapes save byte for byte.
 import { t } from "../i18n";
 import { paintShapeGeom } from "./shape-geom";
-import { ALIGN_ICONS, ORDER_ICONS, WRAP_ICONS } from "./image-layout";
+import { ALIGN_ICONS, BAR_ICONS, ORDER_ICONS, WRAP_ICONS } from "./image-layout";
+import { colorChooser, setupPopovers } from "./popover";
 import { behindAt as floatBehind, dropWrapped, ghostOf, markShapeDirty, originOf, restack as restackFloat, setZ, stack, topZ } from "./stacking";
 import type { ShapeHooks, ShapeLook, ShapeModel, ShapeWrap } from "../types";
 
@@ -114,86 +115,115 @@ export function setupShapeEdit(deps: ShapeEditDeps) {
   }
 
   // --- the shape bar --------------------------------------------------------------------------
+  // Icon buttons; the fill, outline, size and layout open a small panel of settings above it.
   let shape: HTMLElement | null = null;
   const bar = document.createElement("div");
   bar.className = "docxedit-imgbar docxedit-shapebar";
+  bar.setAttribute("role", "toolbar");
+  bar.setAttribute("aria-label", t("shapeBar"));
   bar.hidden = true;
-  const field = (label: string, input: HTMLElement): HTMLElement => {
-    const l = document.createElement("label");
-    l.className = "docxedit-shapebar-field";
-    l.title = label;
-    const s = document.createElement("span");
-    s.textContent = label;
-    l.append(s, input);
-    return l;
-  };
-  const color = () => { const i = document.createElement("input"); i.type = "color"; return i; };
-  const fillIn = color(), lineIn = color();
-  const noFill = document.createElement("input");
-  noFill.type = "checkbox";
-  const num = (min: string, step: string) => { const i = document.createElement("input"); i.type = "number"; i.min = min; i.step = step; i.className = "docxedit-shapebar-num"; return i; };
-  const lineW = num("0", "0.25");
-  lineW.max = "20";
-  const wIn = num("0.2", "0.1"), hIn = num("0.2", "0.1");
-  const btn = (text: string, title: string, cls = ""): HTMLButtonElement => {
+  const btn = (icon: string, title: string, cls = ""): HTMLButtonElement => {
     const b = document.createElement("button");
     b.type = "button";
     b.className = `docxedit-imgbar-btn ${cls}`.trim();
-    b.innerHTML = text;
+    b.innerHTML = icon;
     b.title = title;
     b.setAttribute("aria-label", title);
     b.addEventListener("mousedown", (e) => e.preventDefault()); // keep the caret in the shape's text
     return b;
   };
-  const del = btn("✕", t("shapeDelete"));
+  const num = (label: string, min: string, step: string) => {
+    const i = document.createElement("input");
+    i.type = "number"; i.min = min; i.step = step;
+    i.className = "docxedit-shapebar-num";
+    i.title = label;
+    i.setAttribute("aria-label", label);
+    return i;
+  };
+  const row = (...kids: (HTMLElement | string)[]) => {
+    const r = document.createElement("div");
+    r.className = "rdoc-pop-row";
+    for (const k of kids) {
+      if (typeof k !== "string") { r.appendChild(k); continue; }
+      const u = document.createElement("span");
+      u.className = /^</.test(k) ? "rdoc-pop-icon" : "rdoc-pop-unit";
+      if (/^</.test(k)) { u.innerHTML = k; u.setAttribute("aria-hidden", "true"); } else u.textContent = k;
+      r.appendChild(u);
+    }
+    return r;
+  };
+  const colorBtn = (icon: string, title: string) => btn(`${icon}<span class="rdoc-colorbar"></span>`, title, "rdoc-color-btn");
+
   // A floating or wrapped shape moves by dragging it, or this handle; one in line with the text
   // moves with the text.
-  const move = btn("✥", t("shapeMove"), "docxedit-shapebar-move");
-  // Layout: how the shape sits in the text, its alignment and its stacking order, in a menu.
+  const move = btn(BAR_ICONS.move, t("shapeMove"), "docxedit-shapebar-move");
   const layoutBtn = btn(WRAP_ICONS.inline, t("shapeLayout"), "docxedit-shapebar-layout");
-  layoutBtn.setAttribute("aria-haspopup", "menu");
-  layoutBtn.setAttribute("aria-expanded", "false");
-  const menu = document.createElement("div");
-  menu.className = "docxedit-menu docxedit-shapebar-menu";
-  menu.setAttribute("role", "menu");
-  menu.hidden = true;
+  const fillBtn = colorBtn(BAR_ICONS.fill, t("shapeFill"));
+  const lineBtn = colorBtn(BAR_ICONS.outline, t("shapeOutline"));
+  const sizeBtn = btn(BAR_ICONS.size, t("shapeSize"));
+  const del = btn(BAR_ICONS.trash, t("shapeDelete"));
+  bar.append(move, layoutBtn, fillBtn, lineBtn, sizeBtn, del);
+  wrap.append(bar);
+  const pops = setupPopovers(wrap, bar);
+
+  // Layout: how it sits in the text, its alignment and its stacking order.
   const WRAPS: [ShapeWrap, string][] = [["inline", "wrapInline"], ["square", "wrapSquare"], ["tight", "wrapTight"], ["topbottom", "wrapTopBottom"], ["behind", "wrapBehind"], ["front", "wrapFront"]];
-  const item = (icon: string, label: string, fn: () => void): HTMLButtonElement => {
-    const b = document.createElement("button");
-    b.type = "button";
-    b.className = "docxedit-menu-item docxedit-shapebar-menu-item";
-    b.setAttribute("role", "menuitemradio");
-    b.innerHTML = `${icon}<span></span>`;
-    b.lastElementChild!.textContent = label;
-    b.addEventListener("mousedown", (e) => e.preventDefault());
-    b.addEventListener("click", (e) => { e.stopPropagation(); fn(); });
-    return b;
-  };
-  const sepEl = () => { const s = document.createElement("div"); s.className = "docxedit-shapebar-menu-sep"; return s; };
   const wrapItems = new Map<ShapeWrap, HTMLButtonElement>();
+  const wrapRow = row();
   for (const [w, key] of WRAPS) {
-    const b = item(WRAP_ICONS[w], t(key), () => setWrap(w));
+    const b = btn(WRAP_ICONS[w], t(key));
+    b.addEventListener("click", () => setWrap(w));
     wrapItems.set(w, b);
-    menu.appendChild(b);
+    wrapRow.appendChild(b);
   }
-  const alignSep = sepEl();
-  const alignRow = document.createElement("div");
-  alignRow.className = "docxedit-shapebar-menu-row";
+  const alignRow = row();
   const alignBtns = new Map<"left" | "center" | "right", HTMLButtonElement>();
   for (const [a, key] of [["left", "alignLeft"], ["center", "alignCenter"], ["right", "alignRight"]] as const) {
     const b = btn(ALIGN_ICONS[a], t(key));
-    b.addEventListener("click", (e) => { e.stopPropagation(); setAlign(a); });
+    b.addEventListener("click", () => setAlign(a));
     alignBtns.set(a, b);
     alignRow.appendChild(b);
   }
-  const orderSep = sepEl();
-  const front = item(ORDER_ICONS.front, t("shapeBringFront"), () => restack(1));
-  const back = item(ORDER_ICONS.back, t("shapeSendBack"), () => restack(-1));
-  for (const b of [front, back]) b.setAttribute("role", "menuitem");
-  menu.append(alignSep, alignRow, orderSep, front, back);
-  bar.append(move, layoutBtn);
-  bar.append(field(t("shapeFill"), fillIn), field(t("shapeNoFill"), noFill), field(t("shapeOutline"), lineIn), field(t("shapeOutlineWidthPt"), lineW), field(t("shapeWidthCm"), wIn), field(t("shapeHeightCm"), hIn), del);
-  wrap.append(bar, menu);
+  const front = btn(ORDER_ICONS.front, t("shapeBringFront"));
+  const back = btn(ORDER_ICONS.back, t("shapeSendBack"));
+  front.addEventListener("click", () => restack(1));
+  back.addEventListener("click", () => restack(-1));
+  const orderRow = row(front, back);
+  const layoutPanel = document.createElement("div");
+  layoutPanel.className = "rdoc-pop-body";
+  layoutPanel.append(wrapRow, alignRow, orderRow);
+  pops.add(layoutBtn, t("shapeLayout"), layoutPanel, () => sync());
+
+  // Fill: a colour, or none.
+  const fillPick = colorChooser({ noneLabel: t("shapeNoFill"), otherLabel: t("shapeOtherColor"), onPick: (c) => { apply({ fill: c }); sync(); } });
+  pops.add(fillBtn, t("shapeFill"), fillPick.el, () => sync());
+
+  // Outline: a colour (or none) and a width in points.
+  const lineW = num(t("shapeOutlineWidthPt"), "0", "0.25");
+  lineW.max = "20";
+  const linePick = colorChooser({
+    noneLabel: t("shapeNoOutline"), otherLabel: t("shapeOtherColor"),
+    onPick: (c) => {
+      if (c && !(parseFloat(lineW.value) > 0)) lineW.value = "0.75";
+      apply(c ? { line: c, lineW: (parseFloat(lineW.value) || 0.75) * PX_PT } : { line: null, lineW: 0 });
+      sync();
+    },
+  });
+  const linePanel = document.createElement("div");
+  linePanel.className = "rdoc-pop-body";
+  linePanel.append(linePick.el, row(BAR_ICONS.weight, lineW, "pt"));
+  pops.add(lineBtn, t("shapeOutline"), linePanel, () => sync());
+
+  // Size: width and height in centimetres, its proportions kept when locked.
+  const wIn = num(t("shapeWidthCm"), "0.2", "0.1"), hIn = num(t("shapeHeightCm"), "0.2", "0.1");
+  const lock = btn(BAR_ICONS.lock, t("shapeKeepRatio"));
+  lock.setAttribute("aria-pressed", "false");
+  lock.addEventListener("click", () => lock.setAttribute("aria-pressed", String(lock.getAttribute("aria-pressed") !== "true")));
+  const sizePanel = document.createElement("div");
+  sizePanel.className = "rdoc-pop-body";
+  sizePanel.append(row(BAR_ICONS.width, wIn, "cm"), row(BAR_ICONS.height, hIn, "cm"), row(lock));
+  pops.add(sizeBtn, t("shapeSize"), sizePanel, () => sync());
+
   const PX_CM = 96 / 2.54, PX_PT = 4 / 3;
   const rgbHex = (c: string): string => {
     const m = /rgba?\((\d+),\s*(\d+),\s*(\d+)/.exec(c);
@@ -394,47 +424,38 @@ export function setupShapeEdit(deps: ShapeEditDeps) {
     // Above the shape, or below it when there is no room above.
     const above = r.top - wr.top - bar.offsetHeight - 6;
     bar.style.top = `${above >= 4 ? above : Math.min(r.bottom - wr.top + 6, wr.height - bar.offsetHeight - 4)}px`;
-    if (!menu.hidden) placeMenu();
-  };
-  const placeMenu = () => {
-    const r = layoutBtn.getBoundingClientRect(), wr = wrap.getBoundingClientRect();
-    menu.style.left = `${Math.max(4, Math.min(r.left - wr.left, wr.width - menu.offsetWidth - 4))}px`;
-    menu.style.top = `${r.bottom - wr.top + 4}px`;
+    pops.place();
   };
   const sync = () => {
     if (!shape) return;
     const m = modelOf(shape);
     const lk = m.get(shape);
     if (!lk) return;
-    noFill.checked = !lk.fill;
-    fillIn.value = lk.fill ?? "#ffffff";
-    lineIn.value = lk.line ?? "#000000";
+    fillPick.set(lk.fill);
+    linePick.set(lk.line && lk.lineW ? lk.line : null);
+    (fillBtn.lastElementChild as HTMLElement).style.background = lk.fill ?? "";
+    (lineBtn.lastElementChild as HTMLElement).style.background = lk.line && lk.lineW ? lk.line : "";
+    fillBtn.classList.toggle("is-none", !lk.fill);
+    lineBtn.classList.toggle("is-none", !(lk.line && lk.lineW));
     lineW.value = !lk.line || !lk.lineW ? "0" : String(Math.round((lk.lineW / PX_PT) * 100) / 100);
-    wIn.value = (lk.w / PX_CM).toFixed(1);
-    hIn.value = (lk.h / PX_CM).toFixed(1);
+    if (document.activeElement !== wIn) wIn.value = (lk.w / PX_CM).toFixed(1);
+    if (document.activeElement !== hIn) hIn.value = (lk.h / PX_CM).toFixed(1);
     move.hidden = !floating(shape) && !wrapped(shape);
-    for (const el of [fillIn, noFill, lineIn, lineW]) (el as HTMLInputElement).disabled = !!lk.group && !lk.groupLook;
-    for (const el of [wIn, hIn]) el.disabled = !!lk.fixedSize;
+    fillBtn.disabled = lineBtn.disabled = !!lk.group && !lk.groupLook;
+    sizeBtn.disabled = !!lk.fixedSize;
     const w = wrapOf(shape), can = new Set(m.wraps(shape));
     layoutBtn.innerHTML = WRAP_ICONS[w];
     for (const [k, b] of wrapItems) {
       b.hidden = !can.has(k);
-      b.setAttribute("aria-checked", String(k === w));
+      b.setAttribute("aria-pressed", String(k === w));
       b.classList.toggle("is-on", k === w);
     }
-    const aligned = w === "square" || w === "tight" || w === "topbottom";
-    alignSep.hidden = alignRow.hidden = !aligned;
+    alignRow.hidden = !(w === "square" || w === "tight" || w === "topbottom");
     const a = shape.getAttribute("data-shape-align") ?? "left";
-    for (const [k, b] of alignBtns) b.classList.toggle("is-on", k === a);
-    orderSep.hidden = front.hidden = back.hidden = !floating(shape);
+    for (const [k, b] of alignBtns) { b.classList.toggle("is-on", k === a); b.setAttribute("aria-pressed", String(k === a)); }
+    orderRow.hidden = !floating(shape);
   };
-  const closeMenu = () => { menu.hidden = true; layoutBtn.setAttribute("aria-expanded", "false"); };
-  layoutBtn.addEventListener("click", (e) => {
-    e.stopPropagation();
-    menu.hidden = !menu.hidden;
-    layoutBtn.setAttribute("aria-expanded", String(!menu.hidden));
-    if (!menu.hidden) { sync(); placeMenu(); }
-  });
+  const closeMenu = () => pops.close();
   const select = (s: HTMLElement | null) => {
     if (s === shape) return place();
     shape?.classList.remove("docx-shape-selected");
@@ -454,18 +475,26 @@ export function setupShapeEdit(deps: ShapeEditDeps) {
     mark();
     place();
   };
-  fillIn.addEventListener("input", () => { noFill.checked = false; apply({ fill: fillIn.value }); });
-  noFill.addEventListener("change", () => apply({ fill: noFill.checked ? null : fillIn.value }));
-  const lineNow = (): Partial<ShapeLook> => { const w = Math.max(0, parseFloat(lineW.value) || 0) * PX_PT; return { line: w ? lineIn.value : null, lineW: w }; };
-  lineIn.addEventListener("input", () => { if (!(parseFloat(lineW.value) > 0)) lineW.value = "0.75"; apply(lineNow()); });
-  lineW.addEventListener("change", () => apply(lineNow()));
-  const setSize = () => {
-    const w = parseFloat(wIn.value), h = parseFloat(hIn.value);
+  lineW.addEventListener("change", () => {
+    const w = Math.max(0, parseFloat(lineW.value) || 0) * PX_PT;
+    const cur = shape ? modelOf(shape).get(shape) : undefined;
+    apply({ line: w ? cur?.line || "#000000" : null, lineW: w });
+    sync();
+  });
+  const setSize = (changed: "w" | "h") => {
+    if (!shape) return;
+    const cur = modelOf(shape).get(shape);
+    let w = parseFloat(wIn.value), h = parseFloat(hIn.value);
+    // Locked: the other side follows, in the shape's present proportions.
+    if (lock.getAttribute("aria-pressed") === "true" && cur && cur.w > 0 && cur.h > 0) {
+      if (changed === "w" && w > 0) { h = (w * cur.h) / cur.w; hIn.value = h.toFixed(1); }
+      if (changed === "h" && h > 0) { w = (h * cur.w) / cur.h; wIn.value = w.toFixed(1); }
+    }
     apply({ ...(w > 0 ? { w: w * PX_CM } : {}), ...(h > 0 ? { h: h * PX_CM } : {}) });
     layout();
   };
-  wIn.addEventListener("change", setSize);
-  hIn.addEventListener("change", setSize);
+  wIn.addEventListener("change", () => setSize("w"));
+  hIn.addEventListener("change", () => setSize("h"));
   del.addEventListener("click", () => {
     if (!shape) return;
     const s = shape;
@@ -536,8 +565,7 @@ export function setupShapeEdit(deps: ShapeEditDeps) {
   const onPointerDown = (e: PointerEvent) => {
     const el = e.target as HTMLElement;
     if (el === move && shape && (floating(shape) || wrapped(shape))) return startDrag(shape, e);
-    if (bar.contains(el) || menu.contains(el)) return;
-    if (!menu.hidden) closeMenu();
+    if (bar.contains(el) || pops.contains(el)) return;
     if (e.button !== 0) return;
     const s = el.closest?.(SEL) as HTMLElement | null;
     // A press on a floating shape picks it up to drag it; a click in its text without moving
@@ -612,16 +640,16 @@ export function setupShapeEdit(deps: ShapeEditDeps) {
   // Clicking in a shape selects it (the bar shows while its text is edited); elsewhere deselects.
   const onDown = (e: MouseEvent) => {
     const el = e.target as HTMLElement;
-    if (bar.contains(el) || menu.contains(el)) return;
+    if (bar.contains(el) || pops.contains(el) || el.closest?.(".rdoc-shape-handle")) return;
     // A click on a shape (its frame or its text) selects it; the text keeps the caret.
     const s = el.closest?.(SEL) as HTMLElement | null;
     select(s && inRegion(s) ? s : null);
   };
   document.addEventListener("mousedown", onDown);
   wrap.addEventListener("keydown", (e) => {
-    if (!shape || bar.contains(e.target as Node) || menu.contains(e.target as Node)) return;
+    if (!shape || bar.contains(e.target as Node) || pops.contains(e.target as Node)) return;
     const inText = !!(e.target as Element).closest?.(".docx-shape-body");
-    if (e.key === "Escape") { if (!menu.hidden) closeMenu(); else select(null); }
+    if (e.key === "Escape") select(null);
     else if ((e.key === "Delete" || e.key === "Backspace") && !inText) {
       e.preventDefault();
       del.click();
@@ -669,7 +697,7 @@ export function setupShapeEdit(deps: ShapeEditDeps) {
     wrap.removeEventListener("scroll", onScroll, true);
     bar.remove();
     for (const h of handleEls) h.remove();
-    menu.remove();
+    pops.teardown();
   };
   return { insert, select, layout, teardown };
 }

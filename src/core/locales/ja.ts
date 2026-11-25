@@ -465,6 +465,11 @@ const dict: Dict = {
   shapeOutlineWidthPt: "枠線 (pt)",
   // Shape adjust handles.
   shapeAdjust: "ドラッグして形状を調整",
+  // Shape bar panels.
+  shapeBar: "図形",
+  shapeSize: "サイズ",
+  shapeOtherColor: "その他の色",
+  shapeKeepRatio: "縦横比を固定",
 };
 
 export default dict;

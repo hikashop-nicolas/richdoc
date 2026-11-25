@@ -37,6 +37,20 @@ export const WRAP_ICONS: Record<"inline" | "square" | "tight" | "topbottom" | "b
   front:
     '<svg width="14" height="14" viewBox="0 0 16 16" aria-hidden="true"><rect x="1.5" y="5.2" width="13" height="1.5" rx=".6" fill="currentColor" opacity=".35"/><rect x="1.5" y="8.6" width="13" height="1.5" rx=".6" fill="currentColor" opacity=".35"/><rect x="3.5" y="3.5" width="9" height="9" rx="1" fill="currentColor"/></svg>',
 };
+/** The floating toolbars' other icons (16 px, drawn in the text colour). */
+const svg = (body: string, fill = true) => `<svg width="16" height="16" viewBox="0 0 16 16" aria-hidden="true"${fill ? ' fill="currentColor"' : ' fill="none" stroke="currentColor" stroke-width="1.5" stroke-linecap="round" stroke-linejoin="round"'}>${body}</svg>`;
+export const BAR_ICONS = {
+  move: svg('<path d="M8 1 10.4 3.4H8.75V7.25H12.6V5.6L15 8l-2.4 2.4V8.75H8.75v3.85h1.65L8 15l-2.4-2.4h1.65V8.75H3.4v1.65L1 8l2.4-2.4v1.65h3.85V3.4H5.6z"/>'),
+  fill: svg('<path d="M3 8 7.5 3.5l4.5 4.5-4.5 4.5z"/><path d="M5.5 1.5 7.5 3.5"/><path d="M13.5 9.5s1.2 1.5 1.2 2.3a1.2 1.2 0 0 1-2.4 0c0-.8 1.2-2.3 1.2-2.3z" fill="currentColor" stroke="none"/>', false),
+  outline: svg('<rect x="2.5" y="2.5" width="11" height="9" rx="1.5"/>', false),
+  size: svg('<path d="M9.5 2.5h4v4M13.5 2.5 9 7M6.5 13.5h-4v-4M2.5 13.5 7 9"/>', false),
+  trash: svg('<path d="M2.5 4.5h11M6 4.5V3h4v1.5M4 4.5l.8 9h6.4l.8-9M6.75 7v4.5M9.25 7v4.5"/>', false),
+  weight: svg('<path d="M2 3.5h12" stroke-width="1"/><path d="M2 7.5h12" stroke-width="2"/><path d="M2 12h12" stroke-width="3"/>', false),
+  lock: svg('<path d="M6.5 9.5 9.5 6.5"/><path d="M7.5 4.5l1-1a2.5 2.5 0 0 1 3.5 3.5l-1 1M8.5 11.5l-1 1A2.5 2.5 0 0 1 4 9l1-1"/>', false),
+  width: svg('<path d="M1.5 8h13M4 5.5 1.5 8 4 10.5M12 5.5l2.5 2.5-2.5 2.5"/>', false),
+  height: svg('<path d="M8 1.5v13M5.5 4 8 1.5 10.5 4M5.5 12 8 14.5l2.5-2.5"/>', false),
+  alt: svg('<path d="M2.5 3.5h11v7h-6l-3 2.5v-2.5h-2z"/><path d="M5 6h6M5 8h4"/>', false),
+};
 export const ALIGN_ICONS: Record<"left" | "center" | "right", string> = {
   left: '<svg width="14" height="14" viewBox="0 0 16 16" fill="currentColor" aria-hidden="true"><rect x="2" y="3" width="8" height="1.6" rx=".6"/><rect x="2" y="7" width="12" height="1.6" rx=".6"/><rect x="2" y="11" width="8" height="1.6" rx=".6"/></svg>',
   center: '<svg width="14" height="14" viewBox="0 0 16 16" fill="currentColor" aria-hidden="true"><rect x="4" y="3" width="8" height="1.6" rx=".6"/><rect x="2" y="7" width="12" height="1.6" rx=".6"/><rect x="4" y="11" width="8" height="1.6" rx=".6"/></svg>',
@@ -203,8 +217,9 @@ export function setupImageLayout(deps: ImageLayoutDeps) {
   const altBtn = document.createElement("button");
   altBtn.type = "button";
   altBtn.className = "docxedit-imgbar-btn docxedit-imgbar-alt";
-  altBtn.textContent = t("altText");
+  altBtn.innerHTML = BAR_ICONS.alt;
   altBtn.title = t("imageOptions");
+  altBtn.setAttribute("aria-label", t("imageOptions"));
   altBtn.addEventListener("mousedown", (e) => e.preventDefault());
   altBtn.addEventListener("click", (e) => {
     e.stopPropagation();

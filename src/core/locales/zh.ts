@@ -465,6 +465,11 @@ const dict: Dict = {
   shapeOutlineWidthPt: "轮廓 (磅)",
   // Shape adjust handles.
   shapeAdjust: "拖动以调整形状",
+  // Shape bar panels.
+  shapeBar: "形状",
+  shapeSize: "大小",
+  shapeOtherColor: "其他颜色",
+  shapeKeepRatio: "保持比例",
 };
 
 export default dict;

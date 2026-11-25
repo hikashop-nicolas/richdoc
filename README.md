@@ -55,11 +55,12 @@ A full word-processor surface in the browser, the same for both formats unless n
   paragraph, aligned by where it is dropped. A wrapped image's exact offset round-trips per axis.
   EMF / WMF pictures (charts, clip art, pasted drawings) are drawn as SVG in the browser
   and saved untouched.
-- **Shapes and text boxes:** text box content is edited in place; a selected shape's bar sets how
-  it sits in the text (in line, wrapped, behind or in front, aligned, brought forward or sent
+- **Shapes and text boxes:** text box content is edited in place; a selected shape's bar of icon
+  buttons (with small panels of settings opening above it) sets how it sits in the text (in line, wrapped, behind or in front, aligned, brought forward or sent
   back), its fill, outline and size, and a floating one is dragged (or nudged with the arrow
   keys) to a new place; a wrapped one is dragged to another paragraph. A preset's yellow adjust
-  handles reshape it (an arrow's head, a star's points, a callout's tail), in docx and odt, saved
+  handles reshape it (an arrow's head, a star's points, a callout's tail), turned or in a group
+  too, in docx and odt, saved
   as its adjust values (a:avLst / draw:modifiers). Word's 187 preset shapes
   (arrows, stars, callouts, flowchart symbols ...) and freeform shapes are drawn from their
   geometry, lines and connectors with their arrowheads, and redrawn when resized; Insert > Shape

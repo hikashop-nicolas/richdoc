@@ -465,6 +465,11 @@ const dict: Dict = {
   shapeOutlineWidthPt: "Contour (pt)",
   // Shape adjust handles.
   shapeAdjust: "Faire glisser pour modifier la forme",
+  // Shape bar panels.
+  shapeBar: "Forme",
+  shapeSize: "Taille",
+  shapeOtherColor: "Autre couleur",
+  shapeKeepRatio: "Conserver les proportions",
 };
 
 export default dict;

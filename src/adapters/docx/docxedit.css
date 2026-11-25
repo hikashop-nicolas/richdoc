@@ -717,23 +717,35 @@
 .docx-shape.docx-shape-selected > .docx-shape-box { outline: 2px solid var(--rdoc-accent, #6e7bff); outline-offset: 1px; }
 .docx-shape { cursor: default; }
 .docxedit-shapebar { position: absolute; gap: 6px; flex-wrap: wrap; width: max-content; max-width: calc(100% - 8px); }
-.docxedit-shapebar-field { display: inline-flex; align-items: center; gap: 3px; font: 11px system-ui, sans-serif; color: var(--rdoc-text, #e6e6e6); }
-.docxedit-shapebar input[type="color"] { width: 24px; height: 22px; padding: 1px; }
-.docxedit-shapebar-num { width: 52px; }
-.docxedit-shapebar-menu { position: absolute; min-width: 200px; }
+.docxedit-shapebar-num { width: 56px; }
+.docxedit-shapebar .docxedit-imgbar-btn:disabled { opacity: .4; cursor: default; }
+.docxedit-imgbar-btn.is-open { border-color: var(--rdoc-accent, #6e7bff); }
+/* A colour button: its icon over a strip of the colour it sets (struck through for none). */
+.rdoc-color-btn { position: relative; flex-direction: column; gap: 1px; padding-top: 2px; }
+.rdoc-colorbar { display: block; width: 16px; height: 3px; border-radius: 1px; background: transparent; box-shadow: inset 0 0 0 1px rgba(127,127,127,.5); }
+.rdoc-color-btn.is-none .rdoc-colorbar { background: linear-gradient(to top right, transparent 45%, #d33 45% 55%, transparent 55%) !important; }
+/* A floating toolbar's panel of settings, above it. */
+.rdoc-pop { position: absolute; z-index: 62; padding: 8px; background: var(--rdoc-chrome, #2b2f36); border: 1px solid var(--rdoc-border, #1c1f24); border-radius: 8px; box-shadow: 0 6px 20px rgba(0,0,0,.5); color: var(--rdoc-text, #e6e6e6); }
+.rdoc-pop[hidden] { display: none; }
+.rdoc-pop-body { display: flex; flex-direction: column; gap: 8px; }
+.rdoc-pop-row { display: flex; align-items: center; gap: 4px; }
+.rdoc-pop-row[hidden] { display: none; }
+.rdoc-pop-icon { display: inline-flex; width: 18px; justify-content: center; opacity: .8; }
+.rdoc-pop-unit { font: 11px system-ui, sans-serif; opacity: .7; }
+.rdoc-swatches { display: grid; grid-template-columns: repeat(6, 22px); gap: 4px; }
+.rdoc-swatch { width: 22px; height: 22px; padding: 0; border: 1px solid rgba(127,127,127,.55); border-radius: 4px; cursor: pointer; }
+.rdoc-swatch[aria-pressed="true"] { outline: 2px solid var(--rdoc-accent, #6e7bff); outline-offset: 1px; }
+.rdoc-swatch:focus-visible { outline: 2px solid var(--rdoc-accent, #6e7bff); outline-offset: 1px; }
+.rdoc-swatch-none { background: linear-gradient(to top right, #fff 45%, #d33 45% 55%, #fff 55%); }
+.rdoc-swatch-other { background: conic-gradient(red, yellow, lime, cyan, blue, magenta, red); }
+.rdoc-swatch-other::-webkit-color-swatch-wrapper { padding: 0; }
+.rdoc-swatch-other::-webkit-color-swatch { border: 0; opacity: 0; }
+.docxedit-imgbar-btn[aria-pressed="true"] { background: var(--rdoc-accent, #6e7bff); border-color: var(--rdoc-accent, #6e7bff); color: #fff; }
 /* A selected shape's adjust handles. */
 .rdoc-shape-handle { position: absolute; z-index: 61; width: 9px; height: 9px; margin: -5px 0 0 -5px; box-sizing: border-box; background: #ffd23f; border: 1px solid #6b5400; transform: rotate(45deg); cursor: pointer; touch-action: none; }
 .rdoc-shape-handle[hidden] { display: none; }
 /* Where a dragged wrapped shape or picture will land. */
 .rdoc-float-ghost { position: fixed; z-index: 70; pointer-events: none; box-sizing: border-box; border: 2px dashed var(--rdoc-accent, #6e7bff); background: color-mix(in srgb, var(--rdoc-accent, #6e7bff) 12%, transparent); border-radius: 2px; }
-.docxedit-shapebar-menu[hidden] { display: none; }
-.docxedit-shapebar-menu-item { display: flex; align-items: center; gap: 8px; }
-.docxedit-shapebar-menu-item[hidden] { display: none; }
-.docxedit-shapebar-menu-item.is-on { background: var(--rdoc-btn, #3a3f47); box-shadow: inset 3px 0 0 var(--rdoc-accent, #6e7bff); }
-.docxedit-shapebar-menu-sep { height: 1px; margin: 4px 2px; background: var(--rdoc-btn-border, #4a4f57); }
-.docxedit-shapebar-menu-sep[hidden], .docxedit-shapebar-menu-row[hidden] { display: none; }
-.docxedit-shapebar-menu-row { display: flex; gap: 3px; padding: 2px 6px; }
-.docxedit-shapebar .docxedit-shapebar-num:disabled, .docxedit-shapebar input:disabled { opacity: .45; }
 .docxedit-doc .docx-shape[data-shape-wrap="behind"] { cursor: default; }
 /* Charts: a picture of the chart (double-click to edit) and its dialog. */
 .docx-chart { display: inline-block; vertical-align: bottom; cursor: pointer; }
