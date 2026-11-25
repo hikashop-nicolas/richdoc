@@ -23,6 +23,9 @@ export interface Look {
   markerEnd?: string;
   markerStartWidth: number; // px
   markerEndWidth: number;
+  /** A marker centred on the line's end (draw:marker-*-center) rather than tipped at it. */
+  markerStartCenter?: boolean;
+  markerEndCenter?: boolean;
   wrap?: string; // style:wrap
   runThrough?: string; // style:run-through
   hpos?: string; // style:horizontal-pos
@@ -100,6 +103,8 @@ export function collectShapeStyles(docs: (Document | undefined)[], lenToPx: LenT
     if (msw !== undefined) look.markerStartWidth = msw;
     const mew = lenToPx(a("draw:marker-end-width"));
     if (mew !== undefined) look.markerEndWidth = mew;
+    if (gp.hasAttribute("draw:marker-start-center")) look.markerStartCenter = a("draw:marker-start-center") === "true";
+    if (gp.hasAttribute("draw:marker-end-center")) look.markerEndCenter = a("draw:marker-end-center") === "true";
     if (a("style:wrap")) look.wrap = a("style:wrap")!;
     if (a("style:run-through")) look.runThrough = a("style:run-through")!;
     if (a("style:horizontal-pos")) look.hpos = a("style:horizontal-pos")!;
@@ -160,7 +165,9 @@ function mapPath(d: string, map: (p: Pt) => Pt, scale: Pt): { d: string; pts: Pt
   let prevCtrl: Pt | null = null;
   const out: string[] = [];
   const pts: Pt[] = [];
-  const segs: [Pt, Pt][] = []; // (from-direction point, to point) per drawn segment
+  // Per drawn segment: its start (the point, and the way it leaves it) and its end (the way it
+  // arrives, and the point).
+  const segs: { s: [Pt, Pt]; e: [Pt, Pt] }[] = [];
   const num = () => Number(tokens[i++]);
   const isNum = () => i < tokens.length && !/^[a-zA-Z]$/.test(tokens[i]!);
   const put = (c: string, ...ps: Pt[]) => {
@@ -181,7 +188,7 @@ function mapPath(d: string, map: (p: Pt) => Pt, scale: Pt): { d: string; pts: Pt
       prevCtrl = null;
     } else if (C === "L" || C === "H" || C === "V") {
       const p: Pt = C === "L" ? at(num(), num()) : C === "H" ? [rel ? cur[0] + num() : num(), cur[1]] : [cur[0], rel ? cur[1] + num() : num()];
-      segs.push([cur, p]);
+      segs.push({ s: [cur, p], e: [cur, p] });
       put("L", p);
       cur = p;
       prevCtrl = null;
@@ -189,21 +196,21 @@ function mapPath(d: string, map: (p: Pt) => Pt, scale: Pt): { d: string; pts: Pt
       const c1: Pt = C === "C" ? at(num(), num()) : prevCtrl ? [2 * cur[0] - prevCtrl[0], 2 * cur[1] - prevCtrl[1]] : cur;
       const c2 = at(num(), num());
       const p = at(num(), num());
-      segs.push([c1, cur], [c2, p]);
+      segs.push({ s: [cur, c1], e: [c2, p] });
       put("C", c1, c2, p);
       prevCtrl = c2;
       cur = p;
     } else if (C === "Q" || C === "T") {
       const c: Pt = C === "Q" ? at(num(), num()) : prevCtrl ? [2 * cur[0] - prevCtrl[0], 2 * cur[1] - prevCtrl[1]] : cur;
       const p = at(num(), num());
-      segs.push([c, cur], [c, p]);
+      segs.push({ s: [cur, c], e: [c, p] });
       put("Q", c, p);
       prevCtrl = c;
       cur = p;
     } else if (C === "A") {
       const rx = num(), ry = num(), rot = num(), large = num(), sweep = num();
       const p = at(num(), num());
-      segs.push([cur, p]);
+      segs.push({ s: [cur, p], e: [cur, p] });
       const m = map(p);
       out.push(`A${fmt(Math.abs(rx * scale[0]))},${fmt(Math.abs(ry * scale[1]))} ${fmt(rot)} ${large ? 1 : 0} ${sweep ? 1 : 0} ${fmt(m[0])},${fmt(m[1])}`);
       pts.push(m);
@@ -218,26 +225,28 @@ function mapPath(d: string, map: (p: Pt) => Pt, scale: Pt): { d: string; pts: Pt
     }
   }
   // Arrowheads point along the first and last segments, away from the line.
-  const first = segs.find(([a, b]) => a[0] !== b[0] || a[1] !== b[1]);
-  const last = [...segs].reverse().find(([a, b]) => a[0] !== b[0] || a[1] !== b[1]);
+  const moves = ([a, b]: [Pt, Pt]) => a[0] !== b[0] || a[1] !== b[1];
+  const first = segs.find((g) => moves(g.s))?.s;
+  const last = [...segs].reverse().find((g) => moves(g.e))?.e;
   return {
     d: out.join(" "),
     pts,
-    start: first ? [map(first[1]), map(first[0])] : undefined,
+    // [tip, the way it points from]: the start's tip is where the path begins.
+    start: first ? [map(first[0]), map(first[1])] : undefined,
     end: last ? [map(last[0]), map(last[1])] : undefined,
   };
 }
 
 /** An arrowhead at `tip`, coming from `from`: the marker's shape (tip at the top centre of its
  *  view box, as odf draws markers) scaled to `width` px and turned along the line. */
-function arrowhead(marker: Marker, from: Pt, tip: Pt, width: number, color: string, box: Drawn["box"]): string {
+function arrowhead(marker: Marker, from: Pt, tip: Pt, width: number, color: string, box: Drawn["box"], center = false): string {
   const dx = tip[0] - from[0], dy = tip[1] - from[1];
   const len = Math.hypot(dx, dy) || 1;
   const [vx, vy, vw, vh] = marker.vb;
   const k = width / (vw || 1);
   const theta = (Math.atan2(dx / len, -dy / len) * 180) / Math.PI;
   grow(box, tip, Math.max(width, vh * k));
-  return `<path d="${escapeAttr(marker.d)}" fill="${escapeAttr(color)}" stroke="none" transform="translate(${fmt(tip[0])},${fmt(tip[1])}) rotate(${fmt(theta)}) scale(${fmt(k)}) translate(${fmt(-(vx + vw / 2))},${fmt(-vy)})"/>`;
+  return `<path d="${escapeAttr(marker.d)}" fill="${escapeAttr(color)}" stroke="none" transform="translate(${fmt(tip[0])},${fmt(tip[1])}) rotate(${fmt(theta)}) scale(${fmt(k)}) translate(${fmt(-(vx + vw / 2))},${fmt(-(center ? vy + vh / 2 : vy))})"/>`;
 }
 
 function strokeAttrs(look: Look): string {
@@ -255,8 +264,8 @@ function ends(look: Look, ctx: ShapeCtx, start: [Pt, Pt] | undefined, end: [Pt, 
   const ms = look.markerStart ? ctx.markers.get(look.markerStart) : undefined;
   const me = look.markerEnd ? ctx.markers.get(look.markerEnd) : undefined;
   const w = look.strokeWidth || 1;
-  if (ms && start) out += arrowhead(ms, start[1], start[0], look.markerStartWidth || w * 3, look.strokeColor, box);
-  if (me && end) out += arrowhead(me, end[0], end[1], look.markerEndWidth || w * 3, look.strokeColor, box);
+  if (ms && start) out += arrowhead(ms, start[1], start[0], look.markerStartWidth || w * 3, look.strokeColor, box, look.markerStartCenter);
+  if (me && end) out += arrowhead(me, end[0], end[1], look.markerEndWidth || w * 3, look.strokeColor, box, look.markerEndCenter);
   return out;
 }
 
