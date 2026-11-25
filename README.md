@@ -49,19 +49,22 @@ A full word-processor surface in the browser, the same for both formats unless n
   multi-column vertical text (stacked bands) and a vertical ruler.
 - **Images:** inline and floating / anchored with text wrap (square, tight,
   top-and-bottom, behind, in front), alignment, stacking order, alt text and wrap padding,
-  driven by an on-select toolbar. Floating images are placed from the page, its margins or
-  their paragraph as the file says, and one behind the text is picked by clicking it between
-  the letters. A wrapped image's exact offset round-trips per axis.
+  driven by an on-select toolbar. Floating images are placed from the page (in page view, the
+  page their paragraph is on), its margins or their paragraph as the file says, and one behind
+  the text is picked by clicking it between the letters. A wrapped image is dragged to another
+  paragraph, aligned by where it is dropped. A wrapped image's exact offset round-trips per axis.
   EMF / WMF pictures (charts, clip art, pasted drawings) are drawn as SVG in the browser
   and saved untouched.
 - **Shapes and text boxes:** text box content is edited in place; a selected shape's bar sets how
   it sits in the text (in line, wrapped, behind or in front, aligned, brought forward or sent
   back), its fill, outline and size, and a floating one is dragged (or nudged with the arrow
-  keys) to a new place. Word's 187 preset shapes (arrows, stars, callouts, flowchart symbols ...)
-  and freeform shapes are drawn from their geometry, lines and connectors with their arrowheads,
-  and redrawn when resized; Insert > Shape offers them as a gallery, in docx and odt, and they
-  are inserted floating in front of the text. odt drawings are drawn too, LibreOffice's
-  ready-made shapes included, and edited from the same bar; a group's members take its new look.
+  keys) to a new place; a wrapped one is dragged to another paragraph. Word's 187 preset shapes
+  (arrows, stars, callouts, flowchart symbols ...) and freeform shapes are drawn from their
+  geometry, lines and connectors with their arrowheads, and redrawn when resized; Insert > Shape
+  offers them as a gallery, in docx and odt (where they are saved as LibreOffice saves Word's
+  presets, so they keep their handles there), inserted floating in front of the text. odt
+  drawings are drawn too, LibreOffice's ready-made shapes and its copies of Word's included, and
+  edited from the same bar; a resized group stretches its members, and they take its new look.
   Untouched shapes save byte for byte.
 - **Charts:** drawn from their data (bar, column, line, area, pie, doughnut, scatter, radar).
   Double-click to edit the title and the data grid; Word charts get their values written to their

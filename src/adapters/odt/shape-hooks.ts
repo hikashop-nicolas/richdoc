@@ -1,9 +1,10 @@
 // The shape bar on odt drawings: their look and size are read from the shape element, edits are
 // kept as data-shape-edit and the drawing is redrawn from its original element with them. New
-// drawings come from the same gallery as docx, drawn as fixed outlines (custom shapes and paths).
+// drawings come from the same gallery as docx, written as LibreOffice writes Word's presets.
 import type { ShapeHooks, ShapeLook, ShapeWrap } from "../../core/types";
 import { docxShapeHooks, galleryPreset } from "../docx/shape-hooks";
 import { presetGeometry } from "../docx/drawingml-geom";
+import { ooxmlGeometryXml } from "./ooxml-shape";
 import { odtShapeContext } from "./read";
 import { isShapeTag, shapeHtml, type Look, type ShapeCtx } from "./shapes";
 import { ARROW_MARKER, applyGeometry, editOf, setEditOf, type OdtShapeEdit } from "./shape-edit";
@@ -39,12 +40,10 @@ function edited(base: Look, e: OdtShapeEdit, paint: boolean): Look {
   return look;
 }
 
-/** SVG path data as an enhanced path in 1/100 px: "M 1250 300 L ...". */
-const enhanced = (d: string) => d.replace(/([MLCQZ])/g, " $1 ").trim().split(/[\s,]+/).map((t) => (/^[A-Z]$/.test(t) ? t : String(Math.round(Number(t) * 100)))).join(" ");
 const cm = (px: number) => `${Math.round((px * 2.54 / 96) * 1000) / 1000}cm`;
 
-/** A gallery shape as odt XML, in line with the text: a custom shape drawn by a fixed path, or a
- *  plain path for the lines (which take arrowheads). */
+/** A gallery shape as odt XML, in line with the text: a custom shape drawn from the preset's
+ *  formulas, or a plain path for the lines (which take arrowheads). */
 function galleryXml(id: string, w: number, h: number): { xml: string; line: boolean } | undefined {
   const e = galleryPreset(id);
   const paths = presetGeometry(e.prst, w, h);
@@ -55,8 +54,10 @@ function galleryXml(id: string, w: number, h: number): { xml: string; line: bool
     const d = paths.map((p) => p.d).join(" ");
     return { xml: `<draw:path ${NS} text:anchor-type="as-char" svg:y="0cm" ${size} svg:viewBox="0 0 ${Math.round(w)} ${Math.round(h)}" svg:d="${d}"/>`, line };
   }
-  const path = paths.map((p) => `${enhanced(p.d)}${p.fill === "none" ? " F" : ""}${p.stroke ? "" : " S"} N`).join(" ");
-  return { xml: `<draw:custom-shape ${NS} text:anchor-type="as-char" svg:y="0cm" ${size}><draw:enhanced-geometry svg:viewBox="0 0 ${Math.round(w * 100)} ${Math.round(h * 100)}" draw:type="non-primitive" draw:enhanced-path="${path}"/></draw:custom-shape>`, line };
+  // A Word preset as LibreOffice keeps one: its formulas, adjust values and handles.
+  const geom = ooxmlGeometryXml(e.prst);
+  if (!geom) return undefined;
+  return { xml: `<draw:custom-shape ${NS} xmlns:drawooo="http://openoffice.org/2010/draw" text:anchor-type="as-char" svg:y="0cm" ${size}>${geom}</draw:custom-shape>`, line };
 }
 
 export function odtShapeHooks(getFiles: () => Record<string, Uint8Array>): ShapeHooks {
@@ -146,18 +147,17 @@ export function odtShapeHooks(getFiles: () => Record<string, Uint8Array>): Shape
           fill: "fill" in e ? e.fill ?? null : color(attr(s, "fill")),
           line: "line" in e ? e.line ?? null : color(attr(s, "line")),
           lineW: "lineW" in e ? e.lineW ?? 0 : Number(attr(s, "linew")) || 0,
-          w: group ? b.offsetWidth : e.w ?? (Number(attr(s, "w")) || 0),
-          h: group ? b.offsetHeight : e.h ?? (Number(attr(s, "h")) || 0),
-          ...(group ? { group: true, groupLook: true, fixedSize: true } : {}),
+          w: e.w ?? (Number(attr(s, "w")) || b.offsetWidth),
+          h: e.h ?? (Number(attr(s, "h")) || b.offsetHeight),
+          ...(group ? { group: true, groupLook: true } : {}),
         };
       },
       set(s, patch) {
-        const group = s.hasAttribute("data-shape-group");
         update(s, (e) => {
           if ("fill" in patch) e.fill = patch.fill ?? null;
           if ("line" in patch || "lineW" in patch) { e.line = patch.line ?? null; e.lineW = patch.lineW ?? 0; }
-          if (!group && patch.w) e.w = patch.w; // a group keeps its members' sizes
-          if (!group && patch.h) e.h = patch.h;
+          if (patch.w) e.w = patch.w; // a group stretches its members to it
+          if (patch.h) e.h = patch.h;
         });
       },
       posEl(s) {
@@ -187,10 +187,10 @@ export function odtShapeHooks(getFiles: () => Record<string, Uint8Array>): Shape
         });
       },
       wraps(s): ShapeWrap[] {
-        // On the page (between paragraphs) a drawing can only float; lines and groups keep their
-        // own coordinates, so they do not go in line.
+        // On the page (between paragraphs) a drawing can only float; a connector stays with the
+        // shapes it joins, so it does not go in line.
         if (s.tagName === "DIV") return ["behind", "front"];
-        if (/^draw:(line|connector|measure|g)$/.test(rootTag(s))) return ["square", "tight", "topbottom", "behind", "front"];
+        if (/^draw:(connector|measure)$/.test(rootTag(s))) return ["square", "tight", "topbottom", "behind", "front"];
         return ["inline", "square", "tight", "topbottom", "behind", "front"];
       },
     },

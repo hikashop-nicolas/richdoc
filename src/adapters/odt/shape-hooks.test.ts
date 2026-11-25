@@ -65,7 +65,7 @@ describe("odt shape hooks", () => {
   it("inserts a gallery shape and a line with its arrowhead", () => {
     const { hooks } = mount();
     const star = hooks.create!("star5")!;
-    expect(star.getAttribute("data-odt-xml")).toMatch(/^<draw:custom-shape [^>]*text:anchor-type="as-char"[^>]*><draw:enhanced-geometry svg:viewBox="0 0 14400 9600" draw:type="non-primitive" draw:enhanced-path="M /);
+    expect(star.getAttribute("data-odt-xml")).toMatch(/^<draw:custom-shape [^>]*text:anchor-type="as-char"[^>]*><draw:enhanced-geometry svg:viewBox="0 0 0 0" draw:type="ooxml-star5" draw:modifiers="19098 105146 110557" /);
     expect(star.querySelector("svg path")?.getAttribute("fill")).toBe("#4472c4");
     const arrow = hooks.create!("arrowLine")!;
     expect(arrow.getAttribute("data-odt-xml")).toMatch(/^<draw:path /);
