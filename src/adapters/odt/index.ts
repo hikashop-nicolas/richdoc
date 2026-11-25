@@ -87,6 +87,7 @@ export function createOdtAdapter(bytes: Uint8Array, preunzipped?: Record<string,
       return { start: cmark(), end: cmark(), ref };
     },
     capabilities: {
+      floatsFromParagraph: true,
       comments: true,
       commentReplies: false,
       commentReactions: false,

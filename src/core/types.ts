@@ -202,6 +202,9 @@ export interface Capabilities {
   lineNumbering: "full" | "basic" | false;
   /** Page-content vertical alignment authoring (docx w:vAlign; odt has no equivalent). */
   pageVAlign: boolean;
+  /** Pictures in front of or behind the text are offset from their paragraph (odt anchors to the
+      paragraph or a character) rather than from the page (docx). */
+  floatsFromParagraph?: boolean;
 }
 
 /** A section's page geometry in px (the on-the-wire shape stashed on a section-boundary

@@ -95,6 +95,20 @@ describe("shared engine mount", () => {
     ed.destroy();
   });
 
+  // odt offsets a floating picture from its paragraph (docx from the page): the stylesheet makes
+  // such a paragraph the picture's positioning parent under this class, so it isn't drawn at the
+  // top of the document (omnitext#67).
+  it("positions odt floating pictures from their paragraph, docx ones from the page", () => {
+    const odtHost = document.createElement("div");
+    const odtEd = createOdtEditor(odtHost, ODT);
+    expect(odtHost.querySelector(".docxedit-wrap")?.classList.contains("docxedit-floats-para")).toBe(true);
+    odtEd.destroy();
+    const docxHost = document.createElement("div");
+    const docxEd = createDocxEditor(docxHost, DOCX);
+    expect(docxHost.querySelector(".docxedit-wrap")?.classList.contains("docxedit-floats-para")).toBe(false);
+    docxEd.destroy();
+  });
+
   it("mounts an odt editor on the same engine, with unsupported controls gated off", () => {
     const docxHost = document.createElement("div");
     const docxEd = createDocxEditor(docxHost, DOCX);

@@ -137,6 +137,7 @@ export function createRichEditor(container: HTMLElement, adapter: Adapter, optio
 
   const wrap = document.createElement("div");
   wrap.className = "docxedit-wrap";
+  if (caps.floatsFromParagraph) wrap.classList.add("docxedit-floats-para");
   const toolbar = document.createElement("div");
   toolbar.className = "docxedit-toolbar";
   toolbar.setAttribute("role", "toolbar");
