@@ -1431,8 +1431,17 @@ describe("odt drawing shapes (lines, paths, boxes)", () => {
     expect(out).toMatch(/Text<draw:line[^>]*\/> more\./);
   });
 
+  it("draws a custom shape from its equations and handles", () => {
+    const shape = '<draw:custom-shape text:anchor-type="paragraph" svg:width="1cm" svg:height="1cm"><draw:enhanced-geometry draw:type="right-arrow" draw:modifiers="16200 5400" draw:enhanced-path="M 0 ?f0 L ?f1 ?f0 ?f1 0 21600 10800 ?f1 21600 ?f1 ?f2 0 ?f2 Z N"><draw:equation draw:name="f0" draw:formula="$1 "/><draw:equation draw:name="f1" draw:formula="$0 "/><draw:equation draw:name="f2" draw:formula="21600-$1 "/></draw:enhanced-geometry></draw:custom-shape>';
+    const html = odtToHtml(makeOdt(content(`<text:p>Text${shape}</text:p>`)));
+    expect(html).toContain("odt-shape");
+    const svg = decodeURIComponent(/src="data:image\/svg\+xml;charset=utf-8,([^"]+)"/.exec(html)?.[1] ?? "");
+    // 1cm is 37.8px: the shaft's top edge is at 5400/21600 of it, the head starts at 16200/21600.
+    expect(svg).toContain('d="M0,9.45 L28.35,9.45 L28.35,0 L37.8,18.9 L28.35,37.8 L28.35,28.35 L0,28.35 Z"');
+  });
+
   it("leaves a shape it can't draw as before, kept for the save", () => {
-    const html = odtToHtml(makeOdt(content('<text:p>Text<draw:custom-shape text:anchor-type="paragraph" svg:width="1cm" svg:height="1cm"><draw:enhanced-geometry draw:type="mso-spt100" draw:enhanced-path="M ?f0 0 L 21600 ?f1 Z"/></draw:custom-shape></text:p>')));
+    const html = odtToHtml(makeOdt(content('<text:p>Text<draw:custom-shape text:anchor-type="paragraph" svg:width="1cm" svg:height="1cm"><draw:enhanced-geometry draw:type="mso-spt100"/></draw:custom-shape></text:p>')));
     expect(html).not.toContain("odt-shape");
     expect(html).toContain('class="docx-pass"');
   });

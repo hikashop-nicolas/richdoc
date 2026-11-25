@@ -1,9 +1,10 @@
 // Drawing shapes in an odt (lines, freeform paths, polylines, polygons, rectangles, ellipses,
-// simple custom shapes, groups): drawn read-only as an SVG picture laid over the text where the
+// custom shapes, groups): drawn read-only as an SVG picture laid over the text where the
 // file puts it. The element itself is kept verbatim (data-odt-xml), so a save writes it back as
 // it was. Coordinates are px throughout; a shape's position is relative to its anchor (the
 // paragraph or character it is anchored to, or the page).
 
+import { evaluateGeometry, type Geometry } from "./geometry";
 import { escapeAttr, escapeHtml, passthroughAttr } from "./shared";
 
 type LenToPx = (v: string | null | undefined) => number | undefined;
@@ -34,8 +35,8 @@ export interface ShapeCtx {
   looks: Map<string, Look>;
   markers: Map<string, Marker>;
   lenToPx: LenToPx;
-  /** Page margins and height, to place page-anchored shapes from the page's corner. */
-  page?: { marginLeft: number; marginTop: number; height: number };
+  /** The page height, to place a shape anchored to a later page. The doc box is the page, margins included. */
+  page?: { height: number };
 }
 
 const SHAPE_TAGS = new Set([
@@ -293,6 +294,15 @@ function transformOf(el: Element, ctx: ShapeCtx): ((p: Pt) => Pt) | undefined {
 }
 
 /** Draw one shape (or group) into `acc`, in px relative to its anchor. */
+/** A #rrggbb colour darkened toward black (k < 0) or lightened toward white (k > 0). */
+function shadeColor(color: string, k: number): string {
+  const m = /^#([0-9a-f]{6})$/i.exec(color.trim());
+  if (!m) return color;
+  const n = parseInt(m[1]!, 16);
+  const ch = (v: number) => Math.round(k < 0 ? v * (1 + k) : v + (255 - v) * k);
+  return "#" + [n >> 16, (n >> 8) & 255, n & 255].map((v) => ch(v).toString(16).padStart(2, "0")).join("");
+}
+
 function drawShape(el: Element, ctx: ShapeCtx, look: Look, acc: { svg: string[]; box: Drawn["box"] }): void {
   const L = (n: string) => ctx.lenToPx(el.getAttribute(n)) ?? 0;
   const tag = el.tagName;
@@ -309,13 +319,18 @@ function drawShape(el: Element, ctx: ShapeCtx, look: Look, acc: { svg: string[];
   const place = (p: Pt): Pt => (xf ? xf(p) : [p[0] + x, p[1] + y]);
   const fill = look.fill ? ` fill="${escapeAttr(look.fillColor)}"` : ` fill="none"`;
   const pad = (look.strokeWidth || 1) / 2 + 1;
-  const pathOut = (d: string, closed: boolean, fromBox?: { vb: number[] }) => {
+  const pathOut = (d: string, closed: boolean, fromBox?: { vb: number[] }, paint?: { fill: boolean; stroke: boolean; shade: number }) => {
     // A path in its own view box, scaled into the shape's box (or already in px for a connector).
     const vb = fromBox?.vb;
     const sx = vb && vb[2] ? w / vb[2] : 1, sy = vb && vb[3] ? h / vb[3] : 1;
     const map = (p: Pt): Pt => (vb ? place([(p[0] - vb[0]) * sx, (p[1] - vb[1]) * sy]) : p);
     const m = mapPath(d, map, [sx, sy]);
     for (const p of m.pts) grow(acc.box, p, pad);
+    if (paint) {
+      const shaded = paint.shade ? ` fill="${escapeAttr(shadeColor(look.fillColor, paint.shade))}"` : fill;
+      acc.svg.push(`<path d="${m.d}"${paint.fill ? shaded : ` fill="none"`}${paint.stroke ? strokeAttrs(look) : ` stroke="none"`}/>`);
+      return;
+    }
     acc.svg.push(`<path d="${m.d}"${closed ? fill : ` fill="none"`}${strokeAttrs(look)}/>`);
     if (!closed) acc.svg.push(ends(look, ctx, m.start, m.end, acc.box));
   };
@@ -349,7 +364,7 @@ function drawShape(el: Element, ctx: ShapeCtx, look: Look, acc: { svg: string[];
   // Boxes: rectangles, ellipses, circles and the custom shapes that are one of those.
   let kind: "rect" | "ellipse" | "path" | "" = tag === "draw:rect" ? "rect" : tag === "draw:ellipse" || tag === "draw:circle" ? "ellipse" : "";
   let r = ctx.lenToPx(el.getAttribute("draw:corner-radius")) ?? 0;
-  let geomPath: { d: string; vb: number[] } | undefined;
+  let geom: Geometry | undefined;
   if (tag === "draw:custom-shape") {
     const g = el.getElementsByTagName("draw:enhanced-geometry")[0];
     const type = g?.getAttribute("draw:type") ?? "";
@@ -358,19 +373,15 @@ function drawShape(el: Element, ctx: ShapeCtx, look: Look, acc: { svg: string[];
       kind = "rect";
       r = Math.min(w, h) / 6;
     } else if (/^(ellipse|mso-spt3)$/.test(type)) kind = "ellipse";
-    else {
-      // A path without formulas can be drawn as written; anything computed is left undrawn.
-      const ep = g?.getAttribute("draw:enhanced-path") ?? "";
-      const gvb = (g?.getAttribute("svg:viewBox") ?? "0 0 21600 21600").trim().split(/[\s,]+/).map(Number);
-      if (ep && !/[?$]/.test(ep) && /^[MLCZNFSQ\d\s.,-]+$/i.test(ep)) {
-        kind = "path";
-        geomPath = { d: ep.replace(/[NFS]/g, " "), vb: gvb };
-      }
+    else if (g && w > 0 && h > 0) {
+      // Everything else is drawn from its geometry: equations, handles and the enhanced path.
+      geom = evaluateGeometry(g, w, h);
+      if (geom) kind = "path";
     }
   }
   if (!kind || !(w > 0 && h > 0)) return;
-  if (kind === "path" && geomPath) {
-    pathOut(geomPath.d, /z/i.test(geomPath.d), { vb: geomPath.vb });
+  if (kind === "path" && geom) {
+    for (const sub of geom.paths) pathOut(sub.d, true, { vb: geom.vb }, { fill: sub.fill && look.fill, stroke: sub.stroke, shade: sub.shade });
   } else {
     const corners: Pt[] = [place([0, 0]), place([w, 0]), place([w, h]), place([0, h])];
     for (const p of corners) grow(acc.box, p, pad);
@@ -408,8 +419,7 @@ export function shapeHtml(el: Element, ctx: ShapeCtx, level: "inline" | "block")
   let left = x0, top = y0;
   if (anchor === "page" && ctx.page) {
     const pageNo = Number(el.getAttribute("text:anchor-page-number")) || 1;
-    left -= ctx.page.marginLeft;
-    top += (pageNo - 1) * ctx.page.height - ctx.page.marginTop;
+    top += (pageNo - 1) * ctx.page.height;
   }
   const style = `left:${fmt(left)}px;top:${fmt(top)}px;width:${fmt(bw)}px;height:${fmt(bh)}px`;
   const box = `<span class="odt-shape-box" style="${style}">${img}</span>`;
