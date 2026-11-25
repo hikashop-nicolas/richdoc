@@ -4,6 +4,7 @@ import { strFromU8, unzipSync } from "fflate";
 import { bytesToBase64, imageLayoutAttrs } from "../../core/util";
 import { t } from "../../core/i18n";
 import type { CommentThread, PageBorder, PageGeometry } from "../../core/types";
+import { collectShapeStyles, isShapeTag, shapeHtml, type ShapeCtx } from "./shapes";
 import { ODF_ALIGN, escapeHtml, escapeAttr, inlinePass, blockPass, passthroughAttr, serializePassthrough, FMT0, IMG_MIME } from "./shared";
 import type { Fmt, PFmt } from "./shared";
 import { collectGraphicStyles, readOdtLayout } from "./image-layout";
@@ -90,6 +91,7 @@ interface RCtx {
   paraText: Map<string, string[]>; // paragraph style-name -> its run font/size CSS (incl. East Asian)
   eaSplit: boolean; // the document sets East Asian fonts/sizes: wrap East Asian text runs
   script: { script: "a" | "l" }; // running script of the current paragraph (weak chars follow it)
+  shapes: ShapeCtx; // graphic styles and markers for drawing shapes
 }
 
 /** Page geometry (compact JSON) from a style:page-layout-properties element, for per-section
@@ -822,6 +824,11 @@ function inlineToHtml(el: Element, ctx: RCtx): string {
         html += infoFieldHtml("FILENAME", child.textContent ?? "", child.getAttribute("text:display"));
         break;
       default:
+        // A drawing shape is drawn over the text where the file puts it (and kept verbatim).
+        if (isShapeTag(child.tagName)) {
+          html += shapeHtml(child, ctx.shapes, "inline") ?? inlinePass(child);
+          break;
+        }
         // Unmodelled inline content (bookmarks, notes, change marks, ...) preserved verbatim.
         html += inlinePass(child);
     }
@@ -970,6 +977,8 @@ function blockToHtml(el: Element, ctx: RCtx): string {
       return `${before}<p${alignAttr()}${namedAttr()}${breakAttr}${tabAttr}${pprAttr}${capAttr}>${inner || "<br>"}</p>${after}`;
     }
     default:
+      // A page-anchored shape sits in the body itself: drawn from the page's corner.
+      if (isShapeTag(el.tagName)) return shapeHtml(el, ctx.shapes, "block") ?? blockPass(el);
       // Tables, tracked-changes, sequence-decls, sections, ... preserved verbatim.
       return blockPass(el);
   }
@@ -983,7 +992,7 @@ function collectMasterBands(files: Record<string, Uint8Array>): Map<string, { he
   if (!raw) return out;
   const doc = new DOMParser().parseFromString(strFromU8(raw), "application/xml");
   const faces = collectFontFaces(doc);
-  const ctx: RCtx = { files, styles: collectTextStyles(doc, faces), paras: collectParaStyles(doc), cellStyles: collectCellStyles(doc), tableMargins: collectTableMargins(doc), listStyles: collectListStyles(doc), namedStyles: new Set(), autoParent: new Map(), namedCharStyles: new Set(), textAutoParent: new Map(), threads: [], rangedNames: new Set(), openComment: new Set(), changes: new Map(), openIns: new Set(), graphicStyles: collectGraphicStyles(doc, lenToPx), paraBreaks: collectParaBreaks(doc), listStarts: collectListStarts(doc), listRun: { last: 0 }, tabStops: collectTabStops(doc, lenToPx), textStash: collectStyleStashes(doc, "text"), paraStash: collectStyleStashes(doc, "paragraph"), masterGeoms: collectMasterGeoms(files["styles.xml"], lenToPx), paraText: collectParaTextCss(doc, faces), eaSplit: hasAsianProps(raw), script: { script: "l" } };
+  const ctx: RCtx = { files, styles: collectTextStyles(doc, faces), paras: collectParaStyles(doc), cellStyles: collectCellStyles(doc), tableMargins: collectTableMargins(doc), listStyles: collectListStyles(doc), namedStyles: new Set(), autoParent: new Map(), namedCharStyles: new Set(), textAutoParent: new Map(), threads: [], rangedNames: new Set(), openComment: new Set(), changes: new Map(), openIns: new Set(), graphicStyles: collectGraphicStyles(doc, lenToPx), paraBreaks: collectParaBreaks(doc), listStarts: collectListStarts(doc), listRun: { last: 0 }, tabStops: collectTabStops(doc, lenToPx), textStash: collectStyleStashes(doc, "text"), paraStash: collectStyleStashes(doc, "paragraph"), masterGeoms: collectMasterGeoms(files["styles.xml"], lenToPx), paraText: collectParaTextCss(doc, faces), eaSplit: hasAsianProps(raw), script: { script: "l" }, shapes: collectShapeStyles([doc], lenToPx) };
   const render = (master: Element, tag: string): string => {
     const el = master.getElementsByTagName(tag)[0];
     if (!el) return "";
@@ -1092,7 +1101,7 @@ export function odtToParts(bytes: Uint8Array, preunzipped?: Record<string, Uint8
     for (const [k, v] of collectListStarts(sdoc)) if (!listStarts.has(k)) listStarts.set(k, v);
     for (const [k, v] of collectTabStops(sdoc, lenToPx)) if (!tabStops.has(k)) tabStops.set(k, v);
   }
-  const ctx: RCtx = { files, styles: collectTextStyles(doc, fontFaces), paras: collectParaStyles(doc), cellStyles: collectCellStyles(doc), tableMargins: collectTableMargins(doc), listStyles: collectListStyles(doc), namedStyles: ps.namedPara, autoParent: collectAutoParents(doc, "paragraph"), namedCharStyles: ps.namedChar, textAutoParent: collectAutoParents(doc, "text"), threads: [], rangedNames, openComment: new Set(), changes: readChanges(body), openIns: new Set(), graphicStyles, paraBreaks, listStarts, listRun: { last: 0 }, tabStops, textStash: collectStyleStashes(doc, "text"), paraStash: collectStyleStashes(doc, "paragraph"), masterGeoms: collectMasterGeoms(files["styles.xml"], lenToPx), masterBands, notes: [], paraText: collectParaTextCss(doc, fontFaces), eaSplit: hasAsianProps(files["styles.xml"], content), script: { script: "l" } };
+  const ctx: RCtx = { files, styles: collectTextStyles(doc, fontFaces), paras: collectParaStyles(doc), cellStyles: collectCellStyles(doc), tableMargins: collectTableMargins(doc), listStyles: collectListStyles(doc), namedStyles: ps.namedPara, autoParent: collectAutoParents(doc, "paragraph"), namedCharStyles: ps.namedChar, textAutoParent: collectAutoParents(doc, "text"), threads: [], rangedNames, openComment: new Set(), changes: readChanges(body), openIns: new Set(), graphicStyles, paraBreaks, listStarts, listRun: { last: 0 }, tabStops, textStash: collectStyleStashes(doc, "text"), paraStash: collectStyleStashes(doc, "paragraph"), masterGeoms: collectMasterGeoms(files["styles.xml"], lenToPx), masterBands, notes: [], paraText: collectParaTextCss(doc, fontFaces), eaSplit: hasAsianProps(files["styles.xml"], content), script: { script: "l" }, shapes: collectShapeStyles([doc, stylesDoc], lenToPx, page ? { marginLeft: page.margin.left, marginTop: page.margin.top, height: page.heightPx } : undefined) };
   let html = "";
   for (const block of Array.from(body.children)) {
     if (block.tagName === "text:tracked-changes") continue; // metadata, parsed into ctx.changes

@@ -1384,3 +1384,56 @@ describe("odt writer: scripts and placeholders", () => {
     expect(out.match(/text:line-break/g)).toHaveLength(1); // the real break between a and b
   });
 });
+
+describe("odt drawing shapes (lines, paths, boxes)", () => {
+  const ROOT =
+    'xmlns:office="urn:oasis:names:tc:opendocument:xmlns:office:1.0" ' +
+    'xmlns:text="urn:oasis:names:tc:opendocument:xmlns:text:1.0" ' +
+    'xmlns:style="urn:oasis:names:tc:opendocument:xmlns:style:1.0" ' +
+    'xmlns:draw="urn:oasis:names:tc:opendocument:xmlns:drawing:1.0" ' +
+    'xmlns:svg="urn:oasis:names:tc:opendocument:xmlns:svg-compatible:1.0"';
+  const content = (body: string) =>
+    `<?xml version="1.0"?><office:document-content ${ROOT}><office:styles><draw:marker draw:name="Arrow" svg:viewBox="0 0 20 30" svg:d="M10 0l-10 30h20z"/></office:styles>` +
+    '<office:automatic-styles><style:style style:name="gr1" style:family="graphic"><style:graphic-properties svg:stroke-color="#d00000" svg:stroke-width="0.1cm" draw:marker-end="Arrow" draw:fill="none" style:wrap="run-through" style:run-through="foreground"/></style:style>' +
+    '<style:style style:name="gr2" style:family="graphic"><style:graphic-properties draw:stroke="none" draw:fill="solid" draw:fill-color="#ffff00" style:wrap="run-through" style:run-through="background"/></style:style></office:automatic-styles>' +
+    `<office:body><office:text>${body}</office:text></office:body></office:document-content>`;
+  const svgOf = (html: string): string => decodeURIComponent(/src="data:image\/svg\+xml;charset=utf-8,([^"]+)"/.exec(html)?.[1] ?? "");
+
+  it("draws an arrow anchored to a paragraph, placed from that paragraph", () => {
+    const html = odtToHtml(makeOdt(content('<text:p>Text<draw:line text:anchor-type="paragraph" draw:style-name="gr1" svg:x1="2.54cm" svg:y1="0cm" svg:x2="5.08cm" svg:y2="2.54cm"/> more.</text:p>')));
+    expect(html).toContain('class="odt-shape" data-shape-wrap="front"');
+    expect(html).toContain("data-odt-xml="); // kept verbatim for the writer
+    const svg = svgOf(html);
+    expect(svg).toContain('stroke="#d00000"');
+    expect(svg).toContain("M96,0 L192,96"); // 1in and 2in, in px
+    expect(svg).toContain('fill="#d00000"'); // the arrowhead
+    expect(/left:(9\d)(\.\d+)?px;top:-\d/.test(html)).toBe(true); // its box starts at the line, less the stroke
+  });
+
+  it("draws a freeform path in its own view box, and a box behind the text", () => {
+    const html = odtToHtml(makeOdt(content(
+      '<text:p>Text<draw:path text:anchor-type="char" draw:style-name="gr1" svg:x="0cm" svg:y="0cm" svg:width="2.54cm" svg:height="2.54cm" svg:viewBox="0 0 1000 1000" svg:d="M0 1000 C 300 0 700 0 1000 1000"/>' +
+      '<draw:rect text:anchor-type="paragraph" draw:style-name="gr2" svg:x="0cm" svg:y="0cm" svg:width="2.54cm" svg:height="1.27cm"/></text:p>',
+    )));
+    expect(html).toContain('data-shape-wrap="behind"');
+    const svgs = [...html.matchAll(/src="data:image\/svg\+xml;charset=utf-8,([^"]+)"/g)].map((m) => decodeURIComponent(m[1]!));
+    expect(svgs[0]).toContain("M0,96 C28.8,0 67.2,0 96,96"); // the view box mapped onto 96 x 96 px
+    expect(svgs[1]).toContain('<rect width="96" height="48"');
+    expect(svgs[1]).toContain('fill="#ffff00"');
+  });
+
+  it("writes the shapes back unchanged on save", () => {
+    const line = '<draw:line text:anchor-type="paragraph" draw:style-name="gr1" svg:x1="2.54cm" svg:y1="0cm" svg:x2="5.08cm" svg:y2="2.54cm"/>';
+    const odt = makeOdt(content(`<text:p>Text${line} more.</text:p>`));
+    const out = strFromU8(unzipSync(htmlToOdt(odtToHtml(odt), odt))["content.xml"]!);
+    // The same element (the passthrough restates namespace declarations, which changes nothing).
+    expect(out).toContain('<draw:line text:anchor-type="paragraph" draw:style-name="gr1" svg:x1="2.54cm" svg:y1="0cm" svg:x2="5.08cm" svg:y2="2.54cm"');
+    expect(out).toMatch(/Text<draw:line[^>]*\/> more\./);
+  });
+
+  it("leaves a shape it can't draw as before, kept for the save", () => {
+    const html = odtToHtml(makeOdt(content('<text:p>Text<draw:custom-shape text:anchor-type="paragraph" svg:width="1cm" svg:height="1cm"><draw:enhanced-geometry draw:type="mso-spt100" draw:enhanced-path="M ?f0 0 L 21600 ?f1 Z"/></draw:custom-shape></text:p>')));
+    expect(html).not.toContain("odt-shape");
+    expect(html).toContain('class="docx-pass"');
+  });
+});
