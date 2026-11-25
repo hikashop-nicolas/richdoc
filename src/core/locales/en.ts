@@ -464,7 +464,7 @@ const dict: Dict = {
   shapeSendBack: "Send to back",
   shapeOutlineWidthPt: "Outline (pt)",
   // Shape adjust handles.
-  shapeAdjust: "Drag to reshape",
+  shapeAdjust: "Drag, or use the arrow keys, to reshape",
   // Shape bar panels.
   shapeBar: "Shape",
   shapeSize: "Size",

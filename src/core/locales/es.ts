@@ -464,7 +464,7 @@ const dict: Dict = {
   shapeSendBack: "Enviar al fondo",
   shapeOutlineWidthPt: "Contorno (pt)",
   // Shape adjust handles.
-  shapeAdjust: "Arrastrar para ajustar la forma",
+  shapeAdjust: "Arrastrar, o usar las flechas, para ajustar la forma",
   // Shape bar panels.
   shapeBar: "Forma",
   shapeSize: "Tamaño",

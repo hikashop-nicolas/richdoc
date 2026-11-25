@@ -744,6 +744,7 @@
 /* A selected shape's adjust handles. */
 .rdoc-shape-handle { position: absolute; z-index: 61; width: 9px; height: 9px; margin: -5px 0 0 -5px; box-sizing: border-box; background: #ffd23f; border: 1px solid #6b5400; transform: rotate(45deg); cursor: pointer; touch-action: none; }
 .rdoc-shape-handle[hidden] { display: none; }
+.rdoc-shape-handle:focus-visible { outline: 2px solid var(--rdoc-accent, #6e7bff); outline-offset: 2px; }
 /* Where a dragged wrapped shape or picture will land. */
 .rdoc-float-ghost { position: fixed; z-index: 70; pointer-events: none; box-sizing: border-box; border: 2px dashed var(--rdoc-accent, #6e7bff); background: color-mix(in srgb, var(--rdoc-accent, #6e7bff) 12%, transparent); border-radius: 2px; }
 .docxedit-doc .docx-shape[data-shape-wrap="behind"] { cursor: default; }

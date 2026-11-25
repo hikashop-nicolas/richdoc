@@ -464,7 +464,7 @@ const dict: Dict = {
   shapeSendBack: "На задний план",
   shapeOutlineWidthPt: "Контур (пт)",
   // Shape adjust handles.
-  shapeAdjust: "Перетащите, чтобы изменить форму",
+  shapeAdjust: "Перетащите или используйте стрелки, чтобы изменить форму",
   // Shape bar panels.
   shapeBar: "Фигура",
   shapeSize: "Размер",

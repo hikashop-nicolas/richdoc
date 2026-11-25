@@ -464,7 +464,7 @@ const dict: Dict = {
   shapeSendBack: "置于底层",
   shapeOutlineWidthPt: "轮廓 (磅)",
   // Shape adjust handles.
-  shapeAdjust: "拖动以调整形状",
+  shapeAdjust: "拖动或使用方向键调整形状",
   // Shape bar panels.
   shapeBar: "形状",
   shapeSize: "大小",

@@ -372,6 +372,23 @@ export function setupShapeEdit(deps: ShapeEditDeps) {
     h = document.createElement("div");
     h.className = "rdoc-shape-handle";
     h.title = t("shapeAdjust");
+    // Keyboard: focus a handle, then the arrow keys move it (Shift: ten times as far).
+    h.tabIndex = 0;
+    h.setAttribute("role", "button");
+    h.setAttribute("aria-label", t("shapeAdjust"));
+    h.addEventListener("keydown", (e) => {
+      if (!shape || !/^Arrow(Left|Right|Up|Down)$/.test(e.key)) return;
+      e.preventDefault();
+      e.stopPropagation();
+      const p = hooks?.handles?.(shape)?.points[i];
+      if (!p) return;
+      const k = e.shiftKey ? 10 : 1;
+      hooks!.moveHandle!(shape, i, p.x + (e.key === "ArrowLeft" ? -k : e.key === "ArrowRight" ? k : 0), p.y + (e.key === "ArrowUp" ? -k : e.key === "ArrowDown" ? k : 0));
+      markShapeDirty(shape, "adj");
+      layout();
+      mark();
+      place();
+    });
     h.addEventListener("pointerdown", (e) => {
       if (!shape || e.button !== 0) return;
       e.preventDefault();

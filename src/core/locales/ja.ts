@@ -464,7 +464,7 @@ const dict: Dict = {
   shapeSendBack: "最背面へ移動",
   shapeOutlineWidthPt: "枠線 (pt)",
   // Shape adjust handles.
-  shapeAdjust: "ドラッグして形状を調整",
+  shapeAdjust: "ドラッグまたは矢印キーで形状を調整",
   // Shape bar panels.
   shapeBar: "図形",
   shapeSize: "サイズ",
