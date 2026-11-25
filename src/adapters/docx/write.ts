@@ -455,10 +455,12 @@ function shapeRun(ctx: DocxCtx, el: HTMLElement): Element | null {
   }
   if (/adj/.test(edit)) {
     // Moved handles: the shape's adjust values.
-    const adj = shapeAdjust(el);
-    const sps = run.getElementsByTagNameNS(NS_WPS, "wsp");
-    const spPr = sps.length === 1 ? Array.from(sps[0]!.children).find((c) => c.localName === "spPr") : undefined;
-    if (adj && spPr) setAvLst(spPr, adj);
+    const sps = Array.from(run.getElementsByTagNameNS(NS_WPS, "wsp"));
+    sps.forEach((sp, k) => {
+      const adj = sps.length === 1 ? shapeAdjust(el) : shapeAdjust(el, k); // a group's members by number
+      const spPr = Array.from(sp.children).find((c) => c.localName === "spPr");
+      if (adj && spPr) setAvLst(spPr, adj);
+    });
   }
   if (/z/.test(edit)) {
     const z = Number(el.getAttribute("data-shape-z"));

@@ -50,15 +50,15 @@ function drawnBoxes(shape: HTMLElement): [HTMLElement, Element][] {
   const box = shape.querySelector<HTMLElement>(":scope > .docx-shape-box");
   if (!box) return [];
   const id = shape.getAttribute("data-shape-prst");
-  if (id) return [[box, withAdjust(spPrFor(entry(id)), shape)]];
+  if (id) return [[box, withAdjust(spPrFor(entry(id)), shapeAdjust(shape))]];
   const xml = shape.getAttribute("data-docx-xml");
   if (!xml) return [];
   const run = new DOMParser().parseFromString(xml, "application/xml");
   const spPrs = Array.from(run.getElementsByTagName("wps:wsp")).map((w) => Array.from(w.children).find((c) => c.tagName === "wps:spPr"));
-  if (spPrs.length === 1) return spPrs[0] ? [[box, withAdjust(spPrs[0], shape)]] : [];
+  if (spPrs.length === 1) return spPrs[0] ? [[box, withAdjust(spPrs[0], shapeAdjust(shape))]] : [];
   // A group: its member boxes (not its sub-groups' boxes) are its shapes, in order.
   const boxes = Array.from(box.querySelectorAll<HTMLElement>(".docx-shape-box")).filter((m) => !m.querySelector(":scope > .docx-shape-box, :scope > img"));
-  return boxes.length === spPrs.length ? boxes.flatMap((b, i) => (spPrs[i] ? [[b, spPrs[i]!] as [HTMLElement, Element]] : [])) : [];
+  return boxes.length === spPrs.length ? boxes.flatMap((b, i) => (spPrs[i] ? [[b, withAdjust(spPrs[i]!, shapeAdjust(shape, i))] as [HTMLElement, Element]] : [])) : [];
 }
 
 const hex = (c: string): string | undefined => {
@@ -67,11 +67,16 @@ const hex = (c: string): string | undefined => {
   return /^#[0-9a-f]{6}$/i.test(c) ? c.slice(1).toUpperCase() : undefined;
 };
 
-/** A shape's edited adjust values (its handles moved in the editor), {name: "val N"}. */
-export function shapeAdjust(shape: HTMLElement): Record<string, string> | undefined {
+/** A shape's edited adjust values (its handles moved in the editor), {name: "val N"}: the shape's
+ *  own (data-shape-adj), or a group member's by its number (data-shape-adjs). */
+export function shapeAdjust(shape: HTMLElement, member?: number): Record<string, string> | undefined {
   try {
-    const a = shape.getAttribute("data-shape-adj");
-    return a ? (JSON.parse(a) as Record<string, string>) : undefined;
+    if (member === undefined) {
+      const a = shape.getAttribute("data-shape-adj");
+      return a ? (JSON.parse(a) as Record<string, string>) : undefined;
+    }
+    const all = JSON.parse(shape.getAttribute("data-shape-adjs") || "{}") as Record<string, Record<string, string>>;
+    return all[member];
   } catch {
     return undefined;
   }
@@ -93,35 +98,69 @@ export function setAvLst(el: Element, adj: Record<string, string>): void {
   }
 }
 
-/** An spPr with the shape's edited adjust values, when it has any. */
-function withAdjust(spPr: Element, shape: HTMLElement): Element {
-  const adj = shapeAdjust(shape);
+/** An spPr with edited adjust values, when there are any. */
+function withAdjust(spPr: Element, adj: Record<string, string> | undefined): Element {
   if (!adj) return spPr;
   const copy = spPr.cloneNode(true) as Element;
   setAvLst(copy, adj);
   return copy;
 }
 
-/** A single preset shape's handles' context: its preset, adjust values, size and flips. */
-function presetOf(shape: HTMLElement) {
-  const [only, ...more] = drawnBoxes(shape);
-  if (!only || more.length) return undefined;
-  const [box, spPr] = only;
-  if (box !== shape.querySelector(":scope > .docx-shape-box") || box.style.transform) return undefined; // not a group member; not turned
-  const geom = Array.from(spPr.children).find((c) => c.localName === "prstGeom");
-  const xfrm = Array.from(spPr.children).find((c) => c.localName === "xfrm");
-  const prst = geom?.getAttribute("prst");
-  if (!prst || Number(xfrm?.getAttribute("rot") ?? 0)) return undefined;
-  const adj: Record<string, string> = {};
-  for (const gd of Array.from(Array.from(geom!.children).find((c) => c.localName === "avLst")?.children ?? [])) {
-    const n = gd.getAttribute("name");
-    if (n) adj[n] = gd.getAttribute("fmla") ?? "";
-  }
-  const w = parseFloat(box.style.width), h = parseFloat(box.style.height);
-  if (!(w > 0) || !(h >= 0)) return undefined;
-  const flip = (a: string) => xfrm?.getAttribute(a) === "1" || xfrm?.getAttribute(a) === "true";
-  return { box, prst, adj, w, h, flipH: flip("flipH"), flipV: flip("flipV") };
+const turn = (b: HTMLElement) => Number(/rotate\(\s*(-?[\d.]+)deg\s*\)/.exec(b.style.transform)?.[1] ?? 0);
+const rotate = (x: number, y: number, cx: number, cy: number, deg: number): [number, number] => {
+  const a = (deg * Math.PI) / 180, dx = x - cx, dy = y - cy;
+  return [cx + dx * Math.cos(a) - dy * Math.sin(a), cy + dx * Math.sin(a) + dy * Math.cos(a)];
+};
+const size = (b: HTMLElement): [number, number] => [parseFloat(b.style.width) || b.offsetWidth, parseFloat(b.style.height) || b.offsetHeight];
+
+/** The preset shapes of a shape (itself, or each in a group) with their handles' context: preset,
+ *  adjust values, size, flips, and how a point of its own lands in the shape (its frame: turned
+ *  boxes inside it are turned about their centres) and back. */
+function presetsOf(shape: HTMLElement) {
+  const top = shape.querySelector<HTMLElement>(":scope > .docx-shape-box");
+  if (!top) return [];
+  const group = !!top.querySelector(":scope > .docx-shape-box, :scope > img");
+  return drawnBoxes(shape).flatMap(([box, spPr], member) => {
+    const geom = Array.from(spPr.children).find((c) => c.localName === "prstGeom");
+    const xfrm = Array.from(spPr.children).find((c) => c.localName === "xfrm");
+    const prst = geom?.getAttribute("prst");
+    if (!prst) return [];
+    const adj: Record<string, string> = {};
+    for (const gd of Array.from(Array.from(geom!.children).find((c) => c.localName === "avLst")?.children ?? [])) {
+      const n = gd.getAttribute("name");
+      if (n) adj[n] = gd.getAttribute("fmla") ?? "";
+    }
+    const [w, h] = size(box);
+    if (!(w > 0) || !(h >= 0)) return [];
+    const flip = (a: string) => xfrm?.getAttribute(a) === "1" || xfrm?.getAttribute(a) === "true";
+    // The boxes from this one up to the shape's own, each placed (left / top) in the next.
+    const chain: HTMLElement[] = [];
+    for (let b: HTMLElement | null = box; b; b = b === top ? null : b.parentElement?.closest<HTMLElement>(".docx-shape-box") ?? null) chain.push(b);
+    const toFrame = (x: number, y: number) => {
+      let q: [number, number] = [x, y];
+      for (const b of chain) {
+        const [bw, bh] = size(b);
+        q = rotate(q[0], q[1], bw / 2, bh / 2, turn(b));
+        if (b !== top) q = [q[0] + (parseFloat(b.style.left) || 0), q[1] + (parseFloat(b.style.top) || 0)];
+      }
+      return { x: q[0], y: q[1] };
+    };
+    const fromFrame = (x: number, y: number) => {
+      let q: [number, number] = [x, y];
+      for (const b of [...chain].reverse()) {
+        if (b !== top) q = [q[0] - (parseFloat(b.style.left) || 0), q[1] - (parseFloat(b.style.top) || 0)];
+        const [bw, bh] = size(b);
+        q = rotate(q[0], q[1], bw / 2, bh / 2, -turn(b));
+      }
+      return { x: q[0], y: q[1] };
+    };
+    return [{ box, prst, adj, w, h, flipH: flip("flipH"), flipV: flip("flipV"), member: group ? member : undefined, toFrame, fromFrame }];
+  });
 }
+type PresetCtx = ReturnType<typeof presetsOf>[number];
+/** Every handle of a shape, in order: its preset shape and that one's own handle number. */
+const allHandles = (shape: HTMLElement) =>
+  presetsOf(shape).flatMap((p: PresetCtx) => presetHandles(p.prst, p.w, p.h, p.adj).map((hd, j) => ({ p, j, ...p.toFrame(p.flipH ? p.w - hd.x : hd.x, p.flipV ? p.h - hd.y : hd.y) })));
 
 /** Draw a shape's outline (each member's, for a group) again at its box's current size. */
 function redraw(shape: HTMLElement): void {
@@ -161,16 +200,23 @@ let galleryCache: ReturnType<NonNullable<ShapeHooks["gallery"]>> | undefined;
 export const docxShapeHooks: ShapeHooks = {
   redraw,
   handles(shape) {
-    const p = presetOf(shape);
-    if (!p) return undefined;
-    const points = presetHandles(p.prst, p.w, p.h, p.adj).map((hd) => ({ x: p.flipH ? p.w - hd.x : hd.x, y: p.flipV ? p.h - hd.y : hd.y }));
-    return points.length ? { frame: p.box, points } : undefined;
+    const points = allHandles(shape).map(({ x, y }) => ({ x, y }));
+    // In the shape's own element: it is never turned (its boxes are).
+    return points.length ? { frame: shape, points } : undefined;
   },
   moveHandle(shape, i, x, y) {
-    const p = presetOf(shape);
-    if (!p) return;
-    const adj = adjustToward(p.prst, p.w, p.h, p.adj, i, p.flipH ? p.w - x : x, p.flipV ? p.h - y : y);
-    shape.setAttribute("data-shape-adj", JSON.stringify(adj));
+    const hd = allHandles(shape)[i];
+    if (!hd) return;
+    const { p, j } = hd;
+    const q = p.fromFrame(x, y);
+    const adj = adjustToward(p.prst, p.w, p.h, p.adj, j, p.flipH ? p.w - q.x : q.x, p.flipV ? p.h - q.y : q.y);
+    if (p.member === undefined) shape.setAttribute("data-shape-adj", JSON.stringify(adj));
+    else {
+      let all: Record<string, Record<string, string>> = {};
+      try { all = JSON.parse(shape.getAttribute("data-shape-adjs") || "{}"); } catch { /* a fresh set */ }
+      all[p.member] = adj;
+      shape.setAttribute("data-shape-adjs", JSON.stringify(all));
+    }
     // A box drawn by CSS (a rounded rectangle) is drawn from its outline from now on.
     if (!p.box.hasAttribute("data-geom")) { p.box.setAttribute("data-geom", ""); p.box.style.borderRadius = ""; }
     redraw(shape);

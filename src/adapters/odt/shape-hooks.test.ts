@@ -95,4 +95,30 @@ describe("odt shape hooks", () => {
     hooks.moveHandle!(lo, 0, lh.points[0]!.x + 1000, lh.points[0]!.y); // far right: held at 10800
     expect(JSON.parse(lo.getAttribute("data-shape-edit")!).mods).toEqual([10800]);
   });
+
+  it("gives a turned shape and each shape in a group their handles", () => {
+    const { hooks } = mount();
+    const NS = 'xmlns:draw="urn:oasis:names:tc:opendocument:xmlns:drawing:1.0" xmlns:svg="urn:oasis:names:tc:opendocument:xmlns:svg-compatible:1.0" xmlns:text="urn:oasis:names:tc:opendocument:xmlns:text:1.0"';
+    const geo = '<draw:enhanced-geometry svg:viewBox="0 0 21600 21600" draw:modifiers="5400" draw:enhanced-path="M $0 0 L 21600 10800 $0 21600 0 10800 Z N"><draw:handle draw:handle-position="$0 top" draw:handle-range-x-minimum="0" draw:handle-range-x-maximum="10800"/></draw:enhanced-geometry>';
+    const mk = (xml: string) => {
+      const el = document.createElement("span");
+      el.className = "odt-shape";
+      el.setAttribute("data-shape-wrap", "front");
+      el.setAttribute("data-odt-xml", xml);
+      document.body.appendChild(el);
+      hooks.redraw!(el);
+      return el;
+    };
+    // Turned a quarter: its handle sits where the turned outline puts it, and a drag there keeps $0.
+    const turned = mk(`<draw:custom-shape ${NS} text:anchor-type="paragraph" svg:width="2cm" svg:height="1cm" draw:transform="rotate (1.5707963267949) translate (1cm 3cm)">${geo}</draw:custom-shape>`);
+    const tp = hooks.handles!(turned)!.points[0]!;
+    hooks.moveHandle!(turned, 0, tp.x, tp.y);
+    expect(JSON.parse(turned.getAttribute("data-shape-edit")!).mods[0]).toBeCloseTo(5400, 0);
+    // A group: its second member's handle moves that member's modifiers only.
+    const g = mk(`<draw:g ${NS} text:anchor-type="paragraph"><draw:custom-shape svg:x="0cm" svg:y="0cm" svg:width="2cm" svg:height="1cm">${geo}</draw:custom-shape><draw:custom-shape svg:x="3cm" svg:y="0cm" svg:width="2cm" svg:height="1cm">${geo}</draw:custom-shape></draw:g>`);
+    const gp = hooks.handles!(g)!.points;
+    expect(gp).toHaveLength(2);
+    hooks.moveHandle!(g, 1, gp[1]!.x + 1000, gp[1]!.y);
+    expect(JSON.parse(g.getAttribute("data-shape-edit")!).memberMods).toEqual({ 1: [10800] });
+  });
 });

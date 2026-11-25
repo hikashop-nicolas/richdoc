@@ -18,8 +18,10 @@ export interface OdtShapeEdit {
   wrap?: "inline" | "square" | "tight" | "topbottom" | "behind" | "front"; align?: "left" | "center" | "right"; z?: number;
   /** A new line's arrowheads (LibreOffice's "Arrow" marker). */
   ends?: "tail" | "both";
-  /** A custom shape's modifiers ($0, $1 ...), as its handles set them. */
+  /** A custom shape's modifiers ($0, $1 ...), as its handles set them; a group's members' by
+   *  their number among its custom shapes. */
   mods?: number[];
+  memberMods?: Record<number, number[]>;
 }
 
 export function editOf(shape: HTMLElement): OdtShapeEdit {
@@ -152,8 +154,15 @@ export function applyGeometry(el: Element, e: OdtShapeEdit): void {
     if (e.dx || e.dy) move(el, e.dx ?? 0, e.dy ?? 0);
   }
   if (e.z !== undefined) el.setAttributeNS(DRAW, "draw:z-index", String(Math.max(0, Math.round(e.z))));
-  const g = e.mods && Array.from(el.children).find((c) => c.tagName === "draw:enhanced-geometry");
-  if (g) g.setAttributeNS(DRAW, "draw:modifiers", e.mods!.map((m) => String(Math.round(m * 1000) / 1000)).join(" "));
+  const setMods = (shape: Element, mods: number[]) => {
+    const g = Array.from(shape.children).find((c) => c.tagName === "draw:enhanced-geometry");
+    if (g) g.setAttributeNS(DRAW, "draw:modifiers", mods.map((m) => String(Math.round(m * 1000) / 1000)).join(" "));
+  };
+  if (e.mods) setMods(el, e.mods);
+  if (e.memberMods) {
+    const members = Array.from(el.getElementsByTagName("draw:custom-shape"));
+    for (const [k, mods] of Object.entries(e.memberMods)) if (members[Number(k)]) setMods(members[Number(k)]!, mods);
+  }
 }
 
 /** Whether an edit changes the graphic style: its look or how it wraps. */

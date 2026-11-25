@@ -44,6 +44,38 @@ describe("docx shape hooks", () => {
     expect(xml).toContain('<a:prstGeom prst="rightArrow"><a:avLst><a:gd name="adj1" fmla="val 50000"/><a:gd name="adj2" fmla="val 25000"/></a:avLst></a:prstGeom>');
   });
 
+  it("places a turned shape's handles turned with it, and reads a drag back through the turn", () => {
+    const s = docxShapeHooks.create!("rightArrow");
+    s.querySelector<HTMLElement>(".docx-shape-box")!.style.transform = "rotate(90deg)";
+    // 144 x 96 turned a quarter clockwise about its centre (72, 48): (96, 0) lands at (120, 72).
+    const p = docxShapeHooks.handles!(s)!.points[1]!;
+    expect([Math.round(p.x), Math.round(p.y)]).toEqual([120, 72]);
+    docxShapeHooks.moveHandle!(s, 1, 120, 96); // 24 px further down the turned shape: the head starts 120 across
+    expect(JSON.parse(s.getAttribute("data-shape-adj")!).adj2).toBe("val 25000");
+  });
+
+  it("gives each preset in a group its handles, kept and saved per member", () => {
+    const member = (x: number, prst: string) => `<wps:wsp><wps:spPr><a:xfrm><a:off x="${x}" y="0"/><a:ext cx="952500" cy="952500"/></a:xfrm><a:prstGeom prst="${prst}"><a:avLst/></a:prstGeom><a:solidFill><a:srgbClr val="FF0000"/></a:solidFill></wps:spPr><wps:bodyPr/></wps:wsp>`;
+    const grp = `<wpg:wgp><wpg:grpSpPr><a:xfrm><a:off x="0" y="0"/><a:ext cx="1905000" cy="952500"/><a:chOff x="0" y="0"/><a:chExt cx="1905000" cy="952500"/></a:xfrm></wpg:grpSpPr>${member(0, "rect")}${member(952500, "star5")}</wpg:wgp>`;
+    const NS = 'xmlns:w="http://schemas.openxmlformats.org/wordprocessingml/2006/main" xmlns:wp="http://schemas.openxmlformats.org/drawingml/2006/wordprocessingDrawing" xmlns:a="http://schemas.openxmlformats.org/drawingml/2006/main" xmlns:wps="http://schemas.microsoft.com/office/word/2010/wordprocessingShape" xmlns:wpg="http://schemas.microsoft.com/office/word/2010/wordprocessingGroup"';
+    const d = zipSync({
+      "[Content_Types].xml": strToU8("<Types/>"), "_rels/.rels": strToU8("<Relationships/>"),
+      "word/document.xml": strToU8(`<?xml version="1.0"?><w:document ${NS}><w:body><w:p><w:r><w:drawing><wp:inline><wp:extent cx="1905000" cy="952500"/><wp:docPr id="1" name="g"/><a:graphic><a:graphicData uri="http://schemas.microsoft.com/office/word/2010/wordprocessingGroup">${grp}</a:graphicData></a:graphic></wp:inline></w:drawing></w:r></w:p><w:sectPr/></w:body></w:document>`),
+      "word/_rels/document.xml.rels": strToU8(`<Relationships xmlns="http://schemas.openxmlformats.org/package/2006/relationships"/>`),
+    });
+    document.body.innerHTML = docxToParts(d).body;
+    const s = document.querySelector<HTMLElement>(".docx-shape")!;
+    const hs = docxShapeHooks.handles!(s)!.points;
+    expect(hs).toHaveLength(1); // the star's (a rectangle has none), in the group: 100 px across
+    expect(Math.round(hs[0]!.x)).toBe(150);
+    docxShapeHooks.moveHandle!(s, 0, 150, 30);
+    expect(Object.keys(JSON.parse(s.getAttribute("data-shape-adjs")!))).toEqual(["1"]);
+    s.setAttribute("data-shape-dirty", "adj");
+    const xml = strFromU8(unzipSync(htmlToDocx(document.body.innerHTML, d))["word/document.xml"]!);
+    expect(xml).toMatch(/<a:prstGeom prst="rect"><a:avLst\/><\/a:prstGeom>/);
+    expect(xml).toMatch(/<a:prstGeom prst="star5"><a:avLst><a:gd name="adj" fmla="val \d+"\/>/);
+  });
+
   it("gives a rounded rectangle its corner handle, drawn from its outline once moved", () => {
     const s = docxShapeHooks.create!("roundRect");
     const box = s.querySelector<HTMLElement>(".docx-shape-box")!;

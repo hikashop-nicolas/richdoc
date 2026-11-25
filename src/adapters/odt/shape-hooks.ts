@@ -8,7 +8,7 @@ import { PRESETS } from "../docx/preset-shapes";
 import { odfHandles } from "./geometry";
 import { ooxmlGeometryXml } from "./ooxml-shape";
 import { odtShapeContext } from "./read";
-import { isShapeTag, shapeHtml, type Look, type ShapeCtx } from "./shapes";
+import { isShapeTag, shapeHtml, transformOf, type Look, type ShapeCtx } from "./shapes";
 import { ARROW_MARKER, applyGeometry, editOf, setEditOf, type OdtShapeEdit } from "./shape-edit";
 
 const EDIT_STYLE = "__rdoc_edit";
@@ -121,59 +121,81 @@ export function odtShapeHooks(getFiles: () => Record<string, Uint8Array>): Shape
     redraw(s);
   };
 
-  /** A custom shape's geometry as drawn now (edits applied), its size and place, and the frame
-   *  its handles are given in (its picture, whose user units are px). */
-  const shapeGeom = (s: HTMLElement) => {
+  /** The custom shapes of a drawing as drawn now (edits applied): the drawing itself, or each in
+   *  a group, with how a point of its own (px, y down) lands in its picture, and back. */
+  const customShapes = (s: HTMLElement) => {
     const xml = s.getAttribute("data-odt-xml");
     const svg = s.querySelector<SVGSVGElement>("svg.odt-shape-svg");
-    if (!xml || !svg) return undefined;
-    const el = new DOMParser().parseFromString(xml, "application/xml").documentElement;
-    if (!el || el.tagName !== "draw:custom-shape" || el.hasAttribute("draw:transform")) return undefined; // turned shapes keep their handles out
+    if (!xml || !svg) return [];
+    const root = new DOMParser().parseFromString(xml, "application/xml").documentElement;
+    if (!root) return [];
     const e = editOf(s);
-    applyGeometry(el, e);
-    const g = Array.from(el.children).find((c) => c.tagName === "draw:enhanced-geometry");
-    if (!g) return undefined;
-    const L = (n: string) => sctx().lenToPx(el.getAttribute(n)) ?? 0;
+    applyGeometry(root, e);
+    const c = sctx();
     const vb = (svg.getAttribute("viewBox") ?? "0 0 0 0").split(/[\s,]+/).map(Number);
-    const type = g.getAttribute("draw:type") ?? "";
-    const prst = type.startsWith("ooxml-") && PRESETS[type.slice(6)] ? type.slice(6) : undefined;
-    return {
-      e, g, prst, w: L("svg:width"), h: L("svg:height"),
-      ox: L("svg:x") - (vb[0] ?? 0), oy: L("svg:y") - (vb[1] ?? 0), frame: svg as unknown as HTMLElement,
-      mh: g.getAttribute("draw:mirror-horizontal") === "true", mv: g.getAttribute("draw:mirror-vertical") === "true",
-      mods: (g.getAttribute("draw:modifiers") ?? "").trim().split(/[\s,]+/).filter(Boolean).map(Number),
-    };
+    const els = root.tagName === "draw:custom-shape" ? [root] : Array.from(root.getElementsByTagName("draw:custom-shape"));
+    return els.flatMap((el, member) => {
+      const g = Array.from(el.children).find((k) => k.tagName === "draw:enhanced-geometry");
+      if (!g) return [];
+      const L = (n: string) => c.lenToPx(el.getAttribute(n)) ?? 0;
+      const w = L("svg:width"), h = L("svg:height");
+      if (!(w > 0) || !(h > 0)) return [];
+      // Its own point to its place: turned and moved by draw:transform, or set at svg:x / svg:y.
+      const xf = transformOf(el, c) ?? ((p: [number, number]): [number, number] => [p[0] + L("svg:x"), p[1] + L("svg:y")]);
+      const o = xf([0, 0]), ex = xf([1, 0]), ey = xf([0, 1]);
+      const m = [ex[0] - o[0], ex[1] - o[1], ey[0] - o[0], ey[1] - o[1]];
+      const det = m[0]! * m[3]! - m[1]! * m[2]! || 1;
+      const type = g.getAttribute("draw:type") ?? "";
+      return [{
+        g, w, h, member: root === el ? -1 : member,
+        prst: type.startsWith("ooxml-") && PRESETS[type.slice(6)] ? type.slice(6) : undefined,
+        mh: g.getAttribute("draw:mirror-horizontal") === "true", mv: g.getAttribute("draw:mirror-vertical") === "true",
+        mods: (g.getAttribute("draw:modifiers") ?? "").trim().split(/[\s,]+/).filter(Boolean).map(Number),
+        toFrame: (x: number, y: number) => { const q = xf([x, y]); return { x: q[0] - (vb[0] ?? 0), y: q[1] - (vb[1] ?? 0) }; },
+        fromFrame: (x: number, y: number) => {
+          const dx = x + (vb[0] ?? 0) - o[0], dy = y + (vb[1] ?? 0) - o[1];
+          return { x: (dx * m[3]! - dy * m[2]!) / det, y: (dy * m[0]! - dx * m[1]!) / det };
+        },
+      }];
+    });
   };
+  type Custom = ReturnType<typeof customShapes>[number];
   /** A Word preset's adjust values from its modifiers (in the order of its adjust list). */
   const adjOf = (prst: string, mods: number[]) => Object.fromEntries(PRESETS[prst]![0].map(([n], k) => [n, `val ${mods[k] ?? adjustValues(prst)[n]}`]));
+  /** A custom shape's handles, in its own px (mirrors applied). */
+  const ownHandles = (k: Custom): { x: number; y: number }[] => {
+    let pts: { x: number; y: number }[];
+    if (k.prst) pts = presetHandles(k.prst, k.w, k.h, adjOf(k.prst, k.mods)).map(({ x, y }) => ({ x, y }));
+    else {
+      const { vb, handles } = odfHandles(k.g, k.w, k.h);
+      pts = handles.filter((h) => h.refs.length).map((h) => ({ x: ((h.x - vb[0]) * k.w) / (vb[2] || 1), y: ((h.y - vb[1]) * k.h) / (vb[3] || 1) }));
+    }
+    return pts.map(({ x, y }) => ({ x: k.mh ? k.w - x : x, y: k.mv ? k.h - y : y }));
+  };
+  /** Every handle of a drawing, in order: its custom shape and that one's own handle number. */
+  const allHandles = (s: HTMLElement) => customShapes(s).flatMap((k) => ownHandles(k).map((p, j) => ({ k, j, ...k.toFrame(p.x, p.y) })));
 
   return {
     redraw,
     handles(s) {
-      const k = shapeGeom(s);
-      if (!k || !(k.w > 0) || !(k.h > 0)) return undefined;
-      let pts: { x: number; y: number }[];
-      if (k.prst) pts = presetHandles(k.prst, k.w, k.h, adjOf(k.prst, k.mods)).map(({ x, y }) => ({ x, y }));
-      else {
-        const { vb, handles } = odfHandles(k.g, k.w, k.h);
-        pts = handles.filter((h) => h.refs.length).map((h) => ({ x: ((h.x - vb[0]) * k.w) / (vb[2] || 1), y: ((h.y - vb[1]) * k.h) / (vb[3] || 1) }));
-      }
-      const points = pts.map(({ x, y }) => ({ x: (k.mh ? k.w - x : x) + k.ox, y: (k.mv ? k.h - y : y) + k.oy }));
-      return points.length ? { frame: k.frame, points } : undefined;
+      const hs = allHandles(s);
+      const frame = s.querySelector<SVGSVGElement>("svg.odt-shape-svg") as unknown as HTMLElement | null;
+      return hs.length && frame ? { frame, points: hs.map(({ x, y }) => ({ x, y })) } : undefined;
     },
     moveHandle(s, i, fx, fy) {
-      const k = shapeGeom(s);
-      if (!k || !(k.w > 0) || !(k.h > 0)) return;
-      let lx = fx - k.ox, ly = fy - k.oy;
+      const hd = allHandles(s)[i];
+      if (!hd) return;
+      const { k, j } = hd;
+      let { x: lx, y: ly } = k.fromFrame(fx, fy);
       if (k.mh) lx = k.w - lx;
       if (k.mv) ly = k.h - ly;
       let mods: number[];
       if (k.prst) {
-        const adj = adjustToward(k.prst, k.w, k.h, adjOf(k.prst, k.mods), i, lx, ly);
+        const adj = adjustToward(k.prst, k.w, k.h, adjOf(k.prst, k.mods), j, lx, ly);
         mods = PRESETS[k.prst]![0].map(([n]) => Number(adj[n]!.split(/\s+/)[1]) || 0);
       } else {
         const { vb, handles, modifiers } = odfHandles(k.g, k.w, k.h);
-        const h = handles.filter((hd) => hd.refs.length)[i];
+        const h = handles.filter((x) => x.refs.length)[j];
         if (!h) return;
         mods = [...modifiers];
         // The pointer in the geometry's view box; each modifier the handle moves follows it.
@@ -185,7 +207,10 @@ export function odtShapeHooks(getFiles: () => Record<string, Uint8Array>): Shape
           mods[r.index] = Math.min(Math.max(v, Math.min(r.min, r.max)), Math.max(r.min, r.max));
         }
       }
-      update(s, (e) => { e.mods = mods; });
+      update(s, (e) => {
+        if (k.member < 0) e.mods = mods;
+        else e.memberMods = { ...(e.memberMods ?? {}), [k.member]: mods };
+      });
     },
     gallery: () => docxShapeHooks.gallery!(),
     create(id) {

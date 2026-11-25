@@ -284,7 +284,7 @@ function shapeText(el: Element, cx: number, cy: number): string {
 }
 
 /** `rotate(a) translate(x y)` (odf draw:transform) as a point mapping, or undefined. */
-function transformOf(el: Element, ctx: ShapeCtx): ((p: Pt) => Pt) | undefined {
+export function transformOf(el: Element, ctx: ShapeCtx): ((p: Pt) => Pt) | undefined {
   const t = el.getAttribute("draw:transform");
   if (!t) return undefined;
   const ops = [...t.matchAll(/(rotate|translate|skewX|scale)\s*\(([^)]*)\)/g)];
