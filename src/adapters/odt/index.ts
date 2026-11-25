@@ -10,6 +10,7 @@ import type { Adapter, CommentEdits, CommentMarkers, EditorOptions, NewCommentMe
 import { odtToParts } from "./read";
 import { loadOdtEmbeddedFonts } from "./fonts";
 import { htmlToOdtAsync } from "./write";
+import { odtShapeHooks } from "./shape-hooks";
 
 // Public surface (also consumed by the tests).
 export { odtToHtml, odtToParts } from "./read";
@@ -22,6 +23,7 @@ export type OdtEditor = RichEditor;
 /** Wrap a .odt byte array as an engine adapter: parse, serialize, capabilities. */
 export function createOdtAdapter(bytes: Uint8Array, preunzipped?: Record<string, Uint8Array>): Adapter {
   const original = bytes.slice();
+  let unzipped: Record<string, Uint8Array> | undefined;
   return {
     original,
     read(): RichDoc {
@@ -86,7 +88,9 @@ export function createOdtAdapter(bytes: Uint8Array, preunzipped?: Record<string,
       ref.setAttribute("data-comment-meta", meta.date ? `${meta.author} – ${meta.date.slice(0, 10)}` : meta.author);
       return { start: cmark(), end: cmark(), ref };
     },
+    shapes: odtShapeHooks(() => (unzipped ??= preunzipped ?? unzipSync(original))),
     capabilities: {
+      shapes: "edit",
       floatsFromParagraph: true,
       comments: true,
       commentReplies: false,

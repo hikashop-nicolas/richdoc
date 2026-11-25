@@ -4,7 +4,7 @@
 // "look") so the adapter rewrites only what changed; untouched shapes save byte for byte.
 import { t } from "../i18n";
 import { paintShapeGeom } from "./shape-geom";
-import type { ShapeHooks } from "../types";
+import type { ShapeHooks, ShapeLook, ShapeModel } from "../types";
 
 export type ShapeKind = "textbox" | "rect" | "roundRect" | "ellipse";
 
@@ -155,11 +155,47 @@ export function setupShapeEdit(deps: ShapeEditDeps) {
   bar.append(field(t("shapeFill"), fillIn), field(t("shapeNoFill"), noFill), field(t("shapeOutline"), lineIn), lineW, field(t("shapeWidthCm"), wIn), field(t("shapeHeightCm"), hIn), del);
   wrap.appendChild(bar);
   const PX_CM = 96 / 2.54;
-  const box = () => shape?.querySelector<HTMLElement>(":scope > .docx-shape-box") ?? null;
   const rgbHex = (c: string): string => {
     const m = /rgba?\((\d+),\s*(\d+),\s*(\d+)/.exec(c);
     return m ? `#${[m[1], m[2], m[3]].map((v) => Number(v).toString(16).padStart(2, "0")).join("")}` : /^#[0-9a-f]{6}$/i.test(c) ? c : "#000000";
   };
+  // A docx shape keeps its look as its box's CSS (what the writer reads); others go through the
+  // adapter's model.
+  const boxOf = (s: HTMLElement) => s.querySelector<HTMLElement>(":scope > .docx-shape-box");
+  const cssModel: ShapeModel = {
+    selector: ".docx-shape",
+    get(s) {
+      const b = boxOf(s);
+      if (!b) return undefined;
+      const bg = b.style.backgroundColor;
+      const bw = parseFloat(b.style.borderTopWidth || "0");
+      const lined = !!b.style.borderTopStyle && b.style.borderTopStyle !== "none" && bw > 0;
+      return {
+        fill: !bg || bg === "transparent" ? null : rgbHex(bg),
+        line: lined ? rgbHex(b.style.borderTopColor || getComputedStyle(b).borderTopColor) : null,
+        lineW: lined ? bw : 0,
+        w: b.offsetWidth, h: b.offsetHeight,
+        group: !!b.querySelector(":scope > .docx-shape-box, :scope > img"),
+      };
+    },
+    set(s, patch) {
+      const b = boxOf(s);
+      if (!b) return;
+      if ("fill" in patch) b.style.backgroundColor = patch.fill ?? "";
+      if ("lineW" in patch || "line" in patch) {
+        const w = patch.lineW ?? 0;
+        b.style.border = w ? `${w}px solid ${patch.line ?? "#000000"}` : "none";
+      }
+      if (patch.w) b.style.width = `${Math.round(patch.w)}px`;
+      if (patch.h) b.style.height = `${Math.round(patch.h)}px`;
+      if (patch.w || patch.h) hooks?.redraw?.(s); // the outline is worked out again for the new size
+      paintShapeGeom(b);
+    },
+    posEl: (s) => s,
+    moved: () => {},
+  };
+  const SEL = hooks?.model ? `.docx-shape, ${hooks.model.selector}` : ".docx-shape";
+  const modelOf = (s: HTMLElement): ShapeModel => (hooks?.model && s.matches(hooks.model.selector) ? hooks.model : cssModel);
   const place = () => {
     if (!shape) return;
     const r = shape.getBoundingClientRect(), wr = wrap.getBoundingClientRect();
@@ -167,20 +203,17 @@ export function setupShapeEdit(deps: ShapeEditDeps) {
     bar.style.top = `${Math.max(4, r.top - wr.top - 40)}px`;
   };
   const sync = () => {
-    const b = box();
-    if (!b) return;
-    const cs = getComputedStyle(b);
-    const bg = b.style.backgroundColor;
-    noFill.checked = !bg || bg === "transparent";
-    fillIn.value = noFill.checked ? "#ffffff" : rgbHex(bg);
-    const bw = parseFloat(b.style.borderTopWidth || "0");
-    lineIn.value = rgbHex(b.style.borderTopColor || cs.borderTopColor);
-    lineW.value = !b.style.borderTopStyle || b.style.borderTopStyle === "none" || !bw ? "0" : String(Math.min(4, Math.max(1, Math.round(bw))));
-    wIn.value = (b.offsetWidth / PX_CM).toFixed(1);
-    hIn.value = (b.offsetHeight / PX_CM).toFixed(1);
+    if (!shape) return;
+    const lk = modelOf(shape).get(shape);
+    if (!lk) return;
+    noFill.checked = !lk.fill;
+    fillIn.value = lk.fill ?? "#ffffff";
+    lineIn.value = lk.line ?? "#000000";
+    lineW.value = !lk.line || !lk.lineW ? "0" : String(Math.min(4, Math.max(1, Math.round(lk.lineW))));
+    wIn.value = (lk.w / PX_CM).toFixed(1);
+    hIn.value = (lk.h / PX_CM).toFixed(1);
     move.hidden = !floating(shape);
-    const isGroup = !!b.querySelector(":scope > .docx-shape-box, :scope > img");
-    for (const el of [fillIn, noFill, lineIn, lineW]) (el as HTMLInputElement).disabled = isGroup;
+    for (const el of [fillIn, noFill, lineIn, lineW]) (el as HTMLInputElement).disabled = !!lk.group;
   };
   const select = (s: HTMLElement | null) => {
     if (s === shape) return place();
@@ -192,29 +225,22 @@ export function setupShapeEdit(deps: ShapeEditDeps) {
     sync();
     requestAnimationFrame(place); // after the bar has a width to clamp
   };
-  const apply = (fn: (b: HTMLElement) => void) => {
-    const b = box();
-    if (!b || !shape) return;
-    fn(b);
-    paintShapeGeom(b);
+  const apply = (patch: Partial<ShapeLook>) => {
+    if (!shape) return;
+    modelOf(shape).set(shape, patch);
     markShapeDirty(shape, "look");
     mark();
     place();
   };
-  fillIn.addEventListener("input", () => apply((b) => { noFill.checked = false; b.style.backgroundColor = fillIn.value; }));
-  noFill.addEventListener("change", () => apply((b) => { b.style.backgroundColor = noFill.checked ? "" : fillIn.value; }));
-  const setLine = (b: HTMLElement) => {
-    const w = Number(lineW.value);
-    b.style.border = w ? `${w}px solid ${lineIn.value}` : "none";
-  };
-  lineIn.addEventListener("input", () => apply((b) => { if (lineW.value === "0") lineW.value = "1"; setLine(b); }));
-  lineW.addEventListener("change", () => apply(setLine));
-  const setSize = () => apply((b) => {
+  fillIn.addEventListener("input", () => { noFill.checked = false; apply({ fill: fillIn.value }); });
+  noFill.addEventListener("change", () => apply({ fill: noFill.checked ? null : fillIn.value }));
+  const lineNow = (): Partial<ShapeLook> => { const w = Number(lineW.value); return { line: w ? lineIn.value : null, lineW: w }; };
+  lineIn.addEventListener("input", () => { if (lineW.value === "0") lineW.value = "1"; apply(lineNow()); });
+  lineW.addEventListener("change", () => apply(lineNow()));
+  const setSize = () => {
     const w = parseFloat(wIn.value), h = parseFloat(hIn.value);
-    if (w > 0) b.style.width = `${Math.round(w * PX_CM)}px`;
-    if (h > 0) b.style.height = `${Math.round(h * PX_CM)}px`;
-    if (shape) hooks?.redraw(shape); // the outline is worked out again for the new size
-  });
+    apply({ ...(w > 0 ? { w: w * PX_CM } : {}), ...(h > 0 ? { h: h * PX_CM } : {}) });
+  };
   wIn.addEventListener("change", setSize);
   hIn.addEventListener("change", setSize);
   del.addEventListener("click", () => {
@@ -225,18 +251,20 @@ export function setupShapeEdit(deps: ShapeEditDeps) {
     mark();
   });
   const floating = (s: HTMLElement | null) => !!s && /^(behind|front)$/.test(s.getAttribute("data-shape-wrap") ?? "");
-  let drag: { s: HTMLElement; x0: number; y0: number; left: number; top: number; id: number; moved: boolean } | null = null;
+  let drag: { s: HTMLElement; el: HTMLElement; x0: number; y0: number; left: number; top: number; id: number; moved: boolean } | null = null;
   const startDrag = (s: HTMLElement, e: PointerEvent) => {
     e.preventDefault(); // no text selection while dragging; this also stops the mousedown that selects
     select(s);
-    const pos = shapePos(s);
-    drag = { s, x0: e.clientX, y0: e.clientY, left: pos.left, top: pos.top, id: e.pointerId, moved: false };
+    const el = modelOf(s).posEl(s);
+    if (!el) return;
+    const pos = shapePos(el);
+    drag = { s, el, x0: e.clientX, y0: e.clientY, left: pos.left, top: pos.top, id: e.pointerId, moved: false };
   };
   const onPointerDown = (e: PointerEvent) => {
     const el = e.target as HTMLElement;
     if (el === move && shape && floating(shape)) return startDrag(shape, e);
     if (bar.contains(el) || el.closest?.(".docx-shape-body")) return;
-    const s = el.closest?.(".docx-shape") as HTMLElement | null;
+    const s = el.closest?.(SEL) as HTMLElement | null;
     if (s && inRegion(s) && floating(s) && e.button === 0) startDrag(s, e);
   };
   const onPointerMove = (e: PointerEvent) => {
@@ -245,7 +273,7 @@ export function setupShapeEdit(deps: ShapeEditDeps) {
     const dx = (e.clientX - drag.x0) / z, dy = (e.clientY - drag.y0) / z;
     if (!drag.moved && Math.hypot(dx, dy) < 3) return;
     drag.moved = true;
-    setShapePos(drag.s, Math.round(drag.left + dx), Math.round(drag.top + dy));
+    setShapePos(drag.el, Math.round(drag.left + dx), Math.round(drag.top + dy));
     place();
   };
   const onPointerUp = (e: PointerEvent) => {
@@ -253,6 +281,7 @@ export function setupShapeEdit(deps: ShapeEditDeps) {
     const d = drag;
     drag = null;
     if (!d.moved) return;
+    modelOf(d.s).moved(d.s);
     markShapeDirty(d.s, "pos");
     mark();
     place();
@@ -267,7 +296,7 @@ export function setupShapeEdit(deps: ShapeEditDeps) {
     const el = e.target as HTMLElement;
     if (bar.contains(el)) return;
     // A click on a shape (its frame or its text) selects it; the text keeps the caret.
-    const s = el.closest?.(".docx-shape") as HTMLElement | null;
+    const s = el.closest?.(SEL) as HTMLElement | null;
     select(s && inRegion(s) ? s : null);
   };
   document.addEventListener("mousedown", onDown);
@@ -288,7 +317,7 @@ export function setupShapeEdit(deps: ShapeEditDeps) {
     getActiveEl().focus({ preventScroll: true });
     range.deleteContents();
     const basic = ["textbox", "rect", "roundRect", "ellipse"].includes(kind);
-    const el = basic || !hooks ? newShapeEl(basic ? (kind as ShapeKind) : "rect") : hooks.create(kind);
+    const el = basic || !hooks?.create ? newShapeEl(basic ? (kind as ShapeKind) : "rect") : hooks.create(kind);
     range.insertNode(el);
     range.setStartAfter(el);
     range.collapse(true);

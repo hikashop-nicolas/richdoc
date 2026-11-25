@@ -453,7 +453,11 @@
 .docxedit-floats-para .docxedit-doc :is(p, h1, h2, h3, h4, h5, h6, li):has(img[data-rdoc-wrap="front"], img[data-rdoc-wrap="behind"], .odt-shape[data-shape-wrap="front"], .odt-shape[data-shape-wrap="behind"]) { position: relative; }
 /* odt drawing shapes (lines, arrows, freeform paths, boxes): a read-only picture over or under the text. */
 .docxedit-doc .odt-shape-box { position: absolute; pointer-events: none; user-select: none; }
-.docxedit-doc .odt-shape-box img, .docxedit-doc .odt-shape[data-shape-wrap="inline"] img { display: block; width: 100%; height: 100%; max-width: none; }
+.docxedit-doc .odt-shape-svg { display: block; width: 100%; height: 100%; max-width: none; overflow: visible; }
+/* Only what a drawing paints takes a click: the text around and under it stays reachable. */
+.docxedit-doc .odt-shape-svg :is(path, rect, ellipse, text) { pointer-events: visiblePainted; cursor: pointer; }
+.docxedit-doc .odt-shape-svg .odt-shape-hit { pointer-events: stroke; }
+.docxedit-doc .odt-shape.docx-shape-selected .odt-shape-svg, .docxedit-doc .odt-shape.docx-shape-selected[data-shape-wrap="inline"] { outline: 2px solid var(--rdoc-accent, #6e7bff); outline-offset: 1px; }
 .docxedit-doc .odt-shape[data-shape-wrap="front"] .odt-shape-box { z-index: 4; }
 .docxedit-doc .odt-shape[data-shape-wrap="behind"] .odt-shape-box { z-index: -1; }
 .docxedit-doc .odt-shape-page { height: 0; margin: 0; overflow: visible; }

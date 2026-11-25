@@ -1,6 +1,7 @@
 // odt WRITE: rebuild an .odt archive from edited HTML, preserving every untouched part.
 // Pure HTML -> XML (body, styles, header/footer, comments, tracked changes, page margins);
 // the read half lives in ./read.
+import { applyGeometry, editOf, editedGraphicStyle, editedTextStyle, hasLook } from "./shape-edit";
 import { strFromU8, strToU8, unzipSync, zipSync, type AsyncZippable } from "fflate";
 import { zipAsync } from "../../core/zip";
 import { firstFontFamily, fontSizeToHalfPt, toHex6, imageLayoutFromEl, blockBorders, parseCssBorder } from "../../core/util";
@@ -275,6 +276,23 @@ function setFrameAlt(doc: Document, frame: Element, alt: string): void {
   }
 }
 
+/** A drawing the shape bar changed: its original element with the new size, place and look (a
+ *  new automatic graphic style, so other shapes sharing the old one keep theirs). */
+function editedShapeNode(el: HTMLElement, stash: string, ctx: OdfCtx): Element | null {
+  const node = importPassthrough(ctx.doc, stash);
+  if (!node) return null;
+  const e = editOf(el);
+  applyGeometry(node, e);
+  if (hasLook(e) && node.tagName !== "draw:g") {
+    const taken = (n: string) => Array.from(ctx.auto.children).some((c) => c.getAttribute("style:name") === n);
+    const name = editedGraphicStyle(ctx.auto, node.getAttribute("draw:style-name") ?? "", e, taken);
+    node.setAttributeNS(NS.draw, "draw:style-name", name);
+    const text = editedTextStyle(ctx.auto, node.getAttribute("draw:text-style-name") ?? "", e, taken);
+    if (text) node.setAttributeNS(NS.draw, "draw:text-style-name", text);
+  }
+  return node;
+}
+
 /** Serialize an edited <img> back to a draw:frame. A preserved image (data-odt-xml carrying its
  *  original frame) is rebuilt around its own draw:image so the picture part is reused, picking up
  *  the editor's current size + wrap; a brand-new image embeds fresh bytes. */
@@ -435,7 +453,7 @@ function htmlInlineToOdf(node: Node, parent: Element, f: Fmt, ctx: OdfCtx, rprSt
     }
     const stash = el.getAttribute("data-odt-xml");
     if (stash) {
-      const node2 = importPassthrough(ctx.doc, stash);
+      const node2 = el.hasAttribute("data-shape-edit") ? editedShapeNode(el, stash, ctx) : importPassthrough(ctx.doc, stash);
       if (node2) parent.appendChild(node2);
       continue;
     }
@@ -947,7 +965,7 @@ function htmlBlockToOdf(node: Node, ctx: OdfCtx): Element | null {
   // A section-break page boundary is display-only; the real break rides the paragraph's style.
   if (el.getAttribute("data-docx-pagebreak")) return null;
   const stash = el.getAttribute("data-odt-xml");
-  if (stash) return importPassthrough(ctx.doc, stash);
+  if (stash) return el.hasAttribute("data-shape-edit") ? editedShapeNode(el, stash, ctx) : importPassthrough(ctx.doc, stash);
   if (tag === "ul" || tag === "ol") return htmlListToOdf(el, ctx);
   const applyAlign = (block: Element): void => {
     const base = el.getAttribute("data-rdoc-style") || undefined; // a named paragraph style

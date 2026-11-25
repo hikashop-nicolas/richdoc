@@ -303,6 +303,26 @@ function shadeColor(color: string, k: number): string {
   return "#" + [n >> 16, (n >> 8) & 255, n & 255].map((v) => ch(v).toString(16).padStart(2, "0")).join("");
 }
 
+/** An invisible wide stroke along a line, so a thin line can be clicked. */
+const hitPath = (d: string) => `<path class="odt-shape-hit" d="${d}" fill="none" stroke="transparent" stroke-width="10"/>`;
+
+/** A shape's own size in px (its width and height; a line's extent), or undefined for a group. */
+export function shapeExtent(el: Element, lenToPx: LenToPx): { w: number; h: number } | undefined {
+  const L = (n: string) => lenToPx(el.getAttribute(n)) ?? 0;
+  if (el.tagName === "draw:g") return undefined;
+  if (el.hasAttribute("svg:x1")) return { w: Math.abs(L("svg:x2") - L("svg:x1")), h: Math.abs(L("svg:y2") - L("svg:y1")) };
+  return { w: L("svg:width"), h: L("svg:height") };
+}
+
+/** The look the shape bar edits, as data attributes on the shape element. */
+function modelAttrs(el: Element, look: Look, ctx: ShapeCtx): string {
+  const ext = shapeExtent(el, ctx.lenToPx);
+  if (!ext) return ` data-shape-group=""`;
+  const hex = (c: string) => (/^#[0-9a-f]{6}$/i.test(c) ? c.toLowerCase() : "#000000");
+  const line = look.stroke === "none" ? "none" : hex(look.strokeColor);
+  return ` data-shape-fill="${look.fill ? hex(look.fillColor) : "none"}" data-shape-line="${line}" data-shape-linew="${fmt(look.stroke === "none" ? 0 : look.strokeWidth || 1)}" data-shape-w="${fmt(ext.w)}" data-shape-h="${fmt(ext.h)}"`;
+}
+
 function drawShape(el: Element, ctx: ShapeCtx, look: Look, acc: { svg: string[]; box: Drawn["box"] }): void {
   const L = (n: string) => ctx.lenToPx(el.getAttribute(n)) ?? 0;
   const tag = el.tagName;
@@ -331,6 +351,7 @@ function drawShape(el: Element, ctx: ShapeCtx, look: Look, acc: { svg: string[];
       acc.svg.push(`<path d="${m.d}"${paint.fill ? shaded : ` fill="none"`}${paint.stroke ? strokeAttrs(look) : ` stroke="none"`}/>`);
       return;
     }
+    if (!closed) acc.svg.push(hitPath(m.d));
     acc.svg.push(`<path d="${m.d}"${closed ? fill : ` fill="none"`}${strokeAttrs(look)}/>`);
     if (!closed) acc.svg.push(ends(look, ctx, m.start, m.end, acc.box));
   };
@@ -344,7 +365,8 @@ function drawShape(el: Element, ctx: ShapeCtx, look: Look, acc: { svg: string[];
     }
     grow(acc.box, a, pad);
     grow(acc.box, b, pad);
-    acc.svg.push(`<path d="M${fmt(a[0])},${fmt(a[1])} L${fmt(b[0])},${fmt(b[1])}" fill="none"${strokeAttrs(look)}/>`);
+    const d = `M${fmt(a[0])},${fmt(a[1])} L${fmt(b[0])},${fmt(b[1])}`;
+    acc.svg.push(hitPath(d), `<path d="${d}" fill="none"${strokeAttrs(look)}/>`);
     acc.svg.push(ends(look, ctx, [a, b], [a, b], acc.box));
     return;
   }
@@ -410,10 +432,13 @@ export function shapeHtml(el: Element, ctx: ShapeCtx, level: "inline" | "block")
   const bw = x1 - x0, bh = y1 - y0;
   const op = look.opacity < 1 ? ` opacity="${fmt(look.opacity)}"` : "";
   const svg = `<svg xmlns="http://www.w3.org/2000/svg" width="${fmt(bw)}" height="${fmt(bh)}" viewBox="${fmt(x0)} ${fmt(y0)} ${fmt(bw)} ${fmt(bh)}"><g${op}>${acc.svg.join("")}</g></svg>`;
-  const img = `<img src="data:image/svg+xml;charset=utf-8,${escapeAttr(encodeURIComponent(svg))}" alt="${escapeAttr(el.getAttribute("draw:name") ?? "")}" draggable="false">`;
+  // Inline, so only what is painted takes a click (the shape bar selects a shape by it).
+  const name = el.getAttribute("draw:name");
+  const img = svg.replace("<svg ", `<svg class="odt-shape-svg" role="img"${name ? ` aria-label="${escapeAttr(name)}"` : ` aria-hidden="true"`} `);
+  const model = modelAttrs(el, look, ctx);
   const anchor = el.getAttribute("text:anchor-type") ?? "paragraph";
   if (anchor === "as-char") {
-    return `<span class="odt-shape" data-shape-wrap="inline" contenteditable="false"${passthroughAttr(el)} style="width:${fmt(bw)}px;height:${fmt(bh)}px">${img}</span>`;
+    return `<span class="odt-shape" data-shape-wrap="inline" contenteditable="false"${model}${passthroughAttr(el)} style="width:${fmt(bw)}px;height:${fmt(bh)}px">${img}</span>`;
   }
   const wrap = look.wrap === "run-through" && look.runThrough === "background" ? "behind" : "front";
   let left = x0, top = y0;
@@ -426,6 +451,6 @@ export function shapeHtml(el: Element, ctx: ShapeCtx, level: "inline" | "block")
   // A page-anchored shape sits in the body between paragraphs: a zero-height block placed from the
   // document's corner. One anchored to a paragraph or character is placed from that paragraph.
   return level === "block"
-    ? `<div class="odt-shape odt-shape-page" data-shape-wrap="${wrap}" contenteditable="false"${passthroughAttr(el)}>${box}</div>`
-    : `<span class="odt-shape" data-shape-wrap="${wrap}" contenteditable="false"${passthroughAttr(el)}>${box}</span>`;
+    ? `<div class="odt-shape odt-shape-page" data-shape-wrap="${wrap}" contenteditable="false"${model}${passthroughAttr(el)}>${box}</div>`
+    : `<span class="odt-shape" data-shape-wrap="${wrap}" contenteditable="false"${model}${passthroughAttr(el)}>${box}</span>`;
 }

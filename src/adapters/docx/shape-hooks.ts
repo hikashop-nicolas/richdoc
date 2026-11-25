@@ -97,7 +97,7 @@ function icon(id: string): string {
   return `<svg width="32" height="24" viewBox="-2 -2 32 24" aria-hidden="true" stroke-width="1.2" stroke-linejoin="round">${body}</svg>`;
 }
 
-let galleryCache: ReturnType<ShapeHooks["gallery"]> | undefined;
+let galleryCache: ReturnType<NonNullable<ShapeHooks["gallery"]>> | undefined;
 
 export const docxShapeHooks: ShapeHooks = {
   redraw,

@@ -12,33 +12,33 @@ const DOC = (body: string) => zipSync({
 
 describe("docx shape hooks", () => {
   it("offers Word's groups of ready-made shapes with pictures", () => {
-    const g = docxShapeHooks.gallery();
+    const g = docxShapeHooks.gallery!();
     expect(g.map((x) => x.items.length).reduce((a, b) => a + b, 0)).toBeGreaterThan(140);
     expect(g[0]!.items.map((i) => i.id)).toContain("arrowLine");
     for (const grp of g) for (const it of grp.items) expect(it.icon).toMatch(/<path d="M/);
   });
 
   it("creates a drawn shape and redraws it at a new size", () => {
-    const s = docxShapeHooks.create("rightArrow");
+    const s = docxShapeHooks.create!("rightArrow");
     const box = s.querySelector<HTMLElement>(".docx-shape-box")!;
     expect(box.hasAttribute("data-geom")).toBe(true);
     const before = box.querySelector("svg path")!.getAttribute("d");
     expect(before).toBe("M0,24 L96,24 L96,0 L144,48 L96,96 L96,72 L0,72 Z");
     box.style.width = "288px";
-    docxShapeHooks.redraw(s);
+    docxShapeHooks.redraw!(s);
     expect(box.querySelectorAll("svg").length).toBe(1);
     expect(box.querySelector("svg path")!.getAttribute("d")).toBe("M0,24 L240,24 L240,0 L288,48 L240,96 L240,72 L0,72 Z");
     expect(box.querySelector("svg path")!.getAttribute("fill")).toBe("rgb(68, 114, 196)");
   });
 
   it("creates plain boxes as CSS boxes", () => {
-    expect(docxShapeHooks.create("ellipse").querySelector(".docx-shape-box")!.hasAttribute("data-geom")).toBe(false);
+    expect(docxShapeHooks.create!("ellipse").querySelector(".docx-shape-box")!.hasAttribute("data-geom")).toBe(false);
   });
 
   it("saves an inserted preset with its geometry, and a line with its arrowheads and no text", () => {
     const d = DOC("<w:p><w:r><w:t>x</w:t></w:r></w:p>");
-    const star = docxShapeHooks.create("star5").outerHTML;
-    const arrow = docxShapeHooks.create("doubleArrowLine").outerHTML;
+    const star = docxShapeHooks.create!("star5").outerHTML;
+    const arrow = docxShapeHooks.create!("doubleArrowLine").outerHTML;
     const xml = strFromU8(unzipSync(htmlToDocx(`<p>x${star}${arrow}</p>`, d))["word/document.xml"]!);
     expect(xml).toContain('<a:prstGeom prst="star5">');
     expect(xml).toMatch(/<a:prstGeom prst="straightConnector1"><a:avLst\/><\/a:prstGeom><a:noFill\/><a:ln w="19050"><a:solidFill><a:srgbClr val="4472C4"\/><\/a:solidFill><a:headEnd type="triangle"\/><a:tailEnd type="triangle"\/><\/a:ln>/);

@@ -171,8 +171,8 @@ export interface Capabilities {
   commentReactions: boolean;
   trackChanges: boolean;
   images: boolean;
-  /** Inserting / editing shapes and text boxes (docx). */
-  shapes?: boolean;
+  /** Inserting / editing shapes and text boxes (docx); "edit" edits existing shapes only (odt). */
+  shapes?: boolean | "edit";
   /** Inserting new tables (existing tables are always editable when present). */
   tables: boolean;
   headerFooter: boolean;
@@ -275,14 +275,33 @@ export interface ChartHooks {
   create(): HTMLElement;
 }
 
+/** A shape's look as the shape bar edits it: colours #rrggbb (null for none), sizes in px. */
+export interface ShapeLook { fill: string | null; line: string | null; lineW: number; w: number; h: number }
+
+/** Shapes whose look the adapter keeps itself instead of as the box's CSS (odt drawings). */
+export interface ShapeModel {
+  /** What a shape element matches, e.g. ".odt-shape". */
+  selector: string;
+  /** Its look; `group` when only its size and place can change. */
+  get(shape: HTMLElement): (ShapeLook & { group?: boolean }) | undefined;
+  /** Change its look and redraw it. */
+  set(shape: HTMLElement, patch: Partial<ShapeLook>): void;
+  /** The element dragging moves (by its left / top). */
+  posEl(shape: HTMLElement): HTMLElement | null;
+  /** After a drag: record the move. */
+  moved(shape: HTMLElement): void;
+}
+
 /** Drawn shapes beyond plain boxes: redrawn after a resize, and offered by Insert > Shape. */
 export interface ShapeHooks {
   /** Redraw a shape's outline at its box's current size. */
-  redraw(shape: HTMLElement): void;
+  redraw?(shape: HTMLElement): void;
   /** Ready-made shapes for the insert menu, by group; each with a small SVG picture of it. */
-  gallery(): { group: string; items: { id: string; label: string; icon: string }[] }[];
+  gallery?(): { group: string; items: { id: string; label: string; icon: string }[] }[];
   /** A new shape element for a gallery id. */
-  create(id: string): HTMLElement;
+  create?(id: string): HTMLElement;
+  /** Shapes edited through the adapter rather than their box's CSS. */
+  model?: ShapeModel;
 }
 
 /** The irreducible per-format layer: parse, serialize, comment markers, feature flags. */

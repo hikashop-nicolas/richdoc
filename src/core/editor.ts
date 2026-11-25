@@ -2134,8 +2134,8 @@ export function createRichEditor(container: HTMLElement, adapter: Adapter, optio
     newStyles, newStyleCss, vertical: isVertical(),
     insertSectionBreak: sectionBreakBtn ? () => sectionBreakBtn.click() : null,
     insertNote: (kind, text) => insertNote(kind, text),
-    insertShape: shapeEdit?.insert,
-    shapeGallery: adapter.shapes ? () => adapter.shapes!.gallery() : undefined,
+    insertShape: caps.shapes === true ? shapeEdit?.insert : undefined,
+    shapeGallery: adapter.shapes?.gallery ? () => adapter.shapes!.gallery!() : undefined,
     insertChart: chartEdit?.insert,
   });
   // Find/replace lives at the right end of the top toolbar (its own margin

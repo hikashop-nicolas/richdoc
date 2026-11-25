@@ -1115,3 +1115,10 @@ export function odtToHtml(bytes: Uint8Array): string {
   return odtToParts(bytes).body;
 }
 
+
+/** The drawing styles and geometry a shape is drawn with, for redrawing an edited shape. */
+export function odtShapeContext(files: Record<string, Uint8Array>): ShapeCtx {
+  const parse = (k: string) => (files[k] ? new DOMParser().parseFromString(strFromU8(files[k]!), "application/xml") : undefined);
+  const page = parsePageGeometry(files);
+  return collectShapeStyles([parse("content.xml"), parse("styles.xml")], lenToPx, page ? { height: page.heightPx } : undefined);
+}

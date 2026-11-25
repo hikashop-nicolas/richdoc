@@ -1397,7 +1397,7 @@ describe("odt drawing shapes (lines, paths, boxes)", () => {
     '<office:automatic-styles><style:style style:name="gr1" style:family="graphic"><style:graphic-properties svg:stroke-color="#d00000" svg:stroke-width="0.1cm" draw:marker-end="Arrow" draw:fill="none" style:wrap="run-through" style:run-through="foreground"/></style:style>' +
     '<style:style style:name="gr2" style:family="graphic"><style:graphic-properties draw:stroke="none" draw:fill="solid" draw:fill-color="#ffff00" style:wrap="run-through" style:run-through="background"/></style:style></office:automatic-styles>' +
     `<office:body><office:text>${body}</office:text></office:body></office:document-content>`;
-  const svgOf = (html: string): string => decodeURIComponent(/src="data:image\/svg\+xml;charset=utf-8,([^"]+)"/.exec(html)?.[1] ?? "");
+  const svgOf = (html: string): string => /<svg class="odt-shape-svg"[^]*?<\/svg>/.exec(html)?.[0] ?? "";
 
   it("draws an arrow anchored to a paragraph, placed from that paragraph", () => {
     const html = odtToHtml(makeOdt(content('<text:p>Text<draw:line text:anchor-type="paragraph" draw:style-name="gr1" svg:x1="2.54cm" svg:y1="0cm" svg:x2="5.08cm" svg:y2="2.54cm"/> more.</text:p>')));
@@ -1416,7 +1416,7 @@ describe("odt drawing shapes (lines, paths, boxes)", () => {
       '<draw:rect text:anchor-type="paragraph" draw:style-name="gr2" svg:x="0cm" svg:y="0cm" svg:width="2.54cm" svg:height="1.27cm"/></text:p>',
     )));
     expect(html).toContain('data-shape-wrap="behind"');
-    const svgs = [...html.matchAll(/src="data:image\/svg\+xml;charset=utf-8,([^"]+)"/g)].map((m) => decodeURIComponent(m[1]!));
+    const svgs = [...html.matchAll(/<svg class="odt-shape-svg"[^]*?<\/svg>/g)].map((m) => m[0]);
     expect(svgs[0]).toContain("M0,96 C28.8,0 67.2,0 96,96"); // the view box mapped onto 96 x 96 px
     expect(svgs[1]).toContain('<rect width="96" height="48"');
     expect(svgs[1]).toContain('fill="#ffff00"');
@@ -1431,11 +1431,58 @@ describe("odt drawing shapes (lines, paths, boxes)", () => {
     expect(out).toMatch(/Text<draw:line[^>]*\/> more\./);
   });
 
+  describe("edited from the shape bar", () => {
+    const rectXml = '<draw:rect text:anchor-type="paragraph" draw:style-name="gr2" svg:x="1cm" svg:y="0.5cm" svg:width="2cm" svg:height="1cm"/>';
+    const lineXml = '<draw:line text:anchor-type="paragraph" draw:style-name="gr1" svg:x1="1cm" svg:y1="1cm" svg:x2="3cm" svg:y2="2cm"/>';
+    const read = (shape: string) => {
+      const d = makeOdt(content(`<text:p>Text${shape}</text:p>`));
+      return { d, html: odtToHtml(d) };
+    };
+
+    it("carries the look and size the bar shows", () => {
+      expect(read(rectXml).html).toMatch(/data-shape-fill="#ffff00" data-shape-line="none" data-shape-linew="0" data-shape-w="75\.59" data-shape-h="37\.8"/);
+      expect(read(lineXml).html).toMatch(/data-shape-fill="none" data-shape-line="#d00000" data-shape-linew="3\.78" data-shape-w="75\.59" data-shape-h="37\.8"/);
+    });
+
+    it("saves a new look as its own style, a new size and a move", () => {
+      const { d, html } = read(rectXml);
+      const edit = JSON.stringify({ fill: "#00ff00", line: "#0000ff", lineW: 2, w: 151.18, dx: 37.8, dy: -18.9 }).replace(/"/g, "&quot;");
+      const edited = html.replace('class="odt-shape"', `class="odt-shape" data-shape-edit="${edit}"`);
+      const xml = strFromU8(unzipSync(htmlToOdt(edited, d))["content.xml"]!);
+      expect(xml).toMatch(/<draw:rect [^>]*draw:style-name="rdocgr1"/);
+      expect(xml).toContain('svg:width="4cm" svg:height="1cm"');
+      expect(xml).toContain('svg:x="2cm"');
+      expect(xml).toContain('svg:y="0cm"');
+      expect(xml).toMatch(/<style:style style:name="rdocgr1" style:family="graphic"><style:graphic-properties draw:stroke="solid" draw:fill="solid" draw:fill-color="#00ff00"[^>]*svg:stroke-color="#0000ff" svg:stroke-width="0.053cm"/);
+      // The shape's old style is still there for anything else using it.
+      expect(xml).toContain('style:name="gr2"');
+    });
+
+    it("copies LibreOffice's fill on the shape's text style too", () => {
+      const withText = content('<text:p>Text<draw:rect text:anchor-type="paragraph" draw:style-name="gr2" draw:text-style-name="P9" svg:x="1cm" svg:y="0cm" svg:width="2cm" svg:height="1cm"/></text:p>')
+        .replace("</office:automatic-styles>", '<style:style style:name="P9" style:family="paragraph" xmlns:loext="urn:org:documentfoundation:names:experimental:office:xmlns:loext:1.0"><loext:graphic-properties draw:fill="solid" draw:fill-color="#ffff00"/></style:style></office:automatic-styles>');
+      const d = makeOdt(withText);
+      const edit = JSON.stringify({ fill: "#00ff00" }).replace(/"/g, "&quot;");
+      const html = odtToHtml(d).replace('class="odt-shape"', `class="odt-shape" data-shape-edit="${edit}"`);
+      const xml = strFromU8(unzipSync(htmlToOdt(html, d))["content.xml"]!);
+      expect(xml).toMatch(/<draw:rect [^>]*draw:text-style-name="rdocsp1"/);
+      expect(xml).toMatch(/style:name="rdocsp1"[^>]*><loext:graphic-properties draw:fill="solid" draw:fill-color="#00ff00"\/>/);
+    });
+
+    it("moves and stretches a line by its end points", () => {
+      const { d, html } = read(lineXml);
+      const edit = JSON.stringify({ w: 37.8, dx: 37.8 }).replace(/"/g, "&quot;");
+      const xml = strFromU8(unzipSync(htmlToOdt(html.replace('class="odt-shape"', `class="odt-shape" data-shape-edit="${edit}"`), d))["content.xml"]!);
+      expect(xml).toMatch(/svg:x1="2cm" svg:y1="1cm" svg:x2="3cm" svg:y2="2cm"/);
+      expect(xml).toContain('draw:style-name="gr1"'); // the look was not touched
+    });
+  });
+
   it("draws a custom shape from its equations and handles", () => {
     const shape = '<draw:custom-shape text:anchor-type="paragraph" svg:width="1cm" svg:height="1cm"><draw:enhanced-geometry draw:type="right-arrow" draw:modifiers="16200 5400" draw:enhanced-path="M 0 ?f0 L ?f1 ?f0 ?f1 0 21600 10800 ?f1 21600 ?f1 ?f2 0 ?f2 Z N"><draw:equation draw:name="f0" draw:formula="$1 "/><draw:equation draw:name="f1" draw:formula="$0 "/><draw:equation draw:name="f2" draw:formula="21600-$1 "/></draw:enhanced-geometry></draw:custom-shape>';
     const html = odtToHtml(makeOdt(content(`<text:p>Text${shape}</text:p>`)));
     expect(html).toContain("odt-shape");
-    const svg = decodeURIComponent(/src="data:image\/svg\+xml;charset=utf-8,([^"]+)"/.exec(html)?.[1] ?? "");
+    const svg = /<svg class="odt-shape-svg"[^]*?<\/svg>/.exec(html)?.[0] ?? "";
     // 1cm is 37.8px: the shaft's top edge is at 5400/21600 of it, the head starts at 16200/21600.
     expect(svg).toContain('d="M0,9.45 L28.35,9.45 L28.35,0 L37.8,18.9 L28.35,37.8 L28.35,28.35 L0,28.35 Z"');
   });
