@@ -355,12 +355,17 @@ export interface OdfHandle { x: number; y: number; polar?: [number, number]; ref
 /** The handles (draw:handle) of an enhanced geometry for a shape drawn `wPx` x `hPx`. */
 export function odfHandles(g: Element, wPx: number, hPx: number): { vb: Geometry["vb"]; handles: OdfHandle[]; modifiers: number[] } {
   const { vb, param, modifiers } = context(g, wPx, hPx);
+  // Only the modifiers the outline reads are worth a handle: some shapes keep handles on a
+  // fixed path, which they cannot change.
+  const used = new Set<number>();
+  const src = [g.getAttribute("drawooo:enhanced-path") ?? "", g.getAttribute("draw:enhanced-path") ?? "", ...Array.from(g.getElementsByTagName("draw:equation")).map((e) => e.getAttribute("draw:formula") ?? "")].join(" ");
+  for (const m of src.matchAll(/\$(\d+)/g)) used.add(Number(m[1]));
   const handles: OdfHandle[] = [];
   for (const h of Array.from(g.getElementsByTagName("draw:handle"))) {
     const [tx = "0", ty = "0"] = (h.getAttribute("draw:handle-position") ?? "").trim().split(/[\s,]+/);
     const a = (n: string) => h.getAttribute(`draw:handle-${n}`);
     const num = (n: string, dflt: number) => (a(n) ? param(a(n)!.trim()) : dflt);
-    const ref = (t: string) => (/^\$\d+$/.test(t) ? Number(t.slice(1)) : -1);
+    const ref = (t: string) => (/^\$\d+$/.test(t) && used.has(Number(t.slice(1))) ? Number(t.slice(1)) : -1);
     const polarAt = a("polar")?.trim().split(/[\s,]+/);
     const refs: OdfHandle["refs"] = [];
     if (polarAt) {
