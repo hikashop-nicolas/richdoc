@@ -463,6 +463,8 @@ const dict: Dict = {
   shapeBringFront: "置于顶层",
   shapeSendBack: "置于底层",
   shapeOutlineWidthPt: "轮廓 (磅)",
+  // Shape adjust handles.
+  shapeAdjust: "拖动以调整形状",
 };
 
 export default dict;

@@ -332,7 +332,62 @@ export function setupShapeEdit(deps: ShapeEditDeps) {
   };
   requestAnimationFrame(layout);
 
+  // Adjust handles (an arrow's head, a star's points ...): yellow diamonds on the selected shape,
+  // dragged to reshape it.
+  const handleEls: HTMLElement[] = [];
+  let hdrag: { i: number; id: number; moved: boolean } | null = null;
+  const handleAt = (i: number): HTMLElement => {
+    let h = handleEls[i];
+    if (h) return h;
+    h = document.createElement("div");
+    h.className = "rdoc-shape-handle";
+    h.title = t("shapeAdjust");
+    h.addEventListener("pointerdown", (e) => {
+      if (!shape || e.button !== 0) return;
+      e.preventDefault();
+      e.stopPropagation();
+      hdrag = { i, id: e.pointerId, moved: false };
+      try { h!.setPointerCapture(e.pointerId); } catch { /* no pointer */ }
+    });
+    h.addEventListener("pointermove", (e) => {
+      if (!shape || !hdrag || hdrag.id !== e.pointerId) return;
+      const hs = hooks?.handles?.(shape);
+      if (!hs) return;
+      const fr = hs.frame.getBoundingClientRect(), z = zoom();
+      hooks!.moveHandle!(shape, hdrag.i, (e.clientX - fr.left) / z, (e.clientY - fr.top) / z);
+      hdrag.moved = true;
+      layout(); // a redrawn shape is placed and stacked again
+      place();
+    });
+    const end = (e: PointerEvent) => {
+      if (!hdrag || hdrag.id !== e.pointerId) return;
+      const moved = hdrag.moved;
+      hdrag = null;
+      try { h!.releasePointerCapture(e.pointerId); } catch { /* not captured */ }
+      if (moved && shape) { markShapeDirty(shape, "adj"); mark(); }
+    };
+    h.addEventListener("pointerup", end);
+    h.addEventListener("pointercancel", end);
+    wrap.appendChild(h);
+    handleEls[i] = h;
+    return h;
+  };
+  const showHandles = () => {
+    const hs = shape && hooks?.moveHandle ? hooks.handles?.(shape) : undefined;
+    const pts = hs?.points ?? [];
+    const wr = wrap.getBoundingClientRect(), z = zoom();
+    const fr = hs?.frame.getBoundingClientRect();
+    pts.forEach((p, i) => {
+      const h = handleAt(i);
+      h.hidden = false;
+      h.style.left = `${fr!.left - wr.left + p.x * z}px`;
+      h.style.top = `${fr!.top - wr.top + p.y * z}px`;
+    });
+    for (let i = pts.length; i < handleEls.length; i++) handleEls[i]!.hidden = true;
+  };
+
   const place = () => {
+    showHandles();
     if (!shape) return;
     const r = (shape.querySelector(":scope > .odt-shape-box, :scope > .docx-shape-box") ?? shape).getBoundingClientRect(), wr = wrap.getBoundingClientRect();
     bar.style.left = `${Math.max(4, Math.min(r.left - wr.left, wr.width - bar.offsetWidth - 4))}px`;
@@ -386,7 +441,7 @@ export function setupShapeEdit(deps: ShapeEditDeps) {
     shape = s;
     bar.hidden = !s;
     closeMenu();
-    if (!s) return;
+    if (!s) return showHandles();
     s.classList.add("docx-shape-selected");
     sync();
     requestAnimationFrame(place); // after the bar has a width to clamp
@@ -613,6 +668,7 @@ export function setupShapeEdit(deps: ShapeEditDeps) {
     document.removeEventListener("pointercancel", onPointerUp);
     wrap.removeEventListener("scroll", onScroll, true);
     bar.remove();
+    for (const h of handleEls) h.remove();
     menu.remove();
   };
   return { insert, select, layout, teardown };

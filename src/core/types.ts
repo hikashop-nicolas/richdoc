@@ -318,6 +318,11 @@ export interface ShapeHooks {
   create?(id: string): HTMLElement | undefined;
   /** Whether it can insert text boxes. */
   textBox?: boolean;
+  /** A shape's adjust handles (an arrow's head, a star's points ...): px from the top-left of
+   *  `frame`, unscaled. Undefined when it has none (or is rotated). */
+  handles?(shape: HTMLElement): { frame: HTMLElement; points: { x: number; y: number }[] } | undefined;
+  /** Move handle `i` toward (x, y) px in its frame; the shape is redrawn. */
+  moveHandle?(shape: HTMLElement, i: number, x: number, y: number): void;
   /** Shapes edited through the adapter rather than their box's CSS. */
   model?: ShapeModel;
 }

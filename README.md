@@ -58,7 +58,9 @@ A full word-processor surface in the browser, the same for both formats unless n
 - **Shapes and text boxes:** text box content is edited in place; a selected shape's bar sets how
   it sits in the text (in line, wrapped, behind or in front, aligned, brought forward or sent
   back), its fill, outline and size, and a floating one is dragged (or nudged with the arrow
-  keys) to a new place; a wrapped one is dragged to another paragraph. Word's 187 preset shapes
+  keys) to a new place; a wrapped one is dragged to another paragraph. A preset's yellow adjust
+  handles reshape it (an arrow's head, a star's points, a callout's tail), in docx and odt, saved
+  as its adjust values (a:avLst / draw:modifiers). Word's 187 preset shapes
   (arrows, stars, callouts, flowchart symbols ...) and freeform shapes are drawn from their
   geometry, lines and connectors with their arrowheads, and redrawn when resized; Insert > Shape
   offers them as a gallery, in docx and odt (where they are saved as LibreOffice saves Word's

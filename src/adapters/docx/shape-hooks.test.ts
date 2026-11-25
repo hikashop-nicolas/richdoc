@@ -31,6 +31,30 @@ describe("docx shape hooks", () => {
     expect(box.querySelector("svg path")!.getAttribute("fill")).toBe("rgb(68, 114, 196)");
   });
 
+  it("moves an adjust handle, redraws, and saves the adjust value", () => {
+    const s = docxShapeHooks.create!("rightArrow");
+    // The shaft's edge (adj1) and the head's start (adj2), px in the 144 x 96 box.
+    expect(docxShapeHooks.handles!(s)!.points).toEqual([{ x: 0, y: 24 }, { x: 96, y: 0 }]);
+    docxShapeHooks.moveHandle!(s, 1, 120, 0); // a shorter head
+    expect(JSON.parse(s.getAttribute("data-shape-adj")!)).toEqual({ adj1: "val 50000", adj2: "val 25000" });
+    expect(s.querySelector("svg path")!.getAttribute("d")).toBe("M0,24 L120,24 L120,0 L144,48 L120,96 L120,72 L0,72 Z");
+    expect(docxShapeHooks.handles!(s)!.points[1]).toEqual({ x: 120, y: 0 });
+    const d = DOC("<w:p><w:r><w:t>x</w:t></w:r></w:p>");
+    const xml = strFromU8(unzipSync(htmlToDocx(`<p>x${s.outerHTML}</p>`, d))["word/document.xml"]!);
+    expect(xml).toContain('<a:prstGeom prst="rightArrow"><a:avLst><a:gd name="adj1" fmla="val 50000"/><a:gd name="adj2" fmla="val 25000"/></a:avLst></a:prstGeom>');
+  });
+
+  it("gives a rounded rectangle its corner handle, drawn from its outline once moved", () => {
+    const s = docxShapeHooks.create!("roundRect");
+    const box = s.querySelector<HTMLElement>(".docx-shape-box")!;
+    box.style.width = "144px"; box.style.height = "96px";
+    expect(docxShapeHooks.handles!(s)!.points).toHaveLength(1);
+    docxShapeHooks.moveHandle!(s, 0, 40, 0);
+    expect(box.hasAttribute("data-geom")).toBe(true);
+    expect(box.style.borderRadius).toBe("");
+    expect(box.querySelector("svg path")!.getAttribute("d")).toMatch(/^M0,40 /);
+  });
+
   it("creates plain boxes as CSS boxes", () => {
     expect(docxShapeHooks.create!("ellipse").querySelector(".docx-shape-box")!.hasAttribute("data-geom")).toBe(false);
   });

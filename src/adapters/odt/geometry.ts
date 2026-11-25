@@ -19,12 +19,9 @@ export interface Geometry {
 
 type Val = () => number;
 
-/** Evaluate an enhanced geometry for a shape drawn `wPx` x `hPx`. `undefined` when it has no path. */
-export function evaluateGeometry(g: Element, wPx: number, hPx: number): Geometry | undefined {
-  // LibreOffice keeps the whole path (with its OOXML arcs, G) in its own attribute, and one
-  // without them in the standard one.
-  const path = g.getAttribute("drawooo:enhanced-path") || g.getAttribute("draw:enhanced-path") || "";
-  if (!path.trim()) return undefined;
+/** An enhanced geometry's view box and how to read a parameter (a number, ?fN, $N or a
+ *  constant) for a shape drawn `wPx` x `hPx`. */
+function context(g: Element, wPx: number, hPx: number) {
   const vbRaw = (g.getAttribute("svg:viewBox") ?? "0 0 21600 21600").trim().split(/[\s,]+/).map(Number);
   let vb: Geometry["vb"] = vbRaw.length === 4 && vbRaw.every(Number.isFinite) ? (vbRaw as Geometry["vb"]) : [0, 0, 21600, 21600];
   // LibreOffice writes Word's preset shapes (draw:type="ooxml-...") with an empty view box: their
@@ -79,6 +76,16 @@ export function evaluateGeometry(g: Element, wPx: number, hPx: number): Geometry
     if (tok.startsWith("$")) return modifiers[Number(tok.slice(1))] ?? 0;
     return consts[tok.toLowerCase()] ?? 0;
   };
+  return { vb, param, modifiers };
+}
+
+/** Evaluate an enhanced geometry for a shape drawn `wPx` x `hPx`. `undefined` when it has no path. */
+export function evaluateGeometry(g: Element, wPx: number, hPx: number): Geometry | undefined {
+  // LibreOffice keeps the whole path (with its OOXML arcs, G) in its own attribute, and one
+  // without them in the standard one.
+  const path = g.getAttribute("drawooo:enhanced-path") || g.getAttribute("draw:enhanced-path") || "";
+  if (!path.trim()) return undefined;
+  const { vb, param } = context(g, wPx, hPx);
   const paths = walkPath(path, param);
   // LibreOffice gives some subpaths their own coordinate space (drawooo:sub-view-size: a width
   // and height each, 0 0 for the shape's own), scaled into the view box.
@@ -339,4 +346,36 @@ function walkPath(src: string, param: (t: string) => number): SubPath[] {
   }
   flush();
   return paths;
+}
+
+/** An odf handle: where it is (view-box units) and the modifiers it moves ($N in its position),
+ *  across / down, or round its polar centre (radius, angle in degrees). */
+export interface OdfHandle { x: number; y: number; polar?: [number, number]; refs: { index: number; axis: "x" | "y" | "r" | "ang"; min: number; max: number }[] }
+
+/** The handles (draw:handle) of an enhanced geometry for a shape drawn `wPx` x `hPx`. */
+export function odfHandles(g: Element, wPx: number, hPx: number): { vb: Geometry["vb"]; handles: OdfHandle[]; modifiers: number[] } {
+  const { vb, param, modifiers } = context(g, wPx, hPx);
+  const handles: OdfHandle[] = [];
+  for (const h of Array.from(g.getElementsByTagName("draw:handle"))) {
+    const [tx = "0", ty = "0"] = (h.getAttribute("draw:handle-position") ?? "").trim().split(/[\s,]+/);
+    const a = (n: string) => h.getAttribute(`draw:handle-${n}`);
+    const num = (n: string, dflt: number) => (a(n) ? param(a(n)!.trim()) : dflt);
+    const ref = (t: string) => (/^\$\d+$/.test(t) ? Number(t.slice(1)) : -1);
+    const polarAt = a("polar")?.trim().split(/[\s,]+/);
+    const refs: OdfHandle["refs"] = [];
+    if (polarAt) {
+      // A polar handle: its position is a radius and an angle round the centre.
+      const c: [number, number] = [param(polarAt[0] ?? "0"), param(polarAt[1] ?? "0")];
+      const r = param(tx), ang = param(ty);
+      if (ref(tx) >= 0) refs.push({ index: ref(tx), axis: "r", min: num("radius-range-minimum", 0), max: num("radius-range-maximum", Infinity) });
+      if (ref(ty) >= 0) refs.push({ index: ref(ty), axis: "ang", min: -Infinity, max: Infinity });
+      const t = (ang * Math.PI) / 180;
+      handles.push({ x: c[0] + r * Math.cos(t), y: c[1] - r * Math.sin(t), polar: c, refs });
+      continue;
+    }
+    if (ref(tx) >= 0) refs.push({ index: ref(tx), axis: "x", min: num("range-x-minimum", -Infinity), max: num("range-x-maximum", Infinity) });
+    if (ref(ty) >= 0) refs.push({ index: ref(ty), axis: "y", min: num("range-y-minimum", -Infinity), max: num("range-y-maximum", Infinity) });
+    handles.push({ x: param(tx), y: param(ty), refs });
+  }
+  return { vb, handles, modifiers };
 }

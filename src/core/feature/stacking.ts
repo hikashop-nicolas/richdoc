@@ -6,8 +6,8 @@
 
 const FLOAT = ":is(.docx-shape, .odt-shape):is([data-shape-wrap='front'], [data-shape-wrap='behind']), img:is([data-rdoc-wrap='front'], [data-rdoc-wrap='behind'])";
 
-/** Flag a shape as edited ("text", "look", "pos", "wrap", "z"), keeping every flag once set. */
-export function markShapeDirty(shape: Element, kind: "text" | "look" | "pos" | "wrap" | "z"): void {
+/** Flag a shape as edited ("text", "look", "pos", "wrap", "z", "adj"), keeping every flag once set. */
+export function markShapeDirty(shape: Element, kind: "text" | "look" | "pos" | "wrap" | "z" | "adj"): void {
   const cur = new Set((shape.getAttribute("data-shape-dirty") ?? "").split(/\s+/).filter(Boolean));
   cur.add(kind);
   shape.setAttribute("data-shape-dirty", [...cur].join(" "));

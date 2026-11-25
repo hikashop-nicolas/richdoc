@@ -72,4 +72,27 @@ describe("odt shape hooks", () => {
     expect(arrow.querySelectorAll("svg path").length).toBeGreaterThan(2); // the line, its hit area and its head
     expect(hooks.model!.get(arrow)).toMatchObject({ fill: null, line: "#4472c4", lineW: 2 });
   });
+
+  it("moves the handles of a Word preset and of a LibreOffice shape, as modifiers", () => {
+    const { hooks } = mount();
+    const arrow = hooks.create!("rightArrow")!;
+    document.body.appendChild(arrow);
+    // In its picture's px: the shaft's edge, then the head's start 96 px across (of 144).
+    const h = hooks.handles!(arrow)!;
+    expect(h.points).toHaveLength(2);
+    expect(Math.round(h.points[1]!.x - h.points[0]!.x)).toBe(96);
+    hooks.moveHandle!(arrow, 1, h.points[1]!.x + 24, h.points[1]!.y);
+    expect(JSON.parse(arrow.getAttribute("data-shape-edit")!).mods).toEqual([50000, 25000]);
+    // A LibreOffice shape: its handle moves $0 across, within its range.
+    const lo = document.createElement("span");
+    lo.className = "odt-shape";
+    lo.setAttribute("data-shape-wrap", "inline");
+    lo.setAttribute("data-odt-xml", '<draw:custom-shape xmlns:draw="urn:oasis:names:tc:opendocument:xmlns:drawing:1.0" xmlns:svg="urn:oasis:names:tc:opendocument:xmlns:svg-compatible:1.0" xmlns:text="urn:oasis:names:tc:opendocument:xmlns:text:1.0" text:anchor-type="as-char" svg:width="2cm" svg:height="1cm"><draw:enhanced-geometry svg:viewBox="0 0 21600 21600" draw:modifiers="5400" draw:enhanced-path="M $0 0 L 21600 10800 $0 21600 0 10800 Z N"><draw:handle draw:handle-position="$0 top" draw:handle-range-x-minimum="0" draw:handle-range-x-maximum="10800"/></draw:enhanced-geometry></draw:custom-shape>');
+    document.body.appendChild(lo);
+    hooks.redraw!(lo);
+    const lh = hooks.handles!(lo)!;
+    expect(lh.points).toHaveLength(1);
+    hooks.moveHandle!(lo, 0, lh.points[0]!.x + 1000, lh.points[0]!.y); // far right: held at 10800
+    expect(JSON.parse(lo.getAttribute("data-shape-edit")!).mods).toEqual([10800]);
+  });
 });

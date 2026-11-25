@@ -721,6 +721,9 @@
 .docxedit-shapebar input[type="color"] { width: 24px; height: 22px; padding: 1px; }
 .docxedit-shapebar-num { width: 52px; }
 .docxedit-shapebar-menu { position: absolute; min-width: 200px; }
+/* A selected shape's adjust handles. */
+.rdoc-shape-handle { position: absolute; z-index: 61; width: 9px; height: 9px; margin: -5px 0 0 -5px; box-sizing: border-box; background: #ffd23f; border: 1px solid #6b5400; transform: rotate(45deg); cursor: pointer; touch-action: none; }
+.rdoc-shape-handle[hidden] { display: none; }
 /* Where a dragged wrapped shape or picture will land. */
 .rdoc-float-ghost { position: fixed; z-index: 70; pointer-events: none; box-sizing: border-box; border: 2px dashed var(--rdoc-accent, #6e7bff); background: color-mix(in srgb, var(--rdoc-accent, #6e7bff) 12%, transparent); border-radius: 2px; }
 .docxedit-shapebar-menu[hidden] { display: none; }

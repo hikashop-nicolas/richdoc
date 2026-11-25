@@ -1429,6 +1429,13 @@ describe("odt drawing shapes (lines, paths, boxes)", () => {
     expect(svgs[1]).toContain('fill="#ffff00"');
   });
 
+  it("puts a straight path's start marker at its start, centred when it says so", () => {
+    const html = odtToHtml(makeOdt(content('<text:p>Text<draw:path text:anchor-type="char" draw:style-name="gr3" svg:x="0cm" svg:y="0cm" svg:width="2.54cm" svg:height="2.54cm" svg:viewBox="0 0 1000 1000" svg:d="M0 1000 L 1000 0"/></text:p>')
+      .replace("</office:automatic-styles>", '<style:style style:name="gr3" style:family="graphic"><style:graphic-properties svg:stroke-color="#d00000" svg:stroke-width="0.1cm" draw:marker-start="Arrow" draw:marker-start-width="0.3cm" draw:marker-start-center="true" draw:fill="none"/></style:style></office:automatic-styles>')));
+    // The head sits on the path's first point (0,96), its centre there (view box height 30, half 15).
+    expect(svgOf(html)).toMatch(/<path d="M10 0l-10 30h20z"[^>]*transform="translate\(0,96\) rotate\(-135\) scale\([\d.]+\) translate\(-10,-15\)"/);
+  });
+
   it("writes the shapes back unchanged on save", () => {
     const line = '<draw:line text:anchor-type="paragraph" draw:style-name="gr1" svg:x1="2.54cm" svg:y1="0cm" svg:x2="5.08cm" svg:y2="2.54cm"/>';
     const odt = makeOdt(content(`<text:p>Text${line} more.</text:p>`));
@@ -1503,6 +1510,14 @@ describe("odt drawing shapes (lines, paths, boxes)", () => {
       expect(save(lineXml)).toMatch(/<draw:line text:anchor-type="as-char"[^>]*svg:x1="0cm" svg:y1="0cm" svg:x2="2cm" svg:y2="1cm"/);
       const g = save('<draw:g text:anchor-type="paragraph"><draw:rect draw:style-name="gr2" svg:x="1cm" svg:y="2cm" svg:width="2cm" svg:height="1cm"/></draw:g>');
       expect(g).toMatch(/<draw:g text:anchor-type="as-char"[^>]*><draw:rect [^>]*svg:x="0cm" svg:y="0cm"/);
+    });
+
+    it("saves moved handles as the custom shape's modifiers", () => {
+      const shape = '<draw:custom-shape text:anchor-type="paragraph" draw:style-name="gr2" svg:x="0cm" svg:y="0cm" svg:width="2cm" svg:height="1cm"><draw:enhanced-geometry svg:viewBox="0 0 21600 21600" draw:modifiers="5400" draw:enhanced-path="M $0 0 L 21600 10800 $0 21600 0 10800 Z N"/></draw:custom-shape>';
+      const { d, html } = read(shape);
+      const edit = JSON.stringify({ mods: [8000] }).replace(/"/g, "&quot;");
+      const xml = strFromU8(unzipSync(htmlToOdt(html.replace('class="odt-shape"', `class="odt-shape" data-shape-edit="${edit}"`), d))["content.xml"]!);
+      expect(xml).toMatch(/<draw:enhanced-geometry [^>]*draw:modifiers="8000"/);
     });
 
     it("saves a new wrap, alignment and stacking order", () => {

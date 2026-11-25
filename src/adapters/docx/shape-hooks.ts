@@ -4,7 +4,7 @@ import type { ShapeHooks } from "../../core/types";
 import { t } from "../../core/i18n";
 import { newShapeEl } from "../../core/feature/shape-edit";
 import { paintShapeGeom } from "../../core/feature/shape-geom";
-import { presetGeometry } from "./drawingml-geom";
+import { adjustToward, presetGeometry, presetHandles } from "./drawingml-geom";
 import { geomSvg, lineEnd } from "./shapes";
 
 const A = "http://schemas.openxmlformats.org/drawingml/2006/main";
@@ -50,12 +50,12 @@ function drawnBoxes(shape: HTMLElement): [HTMLElement, Element][] {
   const box = shape.querySelector<HTMLElement>(":scope > .docx-shape-box");
   if (!box) return [];
   const id = shape.getAttribute("data-shape-prst");
-  if (id) return [[box, spPrFor(entry(id))]];
+  if (id) return [[box, withAdjust(spPrFor(entry(id)), shape)]];
   const xml = shape.getAttribute("data-docx-xml");
   if (!xml) return [];
   const run = new DOMParser().parseFromString(xml, "application/xml");
   const spPrs = Array.from(run.getElementsByTagName("wps:wsp")).map((w) => Array.from(w.children).find((c) => c.tagName === "wps:spPr"));
-  if (spPrs.length === 1) return spPrs[0] ? [[box, spPrs[0]]] : [];
+  if (spPrs.length === 1) return spPrs[0] ? [[box, withAdjust(spPrs[0], shape)]] : [];
   // A group: its member boxes (not its sub-groups' boxes) are its shapes, in order.
   const boxes = Array.from(box.querySelectorAll<HTMLElement>(".docx-shape-box")).filter((m) => !m.querySelector(":scope > .docx-shape-box, :scope > img"));
   return boxes.length === spPrs.length ? boxes.flatMap((b, i) => (spPrs[i] ? [[b, spPrs[i]!] as [HTMLElement, Element]] : [])) : [];
@@ -66,6 +66,62 @@ const hex = (c: string): string | undefined => {
   if (m) return [m[1], m[2], m[3]].map((v) => Number(v).toString(16).padStart(2, "0")).join("").toUpperCase();
   return /^#[0-9a-f]{6}$/i.test(c) ? c.slice(1).toUpperCase() : undefined;
 };
+
+/** A shape's edited adjust values (its handles moved in the editor), {name: "val N"}. */
+export function shapeAdjust(shape: HTMLElement): Record<string, string> | undefined {
+  try {
+    const a = shape.getAttribute("data-shape-adj");
+    return a ? (JSON.parse(a) as Record<string, string>) : undefined;
+  } catch {
+    return undefined;
+  }
+}
+
+/** Write adjust values into a prstGeom's a:avLst (an spPr's or the prstGeom itself). */
+export function setAvLst(el: Element, adj: Record<string, string>): void {
+  const prst = el.localName === "prstGeom" ? el : Array.from(el.children).find((c) => c.localName === "prstGeom");
+  if (!prst) return;
+  const ns = prst.namespaceURI ?? A;
+  let av = Array.from(prst.children).find((c) => c.localName === "avLst");
+  if (!av) { av = prst.ownerDocument.createElementNS(ns, "a:avLst"); prst.appendChild(av); }
+  while (av.firstChild) av.removeChild(av.firstChild);
+  for (const [name, fmla] of Object.entries(adj)) {
+    const gd = prst.ownerDocument.createElementNS(ns, "a:gd");
+    gd.setAttribute("name", name);
+    gd.setAttribute("fmla", fmla);
+    av.appendChild(gd);
+  }
+}
+
+/** An spPr with the shape's edited adjust values, when it has any. */
+function withAdjust(spPr: Element, shape: HTMLElement): Element {
+  const adj = shapeAdjust(shape);
+  if (!adj) return spPr;
+  const copy = spPr.cloneNode(true) as Element;
+  setAvLst(copy, adj);
+  return copy;
+}
+
+/** A single preset shape's handles' context: its preset, adjust values, size and flips. */
+function presetOf(shape: HTMLElement) {
+  const [only, ...more] = drawnBoxes(shape);
+  if (!only || more.length) return undefined;
+  const [box, spPr] = only;
+  if (box !== shape.querySelector(":scope > .docx-shape-box") || box.style.transform) return undefined; // not a group member; not turned
+  const geom = Array.from(spPr.children).find((c) => c.localName === "prstGeom");
+  const xfrm = Array.from(spPr.children).find((c) => c.localName === "xfrm");
+  const prst = geom?.getAttribute("prst");
+  if (!prst || Number(xfrm?.getAttribute("rot") ?? 0)) return undefined;
+  const adj: Record<string, string> = {};
+  for (const gd of Array.from(Array.from(geom!.children).find((c) => c.localName === "avLst")?.children ?? [])) {
+    const n = gd.getAttribute("name");
+    if (n) adj[n] = gd.getAttribute("fmla") ?? "";
+  }
+  const w = parseFloat(box.style.width), h = parseFloat(box.style.height);
+  if (!(w > 0) || !(h >= 0)) return undefined;
+  const flip = (a: string) => xfrm?.getAttribute(a) === "1" || xfrm?.getAttribute(a) === "true";
+  return { box, prst, adj, w, h, flipH: flip("flipH"), flipV: flip("flipV") };
+}
 
 /** Draw a shape's outline (each member's, for a group) again at its box's current size. */
 function redraw(shape: HTMLElement): void {
@@ -104,6 +160,21 @@ let galleryCache: ReturnType<NonNullable<ShapeHooks["gallery"]>> | undefined;
 
 export const docxShapeHooks: ShapeHooks = {
   redraw,
+  handles(shape) {
+    const p = presetOf(shape);
+    if (!p) return undefined;
+    const points = presetHandles(p.prst, p.w, p.h, p.adj).map((hd) => ({ x: p.flipH ? p.w - hd.x : hd.x, y: p.flipV ? p.h - hd.y : hd.y }));
+    return points.length ? { frame: p.box, points } : undefined;
+  },
+  moveHandle(shape, i, x, y) {
+    const p = presetOf(shape);
+    if (!p) return;
+    const adj = adjustToward(p.prst, p.w, p.h, p.adj, i, p.flipH ? p.w - x : x, p.flipV ? p.h - y : y);
+    shape.setAttribute("data-shape-adj", JSON.stringify(adj));
+    // A box drawn by CSS (a rounded rectangle) is drawn from its outline from now on.
+    if (!p.box.hasAttribute("data-geom")) { p.box.setAttribute("data-geom", ""); p.box.style.borderRadius = ""; }
+    redraw(shape);
+  },
   gallery() {
     galleryCache ??= GROUPS.map(([group, ids]) => ({ group: t(group), items: ids.map((id) => ({ id, label: label(id), icon: icon(id) })) }));
     return galleryCache;
@@ -111,7 +182,12 @@ export const docxShapeHooks: ShapeHooks = {
   textBox: true,
   create(id: string): HTMLElement {
     // Text boxes and plain boxes stay CSS boxes, as when they are read.
-    if (id === "textbox" || id === "rect" || id === "roundRect" || id === "ellipse") return newShapeEl(id);
+    if (id === "textbox") return newShapeEl(id);
+    if (id === "rect" || id === "roundRect" || id === "ellipse") {
+      const el = newShapeEl(id);
+      el.setAttribute("data-shape-prst", id); // its handles (a rounded rectangle's corners)
+      return el;
+    }
     const shape = newShapeEl("rect");
     const box = shape.querySelector<HTMLElement>(":scope > .docx-shape-box")!;
     shape.setAttribute("data-shape-prst", id);

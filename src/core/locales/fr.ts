@@ -463,6 +463,8 @@ const dict: Dict = {
   shapeBringFront: "Mettre au premier plan",
   shapeSendBack: "Mettre à l’arrière-plan",
   shapeOutlineWidthPt: "Contour (pt)",
+  // Shape adjust handles.
+  shapeAdjust: "Faire glisser pour modifier la forme",
 };
 
 export default dict;

@@ -463,6 +463,8 @@ const dict: Dict = {
   shapeBringFront: "最前面へ移動",
   shapeSendBack: "最背面へ移動",
   shapeOutlineWidthPt: "枠線 (pt)",
+  // Shape adjust handles.
+  shapeAdjust: "ドラッグして形状を調整",
 };
 
 export default dict;

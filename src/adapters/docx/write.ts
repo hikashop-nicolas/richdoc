@@ -1,7 +1,7 @@
 // docx WRITE: rebuild a .docx archive from edited HTML, preserving every untouched part.
 // Pure HTML -> XML (body, header/footer, comments, reactions, replies, page margins); the
 // read half lives in ./read.
-import { galleryPreset } from "./shape-hooks";
+import { galleryPreset, setAvLst, shapeAdjust } from "./shape-hooks";
 import { strFromU8, strToU8, unzipSync, zipSync } from "fflate";
 import { zipAsync } from "../../core/zip";
 import { toHex6, fontSizeToHalfPt, firstFontFamily, imageLayoutFromEl, blockBorders, parseCssBorder } from "../../core/util";
@@ -453,6 +453,13 @@ function shapeRun(ctx: DocxCtx, el: HTMLElement): Element | null {
       pos.appendChild(off);
     }
   }
+  if (/adj/.test(edit)) {
+    // Moved handles: the shape's adjust values.
+    const adj = shapeAdjust(el);
+    const sps = run.getElementsByTagNameNS(NS_WPS, "wsp");
+    const spPr = sps.length === 1 ? Array.from(sps[0]!.children).find((c) => c.localName === "spPr") : undefined;
+    if (adj && spPr) setAvLst(spPr, adj);
+  }
   if (/z/.test(edit)) {
     const z = Number(el.getAttribute("data-shape-z"));
     const anchor = run.getElementsByTagNameNS(NS_WP, "anchor")[0];
@@ -630,6 +637,8 @@ function newShapeRun(ctx: DocxCtx, el: HTMLElement, body: Element | undefined): 
   if (!run) return null;
   const spPr = run.getElementsByTagNameNS(NS_WPS, "spPr")[0];
   if (spPr) setShapePaint(spPr, look);
+  const adj = shapeAdjust(el);
+  if (spPr && adj) setAvLst(spPr, adj);
   const ln = spPr?.getElementsByTagNameNS(NS_A, "ln")[0];
   if (ln && preset?.ends) {
     for (const end of preset.ends === "both" ? ["headEnd", "tailEnd"] : ["tailEnd"]) {

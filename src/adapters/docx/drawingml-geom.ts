@@ -73,7 +73,9 @@ function builtins(w: number, h: number): Map<string, number> {
   return v;
 }
 
-function evaluate(def: Def, w: number, h: number, adjust: Record<string, string>): GeomPath[] | undefined {
+/** Every guide's value for a shape of w x h px with these adjust values, and how to read an
+ *  argument (a number or a guide's name). */
+function guides(def: Pick<Def, "av" | "gd">, w: number, h: number, adjust: Record<string, string>) {
   const vars = builtins(w, h);
   const arg = (t: string | undefined): number => {
     if (t === undefined) return 0;
@@ -110,6 +112,11 @@ function evaluate(def: Def, w: number, h: number, adjust: Record<string, string>
     const v = formula(f);
     vars.set(name, Number.isFinite(v) ? v : 0);
   }
+  return { vars, arg };
+}
+
+function evaluate(def: Def, w: number, h: number, adjust: Record<string, string>): GeomPath[] | undefined {
+  const { arg } = guides(def, w, h, adjust);
   const out: GeomPath[] = [];
   for (const [pw, ph, fill, stroke, src] of def.paths) {
     const sx = pw ? w / pw : 1, sy = ph ? h / ph : 1;
@@ -153,4 +160,70 @@ function evaluate(def: Def, w: number, h: number, adjust: Record<string, string>
     if (d) out.push({ d: d.trim(), fill: fill as FillMode, stroke: !!stroke, closed, start, end });
   }
   return out.length ? out : undefined;
+}
+
+/** An adjust handle: where it is (px in the shape's box) and the adjust values it moves, each
+ *  with its range ("x" / "y" follow the pointer across / down, "r" / "ang" round a centre). */
+export interface Handle { x: number; y: number; refs: { name: string; axis: "x" | "y" | "r" | "ang"; min: number; max: number }[] }
+
+/** A preset's adjust values: its defaults, with `adjust` over them, as numbers. */
+export function adjustValues(prst: string, adjust: Record<string, string> = {}): Record<string, number> {
+  const out: Record<string, number> = {};
+  for (const [name, f] of PRESETS[prst]?.[0] ?? []) out[name] = Number((adjust[name] ?? f).trim().split(/\s+/)[1]) || 0;
+  return out;
+}
+
+/** A preset's handles for a w x h px shape with these adjust values. */
+export function presetHandles(prst: string, w: number, h: number, adjust: Record<string, string> = {}): Handle[] {
+  const p = PRESETS[prst];
+  if (!p) return [];
+  const { arg } = guides({ av: p[0], gd: p[1] }, w, h, adjust);
+  const n = (t: string) => arg(t || undefined);
+  return p[3].map(([kind, ref, min, max, ref2, min2, max2, hx, hy]) => {
+    const refs: Handle["refs"] = [];
+    if (ref) refs.push({ name: ref, axis: kind === "xy" ? "x" : "r", min: n(min), max: n(max) });
+    if (ref2) refs.push({ name: ref2, axis: kind === "xy" ? "y" : "ang", min: n(min2), max: n(max2) });
+    return { x: n(hx), y: n(hy), refs };
+  });
+}
+
+/** The adjust values that bring handle `i` nearest the point (px, py): each value it moves is
+ *  searched over its range, the others held. Returned as {name: "val N"}. */
+export function adjustToward(prst: string, w: number, h: number, adjust: Record<string, string>, i: number, px: number, py: number): Record<string, string> {
+  const cur: Record<string, string> = {};
+  for (const [k, v] of Object.entries(adjustValues(prst, adjust))) cur[k] = `val ${v}`;
+  for (let pass = 0; pass < 2; pass++) {
+    // A round handle turns to the pointer first, then moves along that radius.
+    const refs = [...(presetHandles(prst, w, h, cur)[i]?.refs ?? [])].sort((a, b) => Number(b.axis === "ang") - Number(a.axis === "ang"));
+    for (const ref of refs) {
+      const lo = Math.min(ref.min, ref.max), hi = Math.max(ref.min, ref.max);
+      const cost = (v: number) => {
+        const hd = presetHandles(prst, w, h, { ...cur, [ref.name]: `val ${v}` })[i];
+        if (!hd) return Infinity;
+        if (ref.axis === "x") return Math.abs(hd.x - px);
+        if (ref.axis === "y") return Math.abs(hd.y - py);
+        if (ref.axis === "r") return Math.hypot(hd.x - px, hd.y - py);
+        // An angle: the handle's direction from the shape's centre against the pointer's.
+        const d = Math.atan2(hd.y - h / 2, hd.x - w / 2) - Math.atan2(py - h / 2, px - w / 2);
+        return Math.abs(Math.atan2(Math.sin(d), Math.cos(d)));
+      };
+      // Coarse samples over the range, then a golden-section search round the best one.
+      const N = 48;
+      let best = lo, bestC = cost(lo);
+      for (let k = 1; k <= N; k++) {
+        const v = lo + ((hi - lo) * k) / N, c = cost(v);
+        if (c < bestC) { best = v; bestC = c; }
+      }
+      let a = Math.max(lo, best - (hi - lo) / N), b = Math.min(hi, best + (hi - lo) / N);
+      const g = (Math.sqrt(5) - 1) / 2;
+      for (let k = 0; k < 40 && b - a > 0.5; k++) {
+        const c1 = b - g * (b - a), c2 = a + g * (b - a);
+        if (cost(c1) <= cost(c2)) b = c2; else a = c1;
+      }
+      const v = Math.round((a + b) / 2);
+      if (cost(v) <= bestC) best = v;
+      cur[ref.name] = `val ${Math.round(best)}`;
+    }
+  }
+  return cur;
 }

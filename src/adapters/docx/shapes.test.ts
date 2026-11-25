@@ -216,6 +216,14 @@ describe("editing shapes and text boxes", () => {
       expect(inline).not.toContain("wp:anchor");
     });
 
+    it("saves a shape's moved handles as its adjust values", () => {
+      const d = docx(drawing(wsp('<a:prstGeom prst="star5"><a:avLst><a:gd name="adj" fmla="val 19098"/></a:avLst></a:prstGeom>')));
+      const body = docxToParts(d).body;
+      const adj = JSON.stringify({ adj: "val 30000", hf: "val 105146", vf: "val 110557" }).replace(/"/g, "&quot;");
+      const xml = strFromU8(unzipSync(htmlToDocx(body.replace('<span class="docx-shape"', `<span class="docx-shape" data-shape-dirty="adj" data-shape-adj="${adj}"`), d))["word/document.xml"]!);
+      expect(xml).toContain('<a:prstGeom prst="star5"><a:avLst><a:gd name="adj" fmla="val 30000"/><a:gd name="hf" fmla="val 105146"/><a:gd name="vf" fmla="val 110557"/></a:avLst></a:prstGeom>');
+    });
+
     it("saves a new stacking order", () => {
       const anchored = `<w:p><w:r><w:drawing><wp:anchor behindDoc="0" relativeHeight="5"><wp:positionH relativeFrom="page"><wp:posOffset>0</wp:posOffset></wp:positionH><wp:positionV relativeFrom="page"><wp:posOffset>0</wp:posOffset></wp:positionV><wp:extent cx="1905000" cy="952500"/><wp:wrapNone/><wp:docPr id="1" name="s"/><a:graphic><a:graphicData uri="http://schemas.microsoft.com/office/word/2010/wordprocessingShape">${wsp('<a:prstGeom prst="rect"/>')}</a:graphicData></a:graphic></wp:anchor></w:drawing></w:r></w:p>`;
       const d = docx(anchored);

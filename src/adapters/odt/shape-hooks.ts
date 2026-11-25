@@ -3,7 +3,9 @@
 // drawings come from the same gallery as docx, written as LibreOffice writes Word's presets.
 import type { ShapeHooks, ShapeLook, ShapeWrap } from "../../core/types";
 import { docxShapeHooks, galleryPreset } from "../docx/shape-hooks";
-import { presetGeometry } from "../docx/drawingml-geom";
+import { adjustToward, adjustValues, presetGeometry, presetHandles } from "../docx/drawingml-geom";
+import { PRESETS } from "../docx/preset-shapes";
+import { odfHandles } from "./geometry";
 import { ooxmlGeometryXml } from "./ooxml-shape";
 import { odtShapeContext } from "./read";
 import { isShapeTag, shapeHtml, type Look, type ShapeCtx } from "./shapes";
@@ -119,8 +121,72 @@ export function odtShapeHooks(getFiles: () => Record<string, Uint8Array>): Shape
     redraw(s);
   };
 
+  /** A custom shape's geometry as drawn now (edits applied), its size and place, and the frame
+   *  its handles are given in (its picture, whose user units are px). */
+  const shapeGeom = (s: HTMLElement) => {
+    const xml = s.getAttribute("data-odt-xml");
+    const svg = s.querySelector<SVGSVGElement>("svg.odt-shape-svg");
+    if (!xml || !svg) return undefined;
+    const el = new DOMParser().parseFromString(xml, "application/xml").documentElement;
+    if (!el || el.tagName !== "draw:custom-shape" || el.hasAttribute("draw:transform")) return undefined; // turned shapes keep their handles out
+    const e = editOf(s);
+    applyGeometry(el, e);
+    const g = Array.from(el.children).find((c) => c.tagName === "draw:enhanced-geometry");
+    if (!g) return undefined;
+    const L = (n: string) => sctx().lenToPx(el.getAttribute(n)) ?? 0;
+    const vb = (svg.getAttribute("viewBox") ?? "0 0 0 0").split(/[\s,]+/).map(Number);
+    const type = g.getAttribute("draw:type") ?? "";
+    const prst = type.startsWith("ooxml-") && PRESETS[type.slice(6)] ? type.slice(6) : undefined;
+    return {
+      e, g, prst, w: L("svg:width"), h: L("svg:height"),
+      ox: L("svg:x") - (vb[0] ?? 0), oy: L("svg:y") - (vb[1] ?? 0), frame: svg as unknown as HTMLElement,
+      mh: g.getAttribute("draw:mirror-horizontal") === "true", mv: g.getAttribute("draw:mirror-vertical") === "true",
+      mods: (g.getAttribute("draw:modifiers") ?? "").trim().split(/[\s,]+/).filter(Boolean).map(Number),
+    };
+  };
+  /** A Word preset's adjust values from its modifiers (in the order of its adjust list). */
+  const adjOf = (prst: string, mods: number[]) => Object.fromEntries(PRESETS[prst]![0].map(([n], k) => [n, `val ${mods[k] ?? adjustValues(prst)[n]}`]));
+
   return {
     redraw,
+    handles(s) {
+      const k = shapeGeom(s);
+      if (!k || !(k.w > 0) || !(k.h > 0)) return undefined;
+      let pts: { x: number; y: number }[];
+      if (k.prst) pts = presetHandles(k.prst, k.w, k.h, adjOf(k.prst, k.mods)).map(({ x, y }) => ({ x, y }));
+      else {
+        const { vb, handles } = odfHandles(k.g, k.w, k.h);
+        pts = handles.filter((h) => h.refs.length).map((h) => ({ x: ((h.x - vb[0]) * k.w) / (vb[2] || 1), y: ((h.y - vb[1]) * k.h) / (vb[3] || 1) }));
+      }
+      const points = pts.map(({ x, y }) => ({ x: (k.mh ? k.w - x : x) + k.ox, y: (k.mv ? k.h - y : y) + k.oy }));
+      return points.length ? { frame: k.frame, points } : undefined;
+    },
+    moveHandle(s, i, fx, fy) {
+      const k = shapeGeom(s);
+      if (!k || !(k.w > 0) || !(k.h > 0)) return;
+      let lx = fx - k.ox, ly = fy - k.oy;
+      if (k.mh) lx = k.w - lx;
+      if (k.mv) ly = k.h - ly;
+      let mods: number[];
+      if (k.prst) {
+        const adj = adjustToward(k.prst, k.w, k.h, adjOf(k.prst, k.mods), i, lx, ly);
+        mods = PRESETS[k.prst]![0].map(([n]) => Number(adj[n]!.split(/\s+/)[1]) || 0);
+      } else {
+        const { vb, handles, modifiers } = odfHandles(k.g, k.w, k.h);
+        const h = handles.filter((hd) => hd.refs.length)[i];
+        if (!h) return;
+        mods = [...modifiers];
+        // The pointer in the geometry's view box; each modifier the handle moves follows it.
+        const vx = vb[0] + (lx * vb[2]) / k.w, vy = vb[1] + (ly * vb[3]) / k.h;
+        for (const r of h.refs) {
+          const c = h.polar ?? [0, 0];
+          const v = r.axis === "x" ? vx : r.axis === "y" ? vy : r.axis === "r" ? Math.hypot(vx - c[0], vy - c[1]) : (Math.atan2(-(vy - c[1]), vx - c[0]) * 180) / Math.PI;
+          while (mods.length <= r.index) mods.push(0);
+          mods[r.index] = Math.min(Math.max(v, Math.min(r.min, r.max)), Math.max(r.min, r.max));
+        }
+      }
+      update(s, (e) => { e.mods = mods; });
+    },
     gallery: () => docxShapeHooks.gallery!(),
     create(id) {
       const lineish = !!galleryPreset(id).ends || /^(line|arrowLine|doubleArrowLine|elbowArrow|curvedArrow)$/.test(id);

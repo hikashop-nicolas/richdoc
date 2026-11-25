@@ -18,6 +18,8 @@ export interface OdtShapeEdit {
   wrap?: "inline" | "square" | "tight" | "topbottom" | "behind" | "front"; align?: "left" | "center" | "right"; z?: number;
   /** A new line's arrowheads (LibreOffice's "Arrow" marker). */
   ends?: "tail" | "both";
+  /** A custom shape's modifiers ($0, $1 ...), as its handles set them. */
+  mods?: number[];
 }
 
 export function editOf(shape: HTMLElement): OdtShapeEdit {
@@ -150,6 +152,8 @@ export function applyGeometry(el: Element, e: OdtShapeEdit): void {
     if (e.dx || e.dy) move(el, e.dx ?? 0, e.dy ?? 0);
   }
   if (e.z !== undefined) el.setAttributeNS(DRAW, "draw:z-index", String(Math.max(0, Math.round(e.z))));
+  const g = e.mods && Array.from(el.children).find((c) => c.tagName === "draw:enhanced-geometry");
+  if (g) g.setAttributeNS(DRAW, "draw:modifiers", e.mods!.map((m) => String(Math.round(m * 1000) / 1000)).join(" "));
 }
 
 /** Whether an edit changes the graphic style: its look or how it wraps. */

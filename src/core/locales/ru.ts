@@ -463,6 +463,8 @@ const dict: Dict = {
   shapeBringFront: "На передний план",
   shapeSendBack: "На задний план",
   shapeOutlineWidthPt: "Контур (пт)",
+  // Shape adjust handles.
+  shapeAdjust: "Перетащите, чтобы изменить форму",
 };
 
 export default dict;
