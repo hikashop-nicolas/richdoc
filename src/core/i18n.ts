@@ -22,6 +22,10 @@ const LOADERS: Record<string, () => Promise<{ default: Dict }>> = {
   de: () => import("./locales/de"),
   pt: () => import("./locales/pt"),
   ru: () => import("./locales/ru"),
+  it: () => import("./locales/it"),
+  pl: () => import("./locales/pl"),
+  ko: () => import("./locales/ko"),
+  tr: () => import("./locales/tr"),
   // Simplified; also serves a browser asking for zh-TW, since detection matches the base tag.
   zh: () => import("./locales/zh"),
 };
