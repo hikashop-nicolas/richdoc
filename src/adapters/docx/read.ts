@@ -997,7 +997,7 @@ function symHtml(run: Element, sym: Element): string {
 }
 
 function inlineToHtml(p: Element, ctx: RenderCtx): string {
-  let html = "";
+  let html = "", lead = "";
   for (const id of ctx.openComments) html += `<span class="docx-comment" data-comment-id="${escapeAttr(id)}">`;
   let field: FieldState | null = null;
   for (const node of Array.from(p.childNodes)) {
@@ -1036,8 +1036,13 @@ function inlineToHtml(p: Element, ctx: RenderCtx): string {
       const sym = el.getElementsByTagName("w:sym")[0];
       if (el.getElementsByTagName("w:commentReference").length) html += commentRefHtml(el, ctx);
       else if (noteRef) html += noteRefHtml(noteRef.getAttribute("w:id") ?? "", noteRef.tagName === "w:endnoteReference" ? "endnote" : "footnote");
-      else if (hasDrawing(el)) html += imageHtml(el, ctx);
-      else if (sym && !el.getElementsByTagName("w:t").length) html += symHtml(el, sym); // a symbol-font glyph
+      else if (hasDrawing(el)) {
+        const pic = imageHtml(el, ctx);
+        // A shape the text wraps around is placed from its paragraph, not from where its run
+        // falls in it: it leads the paragraph, where its float begins.
+        if (p.tagName === "w:p" && /^<span class="docx-shape[^"]*"[^>]*? data-shape-wrap="(square|tight|topbottom)"/.test(pic)) lead += pic;
+        else html += pic;
+      } else if (sym && !el.getElementsByTagName("w:t").length) html += symHtml(el, sym); // a symbol-font glyph
       else if (!runIsModeled(el)) html += inlinePassthrough(el); // run holds a field char, symbol, footnote ref, ...
       else html += runToHtml(el);
     } else if (el.tagName === "w:ruby") {
@@ -1077,7 +1082,7 @@ function inlineToHtml(p: Element, ctx: RenderCtx): string {
   }
   if (field) html += field.raw; // a malformed field with no end: keep its runs verbatim
   for (let i = 0; i < ctx.openComments.size; i++) html += "</span>"; // closed here, reopened next paragraph
-  return html;
+  return lead + html;
 }
 
 interface PInfo {

@@ -1,5 +1,5 @@
 // Small format-agnostic helpers shared by the engine and the format adapters.
-import type { ImageLayout, ImageWrap } from "./types";
+import type { FloatRef, ImageLayout, ImageWrap } from "./types";
 
 /** Base64-encode bytes in chunks (avoids call-stack limits on large images/fonts). */
 export function bytesToBase64(bytes: Uint8Array): string {
@@ -81,6 +81,8 @@ export const firstFontFamily = (v: string | undefined): string | undefined =>
 /** Read an <img>'s floating layout from its data attributes, or null when it is inline. This
  *  is the format-agnostic contract: the editor sets the attrs, each adapter maps them to its
  *  own XML (docx wp:anchor, odt draw:frame). */
+const ref = (v: string | null): FloatRef | undefined => (v === "page" || v === "margin" || v === "para" ? v : undefined);
+
 export function imageLayoutFromEl(el: Element): ImageLayout | null {
   const wrap = el.getAttribute("data-rdoc-wrap") as ImageWrap | null;
   if (!wrap) return null;
@@ -96,6 +98,9 @@ export function imageLayoutFromEl(el: Element): ImageLayout | null {
     dist,
     absX: el.getAttribute("data-rdoc-absx") === "1" || undefined,
     absY: el.getAttribute("data-rdoc-absy") === "1" || undefined,
+    z: Number(el.getAttribute("data-rdoc-z")) || undefined,
+    relh: ref(el.getAttribute("data-rdoc-relh")),
+    relv: ref(el.getAttribute("data-rdoc-relv")),
   };
 }
 
@@ -107,6 +112,8 @@ export function imageLayoutAttrs(layout: ImageLayout | null): string {
   const styles: string[] = [];
   if (layout.wrap === "behind" || layout.wrap === "front") {
     out += ` data-rdoc-x="${layout.x}" data-rdoc-y="${layout.y}"`;
+    if (layout.relh) out += ` data-rdoc-relh="${layout.relh}"`;
+    if (layout.relv) out += ` data-rdoc-relv="${layout.relv}"`;
     styles.push(`left:${layout.x}px`, `top:${layout.y}px`);
   }
   if (layout.dist) {
@@ -122,6 +129,7 @@ export function imageLayoutAttrs(layout: ImageLayout | null): string {
     if (layout.absX) out += ` data-rdoc-absx="1" data-rdoc-x="${layout.x}"`;
     if (layout.absY) out += ` data-rdoc-absy="1" data-rdoc-y="${layout.y}"`;
   }
+  if (layout.z) out += ` data-rdoc-z="${layout.z}"`;
   if (styles.length) out += ` style="${styles.join(";")}"`;
   return out;
 }

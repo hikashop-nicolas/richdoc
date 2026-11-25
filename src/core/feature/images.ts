@@ -2,6 +2,7 @@
 // Delete/Backspace key), persisting the new size back into the run, plus inserting a new
 // image from a file as an inline data-URL <img>. Extracted from the engine.
 import { t } from "../i18n";
+import { behindAt } from "./stacking";
 import { bytesToBase64 } from "../util";
 
 export interface ImagesDeps {
@@ -80,7 +81,9 @@ export function setupImages(deps: ImagesDeps) {
   });
   wrap.addEventListener("click", (e) => {
     if ((e.target as HTMLElement) === imgDel) return;
-    const img = (e.target as HTMLElement).closest?.("img") as HTMLImageElement | null;
+    let img = (e.target as HTMLElement).closest?.("img") as HTMLImageElement | null;
+    // A picture behind the text is picked by a click on it between the letters.
+    if (!img) { const b = behindAt(e.clientX, e.clientY, regions); if (b?.tagName === "IMG") img = b as HTMLImageElement; }
     selectImg(img && wrap.contains(img) ? img : null);
   });
   for (const r of regions)

@@ -48,17 +48,21 @@ A full word-processor surface in the browser, the same for both formats unless n
 - **Vertical writing:** vertical (tategaki) and RTL layout, paginated, including
   multi-column vertical text (stacked bands) and a vertical ruler.
 - **Images:** inline and floating / anchored with text wrap (square, tight,
-  top-and-bottom, behind, in front), alignment, alt text and wrap padding, driven by an
-  on-select toolbar. A wrapped image's exact offset round-trips per axis.
+  top-and-bottom, behind, in front), alignment, stacking order, alt text and wrap padding,
+  driven by an on-select toolbar. Floating images are placed from the page, its margins or
+  their paragraph as the file says, and one behind the text is picked by clicking it between
+  the letters. A wrapped image's exact offset round-trips per axis.
   EMF / WMF pictures (charts, clip art, pasted drawings) are drawn as SVG in the browser
   and saved untouched.
-- **Shapes and text boxes:** text box content is edited in place; a selected shape's fill,
-  outline and size are set from its bar, and a floating one (behind or in front of the text) is
-  dragged to a new place. Word's 187 preset shapes (arrows, stars, callouts, flowchart symbols ...)
+- **Shapes and text boxes:** text box content is edited in place; a selected shape's bar sets how
+  it sits in the text (in line, wrapped, behind or in front, aligned, brought forward or sent
+  back), its fill, outline and size, and a floating one is dragged (or nudged with the arrow
+  keys) to a new place. Word's 187 preset shapes (arrows, stars, callouts, flowchart symbols ...)
   and freeform shapes are drawn from their geometry, lines and connectors with their arrowheads,
-  and redrawn when resized; Insert > Shape offers them as a gallery. odt drawings are drawn too,
-  LibreOffice's ready-made shapes included, and edited from the same bar (fill, outline, size,
-  place, delete). Untouched shapes save byte for byte.
+  and redrawn when resized; Insert > Shape offers them as a gallery, in docx and odt, and they
+  are inserted floating in front of the text. odt drawings are drawn too, LibreOffice's
+  ready-made shapes included, and edited from the same bar; a group's members take its new look.
+  Untouched shapes save byte for byte.
 - **Charts:** drawn from their data (bar, column, line, area, pie, doughnut, scatter, radar).
   Double-click to edit the title and the data grid; Word charts get their values written to their
   caches and embedded workbook. Insert > Chart adds a chart whose type, legend and data are free.

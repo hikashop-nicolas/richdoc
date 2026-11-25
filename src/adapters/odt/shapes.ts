@@ -24,6 +24,10 @@ export interface Look {
   markerEndWidth: number;
   wrap?: string; // style:wrap
   runThrough?: string; // style:run-through
+  hpos?: string; // style:horizontal-pos
+  vpos?: string; // style:vertical-pos
+  hrel?: string; // style:horizontal-rel
+  vrel?: string; // style:vertical-rel
 }
 
 interface Marker {
@@ -99,6 +103,10 @@ export function collectShapeStyles(docs: (Document | undefined)[], lenToPx: LenT
     if (mew !== undefined) look.markerEndWidth = mew;
     if (a("style:wrap")) look.wrap = a("style:wrap")!;
     if (a("style:run-through")) look.runThrough = a("style:run-through")!;
+    if (a("style:horizontal-pos")) look.hpos = a("style:horizontal-pos")!;
+    if (a("style:vertical-pos")) look.vpos = a("style:vertical-pos")!;
+    if (a("style:horizontal-rel")) look.hrel = a("style:horizontal-rel")!;
+    if (a("style:vertical-rel")) look.vrel = a("style:vertical-rel")!;
   };
   const looks = new Map<string, Look>();
   const resolve = (name: string, seen = new Set<string>()): Look => {
@@ -316,11 +324,19 @@ export function shapeExtent(el: Element, lenToPx: LenToPx): { w: number; h: numb
 
 /** The look the shape bar edits, as data attributes on the shape element. */
 function modelAttrs(el: Element, look: Look, ctx: ShapeCtx): string {
-  const ext = shapeExtent(el, ctx.lenToPx);
-  if (!ext) return ` data-shape-group=""`;
+  const z = el.getAttribute("draw:z-index");
+  const zAttr = z && /^\d+$/.test(z) ? ` data-shape-z="${z}"` : "";
   const hex = (c: string) => (/^#[0-9a-f]{6}$/i.test(c) ? c.toLowerCase() : "#000000");
-  const line = look.stroke === "none" ? "none" : hex(look.strokeColor);
-  return ` data-shape-fill="${look.fill ? hex(look.fillColor) : "none"}" data-shape-line="${line}" data-shape-linew="${fmt(look.stroke === "none" ? 0 : look.strokeWidth || 1)}" data-shape-w="${fmt(ext.w)}" data-shape-h="${fmt(ext.h)}"`;
+  const paint = (lk: Look) => ` data-shape-fill="${lk.fill ? hex(lk.fillColor) : "none"}" data-shape-line="${lk.stroke === "none" ? "none" : hex(lk.strokeColor)}" data-shape-linew="${fmt(lk.stroke === "none" ? 0 : lk.strokeWidth || 1)}"`;
+  const ext = shapeExtent(el, ctx.lenToPx);
+  if (!ext) {
+    // A group shows its first filled member's look; an edit applies to every member.
+    const kids = Array.from(el.getElementsByTagName("*")).filter((c) => isShapeTag(c.tagName) && c.tagName !== "draw:g");
+    const looks = kids.map((c) => ctx.looks.get(c.getAttribute("draw:style-name") ?? "") ?? look);
+    const first = looks.find((l) => l.fill) ?? looks[0];
+    return ` data-shape-group=""${first ? paint(first) : ""}${zAttr}`;
+  }
+  return `${paint(look)} data-shape-w="${fmt(ext.w)}" data-shape-h="${fmt(ext.h)}"${zAttr}`;
 }
 
 function drawShape(el: Element, ctx: ShapeCtx, look: Look, acc: { svg: string[]; box: Drawn["box"] }): void {
@@ -440,6 +456,14 @@ export function shapeHtml(el: Element, ctx: ShapeCtx, level: "inline" | "block")
   if (anchor === "as-char") {
     return `<span class="odt-shape" data-shape-wrap="inline" contenteditable="false"${model}${passthroughAttr(el)} style="width:${fmt(bw)}px;height:${fmt(bh)}px">${img}</span>`;
   }
+  // Wrapped beside the text (style:wrap other than run-through): floated at its paragraph's start,
+  // aligned as its style says. Running through the text: behind or in front of it, where it is.
+  const wrapped = level === "inline" && look.wrap && look.wrap !== "run-through" ? (look.wrap === "none" ? "topbottom" : look.wrap === "dynamic" ? "tight" : "square") : undefined;
+  if (wrapped) {
+    const align = look.hpos === "center" || look.hpos === "right" ? look.hpos : "left";
+    const margin = align === "left" && x0 > 0 ? `;margin-left:${fmt(x0)}px` : "";
+    return `<span class="odt-shape" data-shape-wrap="${wrapped}" data-shape-align="${align}" contenteditable="false"${model}${passthroughAttr(el)} style="width:${fmt(bw)}px;height:${fmt(bh)}px${margin}"><span class="odt-shape-box" style="position:relative;width:${fmt(bw)}px;height:${fmt(bh)}px">${img}</span></span>`;
+  }
   const wrap = look.wrap === "run-through" && look.runThrough === "background" ? "behind" : "front";
   let left = x0, top = y0;
   if (anchor === "page" && ctx.page) {
@@ -448,9 +472,13 @@ export function shapeHtml(el: Element, ctx: ShapeCtx, level: "inline" | "block")
   }
   const style = `left:${fmt(left)}px;top:${fmt(top)}px;width:${fmt(bw)}px;height:${fmt(bh)}px`;
   const box = `<span class="odt-shape-box" style="${style}">${img}</span>`;
+  // Its offsets are from the page or its margins when the style says so (the editor places it
+  // from there); otherwise from its paragraph.
+  const rel = (v: string | undefined, content: string) => (!v || !/^page/.test(v) ? "para" : v === content ? "margin" : "page");
+  const placed = level === "inline" ? ` data-shape-relh="${rel(look.hrel, "page-content")}" data-shape-relv="${rel(look.vrel, "page-content")}" data-shape-bx="${fmt(left)}" data-shape-by="${fmt(top)}"` : "";
   // A page-anchored shape sits in the body between paragraphs: a zero-height block placed from the
   // document's corner. One anchored to a paragraph or character is placed from that paragraph.
   return level === "block"
     ? `<div class="odt-shape odt-shape-page" data-shape-wrap="${wrap}" contenteditable="false"${model}${passthroughAttr(el)}>${box}</div>`
-    : `<span class="odt-shape" data-shape-wrap="${wrap}" contenteditable="false"${model}${passthroughAttr(el)}>${box}</span>`;
+    : `<span class="odt-shape" data-shape-wrap="${wrap}"${placed} contenteditable="false"${model}${passthroughAttr(el)}>${box}</span>`;
 }

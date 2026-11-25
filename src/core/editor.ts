@@ -2136,6 +2136,7 @@ export function createRichEditor(container: HTMLElement, adapter: Adapter, optio
     insertNote: (kind, text) => insertNote(kind, text),
     insertShape: caps.shapes === true ? shapeEdit?.insert : undefined,
     shapeGallery: adapter.shapes?.gallery ? () => adapter.shapes!.gallery!() : undefined,
+    shapeTextBox: !adapter.shapes?.gallery || !!adapter.shapes.textBox,
     insertChart: chartEdit?.insert,
   });
   // Find/replace lives at the right end of the top toolbar (its own margin

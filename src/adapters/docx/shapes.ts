@@ -215,13 +215,29 @@ function vmlHtml(pict: Element, ctx: ShapeCtx): string | undefined {
   return `<span class="docx-shape-box" style="${css.join(";")}">${bodyHtml(shape.getElementsByTagName("w:txbxContent")[0], undefined, ctx)}</span>`;
 }
 
+/** Where a floating shape is placed from: its references across (the page, or its margins) and
+ *  down (the page, its margins or its paragraph), and its offsets from them. An axis aligned
+ *  rather than offset keeps its alignment (data-shape-alignh). The editor draws it from these. */
+function floatAttrs(anchor: Element | undefined, x: number, y: number): string {
+  const pos = (tag: string) => anchor?.getElementsByTagName(tag)[0];
+  const from = (tag: string) => pos(tag)?.getAttribute("relativeFrom") ?? "";
+  const relh = /^(page|leftMargin|outsideMargin|insideMargin)$/.test(from("wp:positionH")) ? "page" : "margin";
+  const relv = /^(paragraph|line)$/.test(from("wp:positionV")) ? "para" : /^(page|topMargin)$/.test(from("wp:positionV")) ? "page" : "margin";
+  const alignH = pos("wp:positionH")?.getElementsByTagName("wp:align")[0]?.textContent?.trim();
+  const h = alignH && !pos("wp:positionH")?.getElementsByTagName("wp:posOffset")[0] ? ` data-shape-alignh="${alignH === "center" || alignH === "right" ? alignH : "left"}"` : ` data-shape-x="${x}"`;
+  return ` data-shape-relh="${relh}" data-shape-relv="${relv}"${h} data-shape-y="${y}" style="left:${x}px;top:${y}px"`;
+}
+
 /** A run's shape / text box / group as read-only HTML, or undefined when it holds none. */
 export function shapeHtml(run: Element, pass: string, ctx: ShapeCtx): string | undefined {
   const drawing = run.getElementsByTagName("w:drawing")[0];
   const wrapAttrs = (lay: ReturnType<typeof readLayout>): string => {
     if (!lay) return "";
     let a = ` data-shape-wrap="${lay.wrap}" data-shape-align="${lay.align}"`;
-    if (lay.wrap === "behind" || lay.wrap === "front") a += ` style="left:${lay.x}px;top:${lay.y}px"`;
+    const anchor = run.getElementsByTagName("wp:anchor")[0];
+    const z = Number(anchor?.getAttribute("relativeHeight"));
+    if (z) a += ` data-shape-z="${z}"`;
+    if (lay.wrap === "behind" || lay.wrap === "front") a += floatAttrs(anchor, lay.x, lay.y);
     return a;
   };
   if (drawing) {

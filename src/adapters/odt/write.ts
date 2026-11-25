@@ -1,7 +1,8 @@
 // odt WRITE: rebuild an .odt archive from edited HTML, preserving every untouched part.
 // Pure HTML -> XML (body, styles, header/footer, comments, tracked changes, page margins);
 // the read half lives in ./read.
-import { applyGeometry, editOf, editedGraphicStyle, editedTextStyle, hasLook } from "./shape-edit";
+import { ARROW_MARKER, applyGeometry, editOf, editedGraphicStyle, editedTextStyle, hasLook, type OdtShapeEdit } from "./shape-edit";
+import { isShapeTag } from "./shapes";
 import { strFromU8, strToU8, unzipSync, zipSync, type AsyncZippable } from "fflate";
 import { zipAsync } from "../../core/zip";
 import { firstFontFamily, fontSizeToHalfPt, toHex6, imageLayoutFromEl, blockBorders, parseCssBorder } from "../../core/util";
@@ -283,13 +284,29 @@ function editedShapeNode(el: HTMLElement, stash: string, ctx: OdfCtx): Element |
   if (!node) return null;
   const e = editOf(el);
   applyGeometry(node, e);
-  if (hasLook(e) && node.tagName !== "draw:g") {
-    const taken = (n: string) => Array.from(ctx.auto.children).some((c) => c.getAttribute("style:name") === n);
-    const name = editedGraphicStyle(ctx.auto, node.getAttribute("draw:style-name") ?? "", e, taken);
-    node.setAttributeNS(NS.draw, "draw:style-name", name);
-    const text = editedTextStyle(ctx.auto, node.getAttribute("draw:text-style-name") ?? "", e, taken);
-    if (text) node.setAttributeNS(NS.draw, "draw:text-style-name", text);
-  }
+  const taken = (n: string) => Array.from(ctx.auto.children).some((c) => c.getAttribute("style:name") === n);
+  const made = new Map<string, string | undefined>(); // members sharing a style share its edited copy
+  const restyle = (n: Element, edit: OdtShapeEdit) => {
+    if (!hasLook(edit)) return;
+    for (const [attr, make] of [["draw:style-name", editedGraphicStyle], ["draw:text-style-name", editedTextStyle]] as const) {
+      const base = n.getAttribute(attr) ?? "";
+      if (attr === "draw:text-style-name" && !base) continue;
+      const key = `${attr}|${base}`;
+      if (!made.has(key)) made.set(key, make(ctx.auto, base, edit, taken));
+      const name = made.get(key);
+      if (name) n.setAttributeNS(NS.draw, attr, name);
+    }
+  };
+  if (node.tagName === "draw:g") {
+    // The group wraps as a whole; its members take the new look.
+    const { fill, line, lineW, ...rest } = e;
+    restyle(node, rest);
+    made.clear();
+    const look: OdtShapeEdit = {};
+    if ("fill" in e) look.fill = fill;
+    if ("line" in e || "lineW" in e) { look.line = line; look.lineW = lineW; }
+    for (const m of Array.from(node.getElementsByTagName("*"))) if (m.namespaceURI === NS.draw && m.tagName !== "draw:g" && isShapeTag(m.tagName)) restyle(m, look);
+  } else restyle(node, e);
   return node;
 }
 
@@ -1389,6 +1406,7 @@ function buildOdtFiles(html: string, original: Uint8Array, opts?: OdtOpts): Reco
   if (!body.firstChild) body.appendChild(doc.createElementNS(NS.text, "text:p"));
   const tc = buildTrackedChanges(ctx); // tracked-changes region goes first in office:text
   if (tc) body.insertBefore(tc, body.firstChild);
+  ensureArrowMarker(files, ctx.auto); // new lines' arrowheads -> styles.xml
   addManifestEntries(files, ctx.pics); // register any images embedded above
   addObjectManifestEntries(files, ctx.objs); // register any formula objects embedded above
   if (opts?.parts) applyHeaderFooter(files, opts.parts); // header/footer -> styles.xml
@@ -1406,6 +1424,26 @@ function buildOdtFiles(html: string, original: Uint8Array, opts?: OdtOpts): Reco
     repacked[name] = name === "content.xml" ? strToU8(out) : data;
   }
   return repacked;
+}
+
+/** Lines drawn in the editor end with LibreOffice's "Arrow" marker: define it in styles.xml
+ *  when a style uses it and the document has none. */
+function ensureArrowMarker(files: Record<string, Uint8Array>, auto: Element): void {
+  const used = Array.from(auto.getElementsByTagName("style:graphic-properties")).some((p) => p.getAttribute("draw:marker-end") === ARROW_MARKER.name || p.getAttribute("draw:marker-start") === ARROW_MARKER.name);
+  if (!used || !files["styles.xml"]) return;
+  const doc = new DOMParser().parseFromString(strFromU8(files["styles.xml"]), "application/xml");
+  if (Array.from(doc.getElementsByTagName("draw:marker")).some((m) => m.getAttribute("draw:name") === ARROW_MARKER.name)) return;
+  const styles = doc.getElementsByTagName("office:styles")[0];
+  if (!styles) return;
+  for (const [pre, uri] of [["draw", NS.draw], ["svg", NS.svg]] as const) {
+    if (!doc.documentElement.hasAttribute(`xmlns:${pre}`)) doc.documentElement.setAttributeNS("http://www.w3.org/2000/xmlns/", `xmlns:${pre}`, uri);
+  }
+  const m = doc.createElementNS(NS.draw, "draw:marker");
+  m.setAttributeNS(NS.draw, "draw:name", ARROW_MARKER.name);
+  m.setAttributeNS(NS.svg, "svg:viewBox", ARROW_MARKER.vb);
+  m.setAttributeNS(NS.svg, "svg:d", ARROW_MARKER.d);
+  styles.insertBefore(m, styles.firstChild);
+  files["styles.xml"] = strToU8(new XMLSerializer().serializeToString(doc));
 }
 
 export function htmlToOdt(html: string, original: Uint8Array, opts?: OdtOpts): Uint8Array {

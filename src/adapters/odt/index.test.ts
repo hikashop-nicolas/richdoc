@@ -26,6 +26,13 @@ function makeOdt(content = CONTENT): Uint8Array {
   });
 }
 
+/** The same package with an office:styles to define markers in. */
+function makeOdtWithStyles(d: Uint8Array): Uint8Array {
+  const f = unzipSync(d);
+  f["styles.xml"] = strToU8('<office:document-styles xmlns:office="urn:oasis:names:tc:opendocument:xmlns:office:1.0"><office:styles/></office:document-styles>');
+  return zipSync(f);
+}
+
 describe("odt <-> html", () => {
   it("reads the body to HTML, mapping headings and bold", () => {
     const html = odtToHtml(makeOdt());
@@ -1475,6 +1482,32 @@ describe("odt drawing shapes (lines, paths, boxes)", () => {
       const xml = strFromU8(unzipSync(htmlToOdt(html.replace('class="odt-shape"', `class="odt-shape" data-shape-edit="${edit}"`), d))["content.xml"]!);
       expect(xml).toMatch(/svg:x1="2cm" svg:y1="1cm" svg:x2="3cm" svg:y2="2cm"/);
       expect(xml).toContain('draw:style-name="gr1"'); // the look was not touched
+    });
+
+    it("saves a new wrap, alignment and stacking order", () => {
+      const { d, html } = read(rectXml);
+      const edit = (e: object) => JSON.stringify(e).replace(/"/g, "&quot;");
+      const save = (e: object) => strFromU8(unzipSync(htmlToOdt(html.replace('class="odt-shape"', `class="odt-shape" data-shape-edit="${edit(e)}"`), d))["content.xml"]!);
+      const square = save({ wrap: "square", align: "center", z: 5 });
+      expect(square).toMatch(/<draw:rect [^>]*draw:z-index="5"/);
+      expect(square).toMatch(/style:name="rdocgr1"[^>]*><style:graphic-properties [^>]*style:wrap="parallel"[^>]*style:horizontal-pos="center" style:horizontal-rel="paragraph" style:vertical-pos="top"/);
+      const inline = save({ wrap: "inline" });
+      expect(inline).toMatch(/<draw:rect text:anchor-type="as-char"/);
+      expect(inline).not.toMatch(/<draw:rect [^>]*svg:x=/);
+      const behind = save({ wrap: "behind" });
+      expect(behind).toMatch(/style:wrap="run-through"[^>]*style:run-through="background"/);
+    });
+
+    it("saves an inserted line with LibreOffice's arrow marker", () => {
+      const d = makeOdt(content("<text:p>Text</text:p>"));
+      const line = '<draw:path xmlns:draw="urn:oasis:names:tc:opendocument:xmlns:drawing:1.0" xmlns:svg="urn:oasis:names:tc:opendocument:xmlns:svg-compatible:1.0" xmlns:text="urn:oasis:names:tc:opendocument:xmlns:text:1.0" text:anchor-type="as-char" svg:width="3cm" svg:height="2cm" svg:viewBox="0 0 144 72" svg:d="M0,0 L144,72"/>';
+      const e = JSON.stringify({ fill: null, line: "#4472c4", lineW: 2, ends: "tail", wrap: "front", dx: 10 }).replace(/"/g, "&quot;");
+      const html = `<p>Text<span class="odt-shape" data-shape-wrap="front" data-odt-xml="${line.replace(/"/g, "&quot;")}" data-shape-edit="${e}"></span></p>`;
+      const files = unzipSync(htmlToOdt(html, makeOdtWithStyles(d)));
+      const xml = strFromU8(files["content.xml"]!);
+      expect(xml).toMatch(/<draw:path [^>]*text:anchor-type="paragraph"[^>]*draw:style-name="rdocgr1"/);
+      expect(xml).toMatch(/draw:marker-end="Arrow" draw:marker-end-width="0.3cm"/);
+      expect(strFromU8(files["styles.xml"]!)).toContain('<draw:marker draw:name="Arrow" svg:viewBox="0 0 20 30" svg:d="M10 0l-10 30h20z"/>');
     });
   });
 

@@ -10,7 +10,7 @@ import { readDocDefaults, readThemeFonts, rFontsLatin } from "./fonts";
 import type { ThemeFonts } from "./fonts";
 import { W, R, PKG, REL_HYPERLINK, NS_DECLS, FMT0, HL_BY_HEX, JC_BY_ALIGN } from "./shared";
 import type { Fmt } from "./shared";
-import { EMU_PER_PX, makeContainer } from "./image-layout";
+import { EMU_PER_PX, makeContainer, wrapElement } from "./image-layout";
 import { mathmlToOmml } from "./omml";
 import { blocksFromBody } from "./shapes";
 import { updateWorkbook } from "./chart-data";
@@ -438,11 +438,12 @@ function shapeRun(ctx: DocxCtx, el: HTMLElement): Element | null {
   for (const fb of Array.from(run.getElementsByTagNameNS(NS_MC, "Fallback"))) fb.remove();
   const txbxs = Array.from(run.getElementsByTagNameNS(W, "txbxContent"));
   bodies.forEach((b, i) => { if (txbxs[i]) fillTxbx(ctx, txbxs[i]!, b); });
-  if (/pos/.test(edit)) {
+  if (/wrap/.test(edit)) relayoutShape(run, el);
+  else if (/pos/.test(edit)) {
     // A dragged floating shape: its offsets become wp:posOffset from the same reference (page,
     // column, paragraph ...); an aligned axis turns into an offset.
     const anchor = run.getElementsByTagNameNS(NS_WP, "anchor")[0];
-    for (const [tag, px] of [["positionH", parseFloat(el.style.left)], ["positionV", parseFloat(el.style.top)]] as const) {
+    for (const [tag, px] of [["positionH", shapeOffset(el, "x")], ["positionV", shapeOffset(el, "y")]] as const) {
       const pos = anchor?.getElementsByTagNameNS(NS_WP, tag)[0];
       if (!pos || !Number.isFinite(px)) continue;
       for (const c of Array.from(pos.children)) if (c.localName === "align" || c.localName === "posOffset") c.remove();
@@ -450,6 +451,11 @@ function shapeRun(ctx: DocxCtx, el: HTMLElement): Element | null {
       off.textContent = String(Math.round(px * PX_EMU));
       pos.appendChild(off);
     }
+  }
+  if (/z/.test(edit)) {
+    const z = Number(el.getAttribute("data-shape-z"));
+    const anchor = run.getElementsByTagNameNS(NS_WP, "anchor")[0];
+    if (anchor && z > 0) anchor.setAttribute("relativeHeight", String(Math.round(z)));
   }
   if (/look/.test(edit)) {
     const look = shapeLookOf(el.querySelector(":scope > .docx-shape-box"));
@@ -461,9 +467,83 @@ function shapeRun(ctx: DocxCtx, el: HTMLElement): Element | null {
       const aExt = spPr?.getElementsByTagNameNS(NS_A, "xfrm")[0]?.getElementsByTagNameNS(NS_A, "ext")[0];
       if (aExt && look.w && look.h) { aExt.setAttribute("cx", String(look.w)); aExt.setAttribute("cy", String(look.h)); }
       if (spPr) setShapePaint(spPr, look);
+    } else if (sps.length > 1) {
+      // A group: each member box carries its own look, in the members' order.
+      const outer = el.querySelector<HTMLElement>(":scope > .docx-shape-box");
+      const boxes = outer ? Array.from(outer.querySelectorAll<HTMLElement>(".docx-shape-box")).filter((m) => !m.querySelector(":scope > .docx-shape-box, :scope > img")) : [];
+      if (boxes.length === sps.length) {
+        Array.from(sps).forEach((sp, i) => {
+          const spPr = Array.from(sp.children).find((c) => c.localName === "spPr");
+          if (spPr) setShapePaint(spPr, { ...shapeLookOf(boxes[i]!), w: undefined, h: undefined });
+        });
+      }
     }
   }
   return run;
+}
+
+/** A floating shape's offset along an axis (px from its reference), as the editor keeps it. */
+function shapeOffset(el: HTMLElement, axis: "x" | "y"): number {
+  const v = parseFloat(el.getAttribute(`data-shape-${axis}`) ?? "");
+  return Number.isFinite(v) ? v : parseFloat(axis === "x" ? el.style.left : el.style.top);
+}
+
+/** Put a shape's wp:inline / wp:anchor in line with the text, or floating as the editor has it:
+ *  wrapped beside the text (aligned across, at its paragraph's top), or behind / in front of
+ *  the text at its offsets. The drawing itself, its id and extensions are kept. */
+function relayoutShape(run: Element, el: HTMLElement): void {
+  const old = run.getElementsByTagNameNS(NS_WP, "anchor")[0] ?? run.getElementsByTagNameNS(NS_WP, "inline")[0];
+  if (!old) return;
+  const doc = old.ownerDocument;
+  const kid = (n: string) => Array.from(old.children).find((c) => c.namespaceURI === NS_WP && c.localName === n);
+  const extent = kid("extent"), docPr = kid("docPr"), graphic = Array.from(old.children).find((c) => c.localName === "graphic");
+  if (!extent || !docPr || !graphic) return;
+  const effect = kid("effectExtent"), frame = kid("cNvGraphicFramePr");
+  const extra = Array.from(old.children).filter((c) => c.namespaceURI !== NS_WP && c.localName !== "graphic"); // wp14:sizeRelH ...
+  const wrap = (el.getAttribute("data-shape-wrap") ?? "inline") as ImageLayout["wrap"] | "inline";
+  const wp = (n: string) => doc.createElementNS(NS_WP, `wp:${n}`);
+  let out: Element;
+  if (wrap === "inline") {
+    out = wp("inline");
+    for (const a of ["distT", "distB", "distL", "distR"]) out.setAttribute(a, "0");
+    out.append(extent, ...(effect ? [effect] : []), docPr, ...(frame ? [frame] : []), graphic);
+  } else {
+    out = wp("anchor");
+    const was = old.localName === "anchor" ? old : null;
+    const floats = wrap === "behind" || wrap === "front";
+    const attrs: Record<string, string> = {
+      distT: was?.getAttribute("distT") ?? "0", distB: was?.getAttribute("distB") ?? "0",
+      distL: was?.getAttribute("distL") ?? "114300", distR: was?.getAttribute("distR") ?? "114300",
+      simplePos: "0", relativeHeight: String(Math.round(Number(el.getAttribute("data-shape-z")) || Number(was?.getAttribute("relativeHeight")) || 251659264)),
+      behindDoc: wrap === "behind" ? "1" : "0", locked: "0", layoutInCell: "1", allowOverlap: "1",
+    };
+    for (const [k, v] of Object.entries(attrs)) out.setAttribute(k, v);
+    const simple = wp("simplePos");
+    simple.setAttribute("x", "0");
+    simple.setAttribute("y", "0");
+    const position = (tag: "positionH" | "positionV", from: string, align: string | null, px: number) => {
+      const p = wp(tag);
+      p.setAttribute("relativeFrom", from);
+      const c = wp(align ? "align" : "posOffset");
+      c.textContent = align ?? String(Math.round((Number.isFinite(px) ? px : 0) * PX_EMU));
+      p.appendChild(c);
+      return p;
+    };
+    let posH: Element, posV: Element;
+    if (floats) {
+      const alignH = el.getAttribute("data-shape-alignh");
+      posH = position("positionH", el.getAttribute("data-shape-relh") === "page" ? "page" : "column", el.hasAttribute("data-shape-x") ? null : alignH, shapeOffset(el, "x"));
+      const relv = el.getAttribute("data-shape-relv");
+      posV = position("positionV", relv === "page" ? "page" : relv === "margin" ? "margin" : "paragraph", null, shapeOffset(el, "y"));
+    } else {
+      posH = position("positionH", "column", el.getAttribute("data-shape-align") ?? "left", 0);
+      posV = position("positionV", "paragraph", null, 0);
+    }
+    const eff = effect ?? wp("effectExtent");
+    if (!effect) for (const a of ["l", "t", "r", "b"]) eff.setAttribute(a, "0");
+    out.append(simple, posH, posV, extent, eff, wrapElement(doc, wrap), docPr, ...(frame ? [frame] : []), graphic, ...extra);
+  }
+  old.replaceWith(out);
 }
 
 const REL_CHART = "http://schemas.openxmlformats.org/officeDocument/2006/relationships/chart";
@@ -555,6 +635,7 @@ function newShapeRun(ctx: DocxCtx, el: HTMLElement, body: Element | undefined): 
   }
   const txbx = run.getElementsByTagNameNS(W, "txbxContent")[0];
   if (txbx && body) fillTxbx(ctx, txbx, body);
+  if (el.hasAttribute("data-shape-wrap")) relayoutShape(run, el);
   return run;
 }
 

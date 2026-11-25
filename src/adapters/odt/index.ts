@@ -90,7 +90,7 @@ export function createOdtAdapter(bytes: Uint8Array, preunzipped?: Record<string,
     },
     shapes: odtShapeHooks(() => (unzipped ??= preunzipped ?? unzipSync(original))),
     capabilities: {
-      shapes: "edit",
+      shapes: true,
       floatsFromParagraph: true,
       comments: true,
       commentReplies: false,

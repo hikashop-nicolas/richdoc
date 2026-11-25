@@ -47,6 +47,7 @@ export interface ToolbarDeps {
   insertNote: (kind: "footnote" | "endnote", text: string) => void; // insert a footnote/endnote at the caret
   insertShape?: (kind: string) => void; // insert a text box / shape (a basic kind or a gallery id)
   shapeGallery?: () => { group: string; items: { id: string; label: string; icon: string }[] }[];
+  shapeTextBox?: boolean; // whether Insert > Shape offers a text box
   insertChart?: () => void; // insert a chart and open its dialog
 }
 
@@ -54,7 +55,7 @@ export function setupToolbar(deps: ToolbarDeps) {
   const {
     toolbar, wrap, doc, regions, caps, options, parts, adapter, getActiveEl, mark, undo, redo, positionCards,
     addThreadCard, setActiveComment, allocId, freshParaId, insertImage, styleBar,
-    newStyles, newStyleCss, vertical, insertSectionBreak, insertNote, insertShape, shapeGallery, insertChart,
+    newStyles, newStyleCss, vertical, insertSectionBreak, insertNote, insertShape, shapeGallery, shapeTextBox = true, insertChart,
   } = deps;
 
   // An element counts as an editing host when it is inside the body/header/footer regions, or
@@ -846,7 +847,7 @@ export function setupToolbar(deps: ToolbarDeps) {
     restoreSel();
     insertShape?.(kind);
   };
-  const basics = shapeGallery ? ([["textbox", t("shapeTextBox")]] as const) : ([["textbox", t("shapeTextBox")], ["rect", t("shapeRect")], ["roundRect", t("shapeRoundRect")], ["ellipse", t("shapeEllipse")]] as const);
+  const basics = shapeGallery ? (shapeTextBox ? ([["textbox", t("shapeTextBox")]] as const) : []) : ([["textbox", t("shapeTextBox")], ["rect", t("shapeRect")], ["roundRect", t("shapeRoundRect")], ["ellipse", t("shapeEllipse")]] as const);
   for (const [kind, label] of basics) {
     const b = document.createElement("button");
     b.type = "button";

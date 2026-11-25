@@ -315,6 +315,26 @@ describe("docx <-> html", () => {
     expect(xml).toMatch(/<wp:positionV[^>]*><wp:posOffset>476250<\/wp:posOffset>/);
   });
 
+  it("keeps a floating image's stacking order, and saves a new one", () => {
+    const posH = '<wp:positionH relativeFrom="column"><wp:posOffset>0</wp:posOffset></wp:positionH>';
+    const docx = imgDocx(anchorImg("<wp:wrapNone/>", posH, "1").replace('behindDoc="1"', 'behindDoc="1" relativeHeight="251661312"'));
+    const html = docxToHtml(docx);
+    expect(html).toContain('data-rdoc-z="251661312"');
+    expect(strFromU8(unzipSync(htmlToDocx(html, docx))["word/document.xml"]!)).toContain('relativeHeight="251661312"');
+    const xml = strFromU8(unzipSync(htmlToDocx(html.replace('data-rdoc-z="251661312"', 'data-rdoc-z="7"'), docx))["word/document.xml"]!);
+    expect(xml).toContain('relativeHeight="7"');
+  });
+
+  it("keeps what a floating image is placed from (the page, its margins, its paragraph)", () => {
+    const posH = '<wp:positionH relativeFrom="page"><wp:posOffset>914400</wp:posOffset></wp:positionH>';
+    const docx = imgDocx(anchorImg("<wp:wrapNone/>", posH));
+    const html = docxToHtml(docx);
+    expect(html).toContain('data-rdoc-relh="page" data-rdoc-relv="para"');
+    const xml = strFromU8(unzipSync(htmlToDocx(html, docx))["word/document.xml"]!);
+    expect(xml).toContain('<wp:positionH relativeFrom="page"><wp:posOffset>914400</wp:posOffset></wp:positionH>');
+    expect(xml).toContain('<wp:positionV relativeFrom="paragraph"><wp:posOffset>476250</wp:posOffset></wp:positionV>');
+  });
+
   it("keeps the V offset of a square image aligned in H", () => {
     // H = align right, V = posOffset 476250 (50px): the alignment AND the vertical offset both survive.
     const docx = imgDocx(anchorImg('<wp:wrapSquare wrapText="bothSides"/>', '<wp:positionH relativeFrom="column"><wp:align>right</wp:align></wp:positionH>'));

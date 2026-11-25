@@ -3,7 +3,7 @@
 // calls readOdtLayout to set the data attrs; the writer calls applyFrameLayout to anchor a frame
 // and reference the matching graphic style. The shared ImageLayout type lives in core.
 import { NS, equivalentStyleName } from "./shared";
-import type { ImageLayout, ImageWrap } from "../../core/types";
+import type { FloatRef, ImageLayout, ImageWrap } from "../../core/types";
 
 const pxToCm = (px: number): string => `${Math.round((px / (96 / 2.54)) * 1000) / 1000}cm`;
 
@@ -13,6 +13,8 @@ export interface GraphicStyleInfo {
   runThrough?: string; // style:run-through (background = behind, foreground = in front)
   hpos?: string; // style:horizontal-pos
   vpos?: string; // style:vertical-pos
+  hrel?: string; // style:horizontal-rel
+  vrel?: string; // style:vertical-rel
   dist?: { t: number; r: number; b: number; l: number }; // fo:margin-* (wrap padding, px)
 }
 
@@ -30,6 +32,8 @@ export function collectGraphicStyles(doc: Document, lenToPx: (v: string | null) 
       runThrough: gp?.getAttribute("style:run-through") ?? undefined,
       hpos: gp?.getAttribute("style:horizontal-pos") ?? undefined,
       vpos: gp?.getAttribute("style:vertical-pos") ?? undefined,
+      hrel: gp?.getAttribute("style:horizontal-rel") ?? undefined,
+      vrel: gp?.getAttribute("style:vertical-rel") ?? undefined,
       dist: hasMargin
         ? { t: Math.round(lenToPx(gp!.getAttribute("fo:margin-top")) ?? 0), r: Math.round(lenToPx(gp!.getAttribute("fo:margin-right")) ?? 0), b: Math.round(lenToPx(gp!.getAttribute("fo:margin-bottom")) ?? 0), l: Math.round(lenToPx(gp!.getAttribute("fo:margin-left")) ?? 0) }
         : undefined,
@@ -57,7 +61,11 @@ export function readOdtLayout(frame: Element, gmap: Map<string, GraphicStyleInfo
   const wrapped = wrap !== "behind" && wrap !== "front";
   const absX = wrapped && /^from-/.test(hpos) ? true : undefined;
   const absY = wrapped && /^from-/.test(gs?.vpos ?? "") ? true : undefined;
-  return { wrap, align, x, y, dist: gs?.dist, absX, absY };
+  const z = Number(frame.getAttribute("draw:z-index")) || undefined;
+  // What behind / in front offsets are from: the page, its text area (margins) or the paragraph.
+  const ref = (v: string | undefined): FloatRef => (!v || !/^page/.test(v) ? "para" : v === "page-content" ? "margin" : "page");
+  const rels = wrapped ? {} : { relh: ref(gs?.hrel), relv: ref(gs?.vrel) };
+  return { wrap, align, x, y, dist: gs?.dist, absX, absY, z, ...rels };
 }
 
 /** Create (once) an automatic graphic style for a wrap mode + alignment; return its name. */
@@ -66,7 +74,9 @@ export function graphicStyleFor(doc: Document, auto: Element, created: Map<strin
   const offH = runThrough || !!layout.absX; // H placed by svg:x offset rather than alignment
   const offV = runThrough || !!layout.absY; // V placed by svg:y offset rather than "top"
   const d = layout.dist;
-  const key = `g_${layout.wrap}_${offH ? "ax" : layout.align}_${offV ? "ay" : "top"}_${d ? `${d.t},${d.r},${d.b},${d.l}` : ""}`;
+  const rel = (r: FloatRef | undefined) => (!runThrough || !r || r === "para" ? "paragraph" : r === "margin" ? "page-content" : "page");
+  const hrel = rel(layout.relh), vrel = rel(layout.relv);
+  const key = `g_${layout.wrap}_${offH ? "ax" : layout.align}_${offV ? "ay" : "top"}_${d ? `${d.t},${d.r},${d.b},${d.l}` : ""}_${hrel}_${vrel}`;
   const existing = created.get(key);
   if (existing) return existing;
   const name = `OT_fr${created.size}`;
@@ -79,9 +89,9 @@ export function graphicStyleFor(doc: Document, auto: Element, created: Map<strin
   gp.setAttributeNS(NS.style, "style:wrap", wrapVal);
   if (runThrough) gp.setAttributeNS(NS.style, "style:run-through", layout.wrap === "behind" ? "background" : "foreground");
   gp.setAttributeNS(NS.style, "style:horizontal-pos", offH ? "from-left" : layout.align);
-  gp.setAttributeNS(NS.style, "style:horizontal-rel", "paragraph");
+  gp.setAttributeNS(NS.style, "style:horizontal-rel", hrel);
   gp.setAttributeNS(NS.style, "style:vertical-pos", offV ? "from-top" : "top");
-  gp.setAttributeNS(NS.style, "style:vertical-rel", "paragraph");
+  gp.setAttributeNS(NS.style, "style:vertical-rel", vrel);
   if (d) {
     gp.setAttributeNS(NS.fo, "fo:margin-top", pxToCm(d.t));
     gp.setAttributeNS(NS.fo, "fo:margin-right", pxToCm(d.r));
@@ -119,4 +129,5 @@ export function applyFrameLayout(doc: Document, frame: Element, layout: ImageLay
   const runThrough = layout.wrap === "behind" || layout.wrap === "front";
   if (runThrough || layout.absX) frame.setAttributeNS(NS.svg, "svg:x", pxToCm(layout.x)); else frame.removeAttributeNS(NS.svg, "x");
   if (runThrough || layout.absY) frame.setAttributeNS(NS.svg, "svg:y", pxToCm(layout.y)); else frame.removeAttributeNS(NS.svg, "y");
+  if (layout.z !== undefined) frame.setAttributeNS(NS.draw, "draw:z-index", String(layout.z));
 }

@@ -3,7 +3,7 @@
 // set the data attrs; the writer calls makeContainer to build the right wp:inline or wp:anchor
 // around the picture's a:graphic. The shared ImageLayout type / data-attr reader live in core.
 import { NS_DECLS } from "./shared";
-import type { ImageLayout, ImageWrap } from "../../core/types";
+import type { FloatRef, ImageLayout, ImageWrap } from "../../core/types";
 
 const WP_NS = NS_DECLS["xmlns:wp"]!;
 
@@ -39,7 +39,11 @@ export function readLayout(run: Element): ImageLayout | null {
   const wrapped = wrap !== "behind" && wrap !== "front";
   const absX = wrapped && !!posH?.getElementsByTagName("wp:posOffset")[0] && !posH.getElementsByTagName("wp:align")[0] ? true : undefined;
   const absY = wrapped && !!posV?.getElementsByTagName("wp:posOffset")[0] && !posV.getElementsByTagName("wp:align")[0] ? true : undefined;
-  return { wrap, align, x, y, dist, absX, absY };
+  const z = Number(anchor.getAttribute("relativeHeight")) || undefined;
+  const from = (p: Element | undefined) => p?.getAttribute("relativeFrom") ?? "";
+  const relh: FloatRef = /^(page|leftMargin|outsideMargin|insideMargin)$/.test(from(posH)) ? "page" : "margin";
+  const relv: FloatRef = /^(paragraph|line)$/.test(from(posV)) ? "para" : /^(page|topMargin)$/.test(from(posV)) ? "page" : "margin";
+  return { wrap, align, x, y, dist, absX, absY, z, ...(wrapped ? {} : { relh, relv }) };
 }
 
 const el = (doc: Document, name: string): Element => doc.createElementNS(WP_NS, name);
@@ -61,7 +65,7 @@ function position(doc: Document, tag: "wp:positionH" | "wp:positionV", relativeF
 }
 
 /** Build the wrap element (square / tight / top-and-bottom / none) for a wrap mode. */
-function wrapElement(doc: Document, wrap: ImageWrap): Element {
+export function wrapElement(doc: Document, wrap: ImageWrap): Element {
   if (wrap === "topbottom") return el(doc, "wp:wrapTopAndBottom");
   if (wrap === "behind" || wrap === "front") return el(doc, "wp:wrapNone");
   if (wrap === "tight") {
@@ -106,7 +110,7 @@ export function makeContainer(
   const anchor = el(doc, "wp:anchor");
   const d = layout.dist;
   const dist = { distT: String(d ? pxToEmu(d.t) : 0), distB: String(d ? pxToEmu(d.b) : 0), distL: String(d ? pxToEmu(d.l) : 114300), distR: String(d ? pxToEmu(d.r) : 114300) };
-  for (const [k, v] of Object.entries({ ...dist, simplePos: "0", relativeHeight: "251658240", behindDoc: layout.wrap === "behind" ? "1" : "0", locked: "0", layoutInCell: "1", allowOverlap: "1" })) anchor.setAttribute(k, v);
+  for (const [k, v] of Object.entries({ ...dist, simplePos: "0", relativeHeight: String(layout.z ?? 251658240), behindDoc: layout.wrap === "behind" ? "1" : "0", locked: "0", layoutInCell: "1", allowOverlap: "1" })) anchor.setAttribute(k, v);
   const simple = el(doc, "wp:simplePos");
   simple.setAttribute("x", "0");
   simple.setAttribute("y", "0");
@@ -115,8 +119,9 @@ export function makeContainer(
   const float = layout.wrap !== "behind" && layout.wrap !== "front";
   const offH = !float || layout.absX;
   const offV = !float || layout.absY;
-  const posH = position(doc, "wp:positionH", "column", offH ? null : layout.align, layout.x);
-  const posV = position(doc, "wp:positionV", "paragraph", offV ? null : "top", layout.y);
+  // Offsets keep their references (the page, its margins or the paragraph).
+  const posH = position(doc, "wp:positionH", !float && layout.relh === "page" ? "page" : "column", offH ? null : layout.align, layout.x);
+  const posV = position(doc, "wp:positionV", !float && layout.relv === "page" ? "page" : !float && layout.relv === "margin" ? "margin" : "paragraph", offV ? null : "top", layout.y);
   anchor.append(simple, posH, posV, extent, wrapElement(doc, layout.wrap), docPr, graphic);
   return anchor;
 }

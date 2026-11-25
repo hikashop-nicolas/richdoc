@@ -48,4 +48,28 @@ describe("odt shape hooks", () => {
     model.set(shape, { fill: "#00ff00" });
     expect(parseFloat(model.posEl(shape)!.style.left)).toBeCloseTo(left + 20, 1);
   });
+
+  it("changes how it sits in the text", () => {
+    const { shape, model } = mount();
+    expect(model.wraps(shape)).toContain("inline");
+    model.setWrap(shape, "square", "right");
+    expect(shape.getAttribute("data-shape-wrap")).toBe("square");
+    expect(shape.getAttribute("data-shape-align")).toBe("right");
+    model.setWrap(shape, "inline", "left");
+    expect(shape.getAttribute("data-shape-wrap")).toBe("inline");
+    model.setWrap(shape, "behind", "left");
+    expect(shape.getAttribute("data-shape-wrap")).toBe("behind");
+    expect(JSON.parse(shape.getAttribute("data-shape-edit")!)).toMatchObject({ wrap: "behind" });
+  });
+
+  it("inserts a gallery shape and a line with its arrowhead", () => {
+    const { hooks } = mount();
+    const star = hooks.create!("star5")!;
+    expect(star.getAttribute("data-odt-xml")).toMatch(/^<draw:custom-shape [^>]*text:anchor-type="as-char"[^>]*><draw:enhanced-geometry svg:viewBox="0 0 14400 9600" draw:type="non-primitive" draw:enhanced-path="M /);
+    expect(star.querySelector("svg path")?.getAttribute("fill")).toBe("#4472c4");
+    const arrow = hooks.create!("arrowLine")!;
+    expect(arrow.getAttribute("data-odt-xml")).toMatch(/^<draw:path /);
+    expect(arrow.querySelectorAll("svg path").length).toBeGreaterThan(2); // the line, its hit area and its head
+    expect(hooks.model!.get(arrow)).toMatchObject({ fill: null, line: "#4472c4", lineW: 2 });
+  });
 });

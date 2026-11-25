@@ -36,6 +36,7 @@ describe("docx shapes and text boxes", () => {
     const style = '<wps:style><a:lnRef idx="2"><a:schemeClr val="accent1"><a:shade val="50000"/></a:schemeClr></a:lnRef><a:fillRef idx="1"><a:schemeClr val="accent1"/></a:fillRef><a:effectRef idx="0"><a:schemeClr val="accent1"/></a:effectRef><a:fontRef idx="minor"><a:schemeClr val="lt1"/></a:fontRef></wps:style>';
     const { body } = docxToParts(docx(drawing(wsp('<a:xfrm rot="5400000"/><a:prstGeom prst="ellipse"/>', txbx("Hi"), style), true)));
     expect(body).toMatch(/class="docx-shape"[^>]*data-shape-wrap="square" data-shape-align="right"/);
+    expect(body).toMatch(/^<p><span class="docx-shape"[^]*<\/span>Before {2}after<\/p>$/); // a wrapped shape leads its paragraph
     expect(body).toContain("background-color:#4472C4;border:1px solid #223962;border-radius:50%;color:#FFFFFF;transform:rotate(90deg)");
   });
 
@@ -180,11 +181,49 @@ describe("editing shapes and text boxes", () => {
       const anchored = `<w:p><w:r><w:drawing><wp:anchor behindDoc="0"><wp:positionH relativeFrom="page"><wp:align>center</wp:align></wp:positionH><wp:positionV relativeFrom="page"><wp:posOffset>952500</wp:posOffset></wp:positionV><wp:extent cx="1905000" cy="952500"/><wp:wrapNone/><wp:docPr id="1" name="s"/><a:graphic><a:graphicData uri="http://schemas.microsoft.com/office/word/2010/wordprocessingShape">${wsp(`<a:prstGeom prst="star5"><a:avLst/></a:prstGeom>${fill}`)}</a:graphicData></a:graphic></wp:anchor></w:drawing></w:r></w:p>`;
       const d = docx(anchored);
       const body = docxToParts(d).body;
-      expect(body).toMatch(/class="docx-shape"[^>]*data-shape-wrap="front"[^>]*style="left:0px;top:100px"/);
-      const html = body.replace('style="left:0px;top:100px"', 'data-shape-dirty="pos" style="left:50px;top:120px"');
+      // Placed from the page: centred across, 100 px down.
+      expect(body).toMatch(/class="docx-shape"[^>]*data-shape-wrap="front"[^>]*data-shape-relh="page" data-shape-relv="page" data-shape-alignh="center" data-shape-y="100"/);
+      // The editor keeps a drag as offsets from the same references.
+      const html = body.replace('data-shape-alignh="center" data-shape-y="100"', 'data-shape-x="50" data-shape-y="120" data-shape-dirty="pos"');
       const xml = strFromU8(unzipSync(htmlToDocx(html, d))["word/document.xml"]!);
       expect(xml).toContain('<wp:positionH relativeFrom="page"><wp:posOffset>476250</wp:posOffset></wp:positionH>');
       expect(xml).toContain('<wp:positionV relativeFrom="page"><wp:posOffset>1143000</wp:posOffset></wp:positionV>');
+    });
+
+    it("saves a shape taken out of the text flow, wrapped, and put back in it", () => {
+      const d = docx(drawing(wsp('<a:prstGeom prst="rect"/><a:solidFill><a:srgbClr val="FFF2CC"/></a:solidFill>', txbx("Note"))));
+      const body = docxToParts(d).body;
+      const save = (attrs: string) => strFromU8(unzipSync(htmlToDocx(body.replace('<span class="docx-shape"', `<span class="docx-shape" data-shape-dirty="wrap" ${attrs}`), d))["word/document.xml"]!);
+      const front = save('data-shape-wrap="front" data-shape-align="left" data-shape-relh="margin" data-shape-relv="para" data-shape-x="20" data-shape-y="-10" data-shape-z="251660000"');
+      expect(front).toMatch(/<wp:anchor distT="0" distB="0" distL="114300" distR="114300" simplePos="0" relativeHeight="251660000" behindDoc="0"[^>]*><wp:simplePos x="0" y="0"\/><wp:positionH relativeFrom="column"><wp:posOffset>190500<\/wp:posOffset><\/wp:positionH><wp:positionV relativeFrom="paragraph"><wp:posOffset>-95250<\/wp:posOffset><\/wp:positionV><wp:extent cx="1905000" cy="952500"\/><wp:effectExtent l="0" t="0" r="0" b="0"\/><wp:wrapNone\/><wp:docPr id="1" name="s"\/><a:graphic>/);
+      expect(front).toContain(">Note</w:t>"); // the drawing itself is kept
+      const behind = save('data-shape-wrap="behind" data-shape-relh="page" data-shape-relv="page" data-shape-x="0" data-shape-y="0"');
+      expect(behind).toMatch(/behindDoc="1"[^>]*><wp:simplePos x="0" y="0"\/><wp:positionH relativeFrom="page">/);
+      const square = save('data-shape-wrap="square" data-shape-align="center"');
+      expect(square).toMatch(/<wp:positionH relativeFrom="column"><wp:align>center<\/wp:align><\/wp:positionH><wp:positionV relativeFrom="paragraph"><wp:posOffset>0<\/wp:posOffset><\/wp:positionV>[^]*<wp:wrapSquare wrapText="bothSides"\/>/);
+      // And back in line from a floating one.
+      const floating = docx(drawing(wsp('<a:prstGeom prst="rect"/>', txbx("Note")), true));
+      const fb = docxToParts(floating).body.replace(/data-shape-wrap="square" data-shape-align="right"/, 'data-shape-dirty="wrap"');
+      const inline = strFromU8(unzipSync(htmlToDocx(fb, floating))["word/document.xml"]!);
+      expect(inline).toMatch(/<wp:inline distT="0" distB="0" distL="0" distR="0"><wp:extent cx="1905000" cy="952500"\/><wp:docPr id="1" name="s"\/><a:graphic>/);
+      expect(inline).not.toContain("wp:anchor");
+    });
+
+    it("saves a new stacking order", () => {
+      const anchored = `<w:p><w:r><w:drawing><wp:anchor behindDoc="0" relativeHeight="5"><wp:positionH relativeFrom="page"><wp:posOffset>0</wp:posOffset></wp:positionH><wp:positionV relativeFrom="page"><wp:posOffset>0</wp:posOffset></wp:positionV><wp:extent cx="1905000" cy="952500"/><wp:wrapNone/><wp:docPr id="1" name="s"/><a:graphic><a:graphicData uri="http://schemas.microsoft.com/office/word/2010/wordprocessingShape">${wsp('<a:prstGeom prst="rect"/>')}</a:graphicData></a:graphic></wp:anchor></w:drawing></w:r></w:p>`;
+      const d = docx(anchored);
+      const body = docxToParts(d).body;
+      expect(body).toContain('data-shape-z="5"');
+      const xml = strFromU8(unzipSync(htmlToDocx(body.replace('data-shape-z="5"', 'data-shape-z="9" data-shape-dirty="z"'), d))["word/document.xml"]!);
+      expect(xml).toContain('relativeHeight="9"');
+    });
+
+    it("saves an inserted shape floating in front of the text", () => {
+      const d = docx("<w:p><w:r><w:t>Text</w:t></w:r></w:p>");
+      const html = '<p>Text<span class="docx-shape" data-shape-new="rect" data-shape-prst="star5" data-shape-wrap="front" data-shape-align="left" data-shape-relh="margin" data-shape-relv="para" data-shape-x="30" data-shape-y="0" data-shape-z="1"><span class="docx-shape-box" data-geom="" style="width:144px;height:96px;background-color:#4472c4;border:1px solid #2f528f"><span class="docx-shape-body"><span class="docx-tb-p"><br></span></span></span></span></p>';
+      const xml = strFromU8(unzipSync(htmlToDocx(html, d))["word/document.xml"]!);
+      expect(xml).toMatch(/<wp:anchor [^>]*relativeHeight="1" behindDoc="0"[^>]*>[^]*<wp:posOffset>285750<\/wp:posOffset>[^]*<a:prstGeom prst="star5">/);
+      expect(xml).not.toContain("<wp:inline");
     });
 
     it("draws a custom geometry scaled from its path box", () => {

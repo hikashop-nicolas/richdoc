@@ -6,6 +6,13 @@ import { t } from "../i18n";
 import { makeDialogAccessible } from "./dialog-a11y";
 import type { ImageWrap } from "../types";
 import { applyCaption, captionAfter, captionText, topBlock } from "./caption";
+import { behindAt, placeImg, restack, setZ, stack, topZ } from "./stacking";
+
+/** Bring forward / send back: the same pictures as the shape bar's. */
+export const ORDER_ICONS = {
+  front: '<svg width="14" height="14" viewBox="0 0 16 16" aria-hidden="true"><rect x="1.5" y="1.5" width="8" height="8" rx="1" fill="currentColor" opacity=".35"/><rect x="6.5" y="6.5" width="8" height="8" rx="1" fill="currentColor"/></svg>',
+  back: '<svg width="14" height="14" viewBox="0 0 16 16" aria-hidden="true"><rect x="6.5" y="6.5" width="8" height="8" rx="1" fill="currentColor" opacity=".35"/><rect x="1.5" y="1.5" width="8" height="8" rx="1" fill="currentColor"/></svg>',
+};
 
 export interface ImageLayoutDeps {
   wrap: HTMLElement;
@@ -16,7 +23,7 @@ export interface ImageLayoutDeps {
   reposition: () => void; // re-place the resize handle after a layout change moves the image
 }
 
-const WRAP_ICONS: Record<"inline" | "square" | "tight" | "topbottom" | "behind" | "front", string> = {
+export const WRAP_ICONS: Record<"inline" | "square" | "tight" | "topbottom" | "behind" | "front", string> = {
   inline:
     '<svg width="14" height="14" viewBox="0 0 16 16" aria-hidden="true"><rect x="1.5" y="5" width="5" height="6" rx="1" fill="currentColor"/><rect x="8" y="5.4" width="6.5" height="1.4" rx=".6" fill="currentColor"/><rect x="8" y="9.2" width="6.5" height="1.4" rx=".6" fill="currentColor"/></svg>',
   square:
@@ -30,7 +37,7 @@ const WRAP_ICONS: Record<"inline" | "square" | "tight" | "topbottom" | "behind" 
   front:
     '<svg width="14" height="14" viewBox="0 0 16 16" aria-hidden="true"><rect x="1.5" y="5.2" width="13" height="1.5" rx=".6" fill="currentColor" opacity=".35"/><rect x="1.5" y="8.6" width="13" height="1.5" rx=".6" fill="currentColor" opacity=".35"/><rect x="3.5" y="3.5" width="9" height="9" rx="1" fill="currentColor"/></svg>',
 };
-const ALIGN_ICONS: Record<"left" | "center" | "right", string> = {
+export const ALIGN_ICONS: Record<"left" | "center" | "right", string> = {
   left: '<svg width="14" height="14" viewBox="0 0 16 16" fill="currentColor" aria-hidden="true"><rect x="2" y="3" width="8" height="1.6" rx=".6"/><rect x="2" y="7" width="12" height="1.6" rx=".6"/><rect x="2" y="11" width="8" height="1.6" rx=".6"/></svg>',
   center: '<svg width="14" height="14" viewBox="0 0 16 16" fill="currentColor" aria-hidden="true"><rect x="4" y="3" width="8" height="1.6" rx=".6"/><rect x="2" y="7" width="12" height="1.6" rx=".6"/><rect x="4" y="11" width="8" height="1.6" rx=".6"/></svg>',
   right: '<svg width="14" height="14" viewBox="0 0 16 16" fill="currentColor" aria-hidden="true"><rect x="6" y="3" width="8" height="1.6" rx=".6"/><rect x="2" y="7" width="12" height="1.6" rx=".6"/><rect x="6" y="11" width="8" height="1.6" rx=".6"/></svg>',
@@ -62,27 +69,40 @@ export function setupImageLayout(deps: ImageLayoutDeps) {
   const setWrap = (mode: "inline" | ImageWrap): void => {
     if (!img) return;
     if (mode === "inline") {
-      for (const a of ["data-rdoc-wrap", "data-rdoc-align", "data-rdoc-x", "data-rdoc-y", "data-rdoc-wrapdist"]) img.removeAttribute(a);
+      for (const a of ["data-rdoc-wrap", "data-rdoc-align", "data-rdoc-x", "data-rdoc-y", "data-rdoc-wrapdist", "data-rdoc-relh", "data-rdoc-relv"]) img.removeAttribute(a);
       img.style.cssText = ""; // drop the left/top/margin the floating layout set
     } else {
       if (mode === "behind" || mode === "front") {
-        if (!img.getAttribute("data-rdoc-wrap")) {
-          const x = img.offsetLeft;
-          const y = img.offsetTop;
-          img.setAttribute("data-rdoc-x", String(x));
-          img.setAttribute("data-rdoc-y", String(y));
-          img.style.left = `${x}px`;
-          img.style.top = `${y}px`;
+        if (!/^(behind|front)$/.test(img.getAttribute("data-rdoc-wrap") ?? "")) {
+          // Placed from its column and paragraph, as Word places a picture it floats, where it was.
+          const before = img.getBoundingClientRect();
+          img.setAttribute("data-rdoc-relh", "margin");
+          img.setAttribute("data-rdoc-relv", "para");
+          img.setAttribute("data-rdoc-x", "0");
+          img.setAttribute("data-rdoc-y", "0");
+          img.setAttribute("data-rdoc-wrap", mode);
+          placeImg(img, getZoom());
+          const after = img.getBoundingClientRect(), z = getZoom() || 1;
+          img.setAttribute("data-rdoc-x", String(Math.round((before.left - after.left) / z)));
+          img.setAttribute("data-rdoc-y", String(Math.round((before.top - after.top) / z)));
+          img.removeAttribute("data-rdoc-wrap"); // still "not floating" for the order below
         }
         for (const at of ["data-rdoc-absx", "data-rdoc-absy"]) img.removeAttribute(at); // behind/front carry their own x/y
       } else {
         // square / tight / top-and-bottom: the editor positions these by alignment, so drop any
         // imported absolute offset (it would otherwise re-emit a stale position the user can't see).
-        for (const at of ["data-rdoc-absx", "data-rdoc-absy", "data-rdoc-x", "data-rdoc-y"]) img.removeAttribute(at);
+        for (const at of ["data-rdoc-absx", "data-rdoc-absy", "data-rdoc-x", "data-rdoc-y", "data-rdoc-relh", "data-rdoc-relv"]) img.removeAttribute(at);
+        img.style.left = img.style.top = "";
       }
+      const floated = img.getAttribute("data-rdoc-wrap") === "behind" || img.getAttribute("data-rdoc-wrap") === "front";
       img.setAttribute("data-rdoc-wrap", mode);
       if (!img.getAttribute("data-rdoc-align")) img.setAttribute("data-rdoc-align", "left");
+      if (mode === "behind" || mode === "front") {
+        if (!floated) setZ(img, topZ([doc])); // a newly floating picture goes on top
+        placeImg(img, getZoom());
+      } else img.style.zIndex = "";
     }
+    stack([doc]);
     mark();
     reposition();
     sync();
@@ -174,6 +194,12 @@ export function setupImageLayout(deps: ImageLayoutDeps) {
   };
   const sep2 = document.createElement("span");
   sep2.className = "docxedit-imgbar-sep";
+  // Stacking order among the floating pictures and shapes.
+  const sepZ = document.createElement("span");
+  sepZ.className = "docxedit-imgbar-sep";
+  const order = (dir: 1 | -1) => { if (img) { restack(img, dir, [doc]); mark(); } };
+  const frontBtn = mkBtn(ORDER_ICONS.front, t("shapeBringFront"), () => order(1));
+  const backBtn = mkBtn(ORDER_ICONS.back, t("shapeSendBack"), () => order(-1));
   const altBtn = document.createElement("button");
   altBtn.type = "button";
   altBtn.className = "docxedit-imgbar-btn docxedit-imgbar-alt";
@@ -184,7 +210,7 @@ export function setupImageLayout(deps: ImageLayoutDeps) {
     e.stopPropagation();
     editAlt();
   });
-  bar.append(wrapBtns.inline!, wrapBtns.square!, wrapBtns.tight!, wrapBtns.topbottom!, wrapBtns.behind!, wrapBtns.front!, sep, alignBtns.left!, alignBtns.center!, alignBtns.right!, sep2, altBtn);
+  bar.append(wrapBtns.inline!, wrapBtns.square!, wrapBtns.tight!, wrapBtns.topbottom!, wrapBtns.behind!, wrapBtns.front!, sep, alignBtns.left!, alignBtns.center!, alignBtns.right!, sepZ, frontBtn, backBtn, sep2, altBtn);
   wrap.appendChild(bar);
 
   // Reflect the image's current wrap/align on the buttons; hide alignment for behind/front.
@@ -192,6 +218,7 @@ export function setupImageLayout(deps: ImageLayoutDeps) {
     const w = img?.getAttribute("data-rdoc-wrap") ?? "inline";
     for (const [k, b] of Object.entries(wrapBtns)) b.classList.toggle("is-on", k === w);
     const aligned = w === "square" || w === "topbottom" || w === "tight";
+    sepZ.hidden = frontBtn.hidden = backBtn.hidden = !(w === "behind" || w === "front");
     sep.hidden = !aligned;
     for (const b of Object.values(alignBtns)) b.hidden = !aligned;
     const a = img?.getAttribute("data-rdoc-align") ?? "left";
@@ -218,7 +245,8 @@ export function setupImageLayout(deps: ImageLayoutDeps) {
   // screen delta by the zoom). Other wrap modes flow with the text and are not draggable.
   let drag: { startX: number; startY: number; baseX: number; baseY: number } | null = null;
   const onDown = (e: PointerEvent): void => {
-    if (!img || img !== e.target) return;
+    // A selected picture behind the text is also picked up from the gaps between the letters.
+    if (!img || (img !== e.target && behindAt(e.clientX, e.clientY, [doc]) !== img)) return;
     const mode = img.getAttribute("data-rdoc-wrap");
     if (mode !== "behind" && mode !== "front") return;
     e.preventDefault();
@@ -232,8 +260,7 @@ export function setupImageLayout(deps: ImageLayoutDeps) {
     const y = Math.round(drag.baseY + (e.clientY - drag.startY) / z);
     img.setAttribute("data-rdoc-x", String(x));
     img.setAttribute("data-rdoc-y", String(y));
-    img.style.left = `${x}px`;
-    img.style.top = `${y}px`;
+    placeImg(img, z);
     place();
   };
   const onUp = (e: PointerEvent): void => {
@@ -247,6 +274,11 @@ export function setupImageLayout(deps: ImageLayoutDeps) {
   doc.addEventListener("pointermove", onMove);
   doc.addEventListener("pointerup", onUp);
   scroll.addEventListener("scroll", place);
+  // Floating pictures are drawn from their references once laid out, and stacked.
+  requestAnimationFrame(() => {
+    for (const el of Array.from(doc.querySelectorAll<HTMLElement>("img[data-rdoc-wrap]"))) placeImg(el, getZoom());
+    stack([doc]);
+  });
 
   const onSelect = (next: HTMLImageElement | null): void => {
     img = next;

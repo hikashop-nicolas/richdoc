@@ -25,6 +25,8 @@ export interface CommentThread extends CommentEntry {
 
 /** How a floating image sits relative to the text. Absent on the element = "inline". */
 export type ImageWrap = "square" | "tight" | "topbottom" | "behind" | "front";
+/** A floating picture's or shape's reference: the page, its margins, or its paragraph. */
+export type FloatRef = "page" | "margin" | "para";
 
 /** A floating image's wrap mode, alignment, absolute px offset (behind/front), and the
  *  distance (px) kept clear of the text on each side. */
@@ -38,6 +40,12 @@ export interface ImageLayout {
   // offset rather than alignment. Each axis is independent (Word commonly aligns H but offsets V).
   // Rendered float-approximate, but the offset axes round-trip instead of snapping to alignment.
   absX?: boolean;
+  /** Its stacking order among floating pictures and shapes (higher is on top). */
+  z?: number;
+  /** What its offsets are from (behind / in front): across, the page or its margins (or its
+   *  paragraph); down, the page, its margins or its paragraph. Unset: margins and paragraph. */
+  relh?: FloatRef;
+  relv?: FloatRef;
   absY?: boolean;
 }
 
@@ -171,7 +179,7 @@ export interface Capabilities {
   commentReactions: boolean;
   trackChanges: boolean;
   images: boolean;
-  /** Inserting / editing shapes and text boxes (docx); "edit" edits existing shapes only (odt). */
+  /** Inserting and editing shapes and text boxes; "edit" edits existing shapes only. */
   shapes?: boolean | "edit";
   /** Inserting new tables (existing tables are always editable when present). */
   tables: boolean;
@@ -282,15 +290,23 @@ export interface ShapeLook { fill: string | null; line: string | null; lineW: nu
 export interface ShapeModel {
   /** What a shape element matches, e.g. ".odt-shape". */
   selector: string;
-  /** Its look; `group` when only its size and place can change. */
-  get(shape: HTMLElement): (ShapeLook & { group?: boolean }) | undefined;
+  /** Its look. A `group`'s look is its members' (editable only with `groupLook`); `fixedSize`
+   *  when its size cannot change. */
+  get(shape: HTMLElement): (ShapeLook & { group?: boolean; groupLook?: boolean; fixedSize?: boolean }) | undefined;
   /** Change its look and redraw it. */
   set(shape: HTMLElement, patch: Partial<ShapeLook>): void;
   /** The element dragging moves (by its left / top). */
   posEl(shape: HTMLElement): HTMLElement | null;
   /** After a drag: record the move. */
   moved(shape: HTMLElement): void;
+  /** How it sits in the text; `inline` back in the text flow. Redraws it. */
+  setWrap(shape: HTMLElement, wrap: ShapeWrap, align: "left" | "center" | "right"): void;
+  /** The wrap modes it can take (lines and groups cannot go in line in odt). */
+  wraps(shape: HTMLElement): ShapeWrap[];
 }
+
+/** How a shape sits in the text. */
+export type ShapeWrap = "inline" | "square" | "tight" | "topbottom" | "behind" | "front";
 
 /** Drawn shapes beyond plain boxes: redrawn after a resize, and offered by Insert > Shape. */
 export interface ShapeHooks {
@@ -298,8 +314,10 @@ export interface ShapeHooks {
   redraw?(shape: HTMLElement): void;
   /** Ready-made shapes for the insert menu, by group; each with a small SVG picture of it. */
   gallery?(): { group: string; items: { id: string; label: string; icon: string }[] }[];
-  /** A new shape element for a gallery id. */
-  create?(id: string): HTMLElement;
+  /** A new shape element for a gallery id (or "textbox" when `textBox`). */
+  create?(id: string): HTMLElement | undefined;
+  /** Whether it can insert text boxes. */
+  textBox?: boolean;
   /** Shapes edited through the adapter rather than their box's CSS. */
   model?: ShapeModel;
 }

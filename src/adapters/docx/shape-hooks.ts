@@ -34,11 +34,8 @@ const GROUPS: [string, string[]][] = [
 const entry = (id: string): Entry => LINES[id] ?? { prst: id };
 /** The preset and line ends a gallery id is saved with. */
 export const galleryPreset = entry;
-/** "flowChartMagneticDisk" -> "Flow chart magnetic disk": the preset's own name, as a tooltip. */
-const label = (id: string): string => {
-  const words = id.replace(/([a-z])([A-Z0-9])/g, "$1 $2").toLowerCase();
-  return words.charAt(0).toUpperCase() + words.slice(1);
-};
+/** A gallery shape's name, as Word names it in the editor's language. */
+const label = (id: string): string => t(`shp_${id}`);
 
 /** A preset's spPr geometry (and line ends), as the outline drawing reads it. */
 function spPrFor(e: Entry): Element {
@@ -105,9 +102,10 @@ export const docxShapeHooks: ShapeHooks = {
     galleryCache ??= GROUPS.map(([group, ids]) => ({ group: t(group), items: ids.map((id) => ({ id, label: label(id), icon: icon(id) })) }));
     return galleryCache;
   },
+  textBox: true,
   create(id: string): HTMLElement {
-    // Plain boxes stay CSS boxes, as when they are read.
-    if (id === "rect" || id === "roundRect" || id === "ellipse") return newShapeEl(id);
+    // Text boxes and plain boxes stay CSS boxes, as when they are read.
+    if (id === "textbox" || id === "rect" || id === "roundRect" || id === "ellipse") return newShapeEl(id);
     const shape = newShapeEl("rect");
     const box = shape.querySelector<HTMLElement>(":scope > .docx-shape-box")!;
     shape.setAttribute("data-shape-prst", id);

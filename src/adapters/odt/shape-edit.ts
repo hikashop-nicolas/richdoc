@@ -6,8 +6,19 @@ const SVG = "urn:oasis:names:tc:opendocument:xmlns:svg-compatible:1.0";
 const DRAW = "urn:oasis:names:tc:opendocument:xmlns:drawing:1.0";
 const STYLE = "urn:oasis:names:tc:opendocument:xmlns:style:1.0";
 
-/** Colours #rrggbb or null for none; lengths in px; dx / dy the move since it was read. */
-export interface OdtShapeEdit { fill?: string | null; line?: string | null; lineW?: number; w?: number; h?: number; dx?: number; dy?: number }
+/** The arrowhead new lines end with: LibreOffice's own "Arrow" marker. */
+export const ARROW_MARKER = { name: "Arrow", vb: "0 0 20 30", d: "M10 0l-10 30h20z" };
+
+const TEXT = "urn:oasis:names:tc:opendocument:xmlns:text:1.0";
+
+/** Colours #rrggbb or null for none; lengths in px; dx / dy the move since it was read; how it
+ *  sits in the text and its stacking order (draw:z-index). */
+export interface OdtShapeEdit {
+  fill?: string | null; line?: string | null; lineW?: number; w?: number; h?: number; dx?: number; dy?: number;
+  wrap?: "inline" | "square" | "tight" | "topbottom" | "behind" | "front"; align?: "left" | "center" | "right"; z?: number;
+  /** A new line's arrowheads (LibreOffice's "Arrow" marker). */
+  ends?: "tail" | "both";
+}
 
 export function editOf(shape: HTMLElement): OdtShapeEdit {
   try {
@@ -62,16 +73,62 @@ function resize(el: Element, w: number | undefined, h: number | undefined): void
   if (h !== undefined) setLen(el, "svg:height", h);
 }
 
-/** Apply the size and place of an edit to a drawing element. */
+/** Apply the size, place, anchor and order of an edit to a drawing element. */
 export function applyGeometry(el: Element, e: OdtShapeEdit): void {
   if (e.w !== undefined || e.h !== undefined) resize(el, e.w, e.h);
-  if (e.dx || e.dy) move(el, e.dx ?? 0, e.dy ?? 0);
+  if (e.wrap === "inline") {
+    // In line: anchored as a character, its place is the text's.
+    el.setAttributeNS(TEXT, "text:anchor-type", "as-char");
+    el.removeAttribute("svg:x");
+    el.removeAttribute("svg:y");
+  } else {
+    if (e.wrap && el.getAttribute("text:anchor-type") === "as-char") el.setAttributeNS(TEXT, "text:anchor-type", "paragraph");
+    if (e.dx || e.dy) move(el, e.dx ?? 0, e.dy ?? 0);
+  }
+  if (e.z !== undefined) el.setAttributeNS(DRAW, "draw:z-index", String(Math.max(0, Math.round(e.z))));
 }
 
-export const hasLook = (e: OdtShapeEdit) => "fill" in e || "line" in e || "lineW" in e;
+/** Whether an edit changes the graphic style: its look or how it wraps. */
+export const hasLook = (e: OdtShapeEdit) => "fill" in e || "line" in e || "lineW" in e || !!e.ends || (!!e.wrap && e.wrap !== "inline");
 
-/** Write an edit's fill and outline onto style:graphic-properties. */
+const WRAP_VALUE = { square: "parallel", tight: "dynamic", topbottom: "none", behind: "run-through", front: "run-through" } as const;
+
+/** Write an edit's wrap onto style:graphic-properties: wrapped beside the text at its alignment,
+ *  or running through it (behind / in front) from its offsets. */
+function applyWrapProps(props: Element, e: OdtShapeEdit): void {
+  if (!e.wrap || e.wrap === "inline") return;
+  props.setAttributeNS(STYLE, "style:wrap", WRAP_VALUE[e.wrap]);
+  const through = e.wrap === "behind" || e.wrap === "front";
+  if (through) props.setAttributeNS(STYLE, "style:run-through", e.wrap === "behind" ? "background" : "foreground");
+  else props.removeAttribute("style:run-through");
+  if (through) {
+    if (!/^from-/.test(props.getAttribute("style:horizontal-pos") ?? "")) {
+      props.setAttributeNS(STYLE, "style:horizontal-pos", "from-left");
+      props.setAttributeNS(STYLE, "style:horizontal-rel", "paragraph");
+    }
+    if (!/^from-/.test(props.getAttribute("style:vertical-pos") ?? "")) {
+      props.setAttributeNS(STYLE, "style:vertical-pos", "from-top");
+      props.setAttributeNS(STYLE, "style:vertical-rel", "paragraph");
+    }
+  } else {
+    props.setAttributeNS(STYLE, "style:horizontal-pos", e.align ?? "left");
+    props.setAttributeNS(STYLE, "style:horizontal-rel", "paragraph");
+    props.setAttributeNS(STYLE, "style:vertical-pos", "top");
+    props.setAttributeNS(STYLE, "style:vertical-rel", "paragraph");
+  }
+}
+
+/** Write an edit's wrap, fill and outline onto style:graphic-properties. */
 export function applyGraphicProps(props: Element, e: OdtShapeEdit): void {
+  applyWrapProps(props, e);
+  if (e.ends) {
+    props.setAttributeNS(DRAW, "draw:marker-end", ARROW_MARKER.name);
+    props.setAttributeNS(DRAW, "draw:marker-end-width", "0.3cm");
+    if (e.ends === "both") {
+      props.setAttributeNS(DRAW, "draw:marker-start", ARROW_MARKER.name);
+      props.setAttributeNS(DRAW, "draw:marker-start-width", "0.3cm");
+    }
+  }
   if ("fill" in e) {
     props.setAttributeNS(DRAW, "draw:fill", e.fill ? "solid" : "none");
     if (e.fill) props.setAttributeNS(DRAW, "draw:fill-color", e.fill);
