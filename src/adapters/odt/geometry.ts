@@ -2,6 +2,7 @@
 // enhanced path, evaluated into plain SVG subpaths in the geometry's view box. This is what
 // draws LibreOffice's ready-made shapes (block arrows, stars, callouts, flowchart symbols ...),
 // whose paths are computed from the shape's size and handle positions.
+import { arcTo } from "../docx/ooxml-arc";
 
 export interface SubPath {
   d: string; // absolute M/L/C/Z commands in view-box units
@@ -20,7 +21,9 @@ type Val = () => number;
 
 /** Evaluate an enhanced geometry for a shape drawn `wPx` x `hPx`. `undefined` when it has no path. */
 export function evaluateGeometry(g: Element, wPx: number, hPx: number): Geometry | undefined {
-  const path = g.getAttribute("draw:enhanced-path") ?? "";
+  // LibreOffice keeps the whole path (with its OOXML arcs, G) in its own attribute, and one
+  // without them in the standard one.
+  const path = g.getAttribute("drawooo:enhanced-path") || g.getAttribute("draw:enhanced-path") || "";
   if (!path.trim()) return undefined;
   const vbRaw = (g.getAttribute("svg:viewBox") ?? "0 0 21600 21600").trim().split(/[\s,]+/).map(Number);
   let vb: Geometry["vb"] = vbRaw.length === 4 && vbRaw.every(Number.isFinite) ? (vbRaw as Geometry["vb"]) : [0, 0, 21600, 21600];
@@ -77,6 +80,15 @@ export function evaluateGeometry(g: Element, wPx: number, hPx: number): Geometry
     return consts[tok.toLowerCase()] ?? 0;
   };
   const paths = walkPath(path, param);
+  // LibreOffice gives some subpaths their own coordinate space (drawooo:sub-view-size: a width
+  // and height each, 0 0 for the shape's own), scaled into the view box.
+  const sub = (g.getAttribute("drawooo:sub-view-size") ?? "").trim().split(/[\s,]+/).filter(Boolean).map(Number);
+  paths.forEach((p, k) => {
+    const sw = sub[2 * k] ?? 0, sh = sub[2 * k + 1] ?? 0;
+    if (!(sw > 0) || !(sh > 0)) return;
+    const kx = vb[2] / sw, ky = vb[3] / sh;
+    p.d = p.d.replace(/(-?[\d.]+(?:e[-+]?\d+)?),(-?[\d.]+(?:e[-+]?\d+)?)/gi, (_m, xs: string, ys: string) => `${r(vb[0] + Number(xs) * kx)},${r(vb[1] + Number(ys) * ky)}`);
+  });
   // LibreOffice shades some ready-made shapes by their type rather than in the path.
   const preset = PRESET_SHADES[g.getAttribute("draw:type") ?? ""];
   if (preset) paths.forEach((p, k) => { if (!p.shade && preset[k]) p.shade = preset[k]!; });
@@ -306,16 +318,14 @@ function walkPath(src: string, param: (t: string) => number): SubPath[] {
           }
         }
         break;
-      case "G": // arcangleto (from OOXML): radii, start angle and swing, from the current point
+      case "G": // arcangleto (OOXML's arcTo): radii, start angle and swing, from the current point
         while (more()) {
           const wr = num(), hr = num();
           let st = num(), sw = num();
           if (Math.abs(st) > 720 || Math.abs(sw) > 720) { st /= 60000; sw /= 60000; } // 60000ths of a degree
-          // OOXML angles turn clockwise with y down: a point is (cx + wr cos a, cy + hr sin a).
-          const a = (st * Math.PI) / 180, s = (sw * Math.PI) / 180;
-          const cx = cur[0] - wr * Math.cos(a), cy = cur[1] - hr * Math.sin(a);
-          d += arcBeziers(cx, cy, wr, -hr, -a, -s); // mirrored into odf's y-up sense
-          cur = [cx + wr * Math.cos(a + s), cy + hr * Math.sin(a + s)];
+          const arc = arcTo(cur, wr, hr, st * 60000, sw * 60000);
+          d += arc.d;
+          cur = arc.to;
         }
         break;
       case "H": shade = -0.4; break;
